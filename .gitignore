@@ -1,0 +1,14 @@
+# Premium files
+operators_pe.py
+utils_pe.py
+assets/puzzles.blend
+
+# Build/dev files
+build.py
+assets/connectors.blend1
+assets/other.blend1
+assets/holder.blend1
+assets/puzzles.blend1
+
+# Python cache
+__pycache__/
