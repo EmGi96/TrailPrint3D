@@ -23,7 +23,7 @@ Automatically fetches and renders geographic data from OpenStreetMap:
 - Farmland, Greenspaces
 - City boundaries
 - Buildings (3D, experimental)
-- Roads (major, primary, and small streets — auto-filtered by map size)
+- Roads (major, primary, and small streets)
 
 ### Post-Processing
 - **Color Mountains** — assigns material zones by elevation threshold
@@ -54,6 +54,8 @@ Automatically fetches and renders geographic data from OpenStreetMap:
 1. Download the latest release zip (or from https://trailprint3d.com).
 2. In Blender, go to **Edit → Preferences → Add-ons → Install**.
 3. Select the downloaded zip and enable **TrailPrint3D**.
+4. If not visible, Press "N" on your Keyboard to open the Sidebar. Navigate to the
+   TrailPrint3D Tab in the Sidebar
 
 
 ## Data Sources
