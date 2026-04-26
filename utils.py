@@ -2294,12 +2294,14 @@ def HexagonInnerText(MapObject):
         bm.free()
 
 
-
-    projection("separate", MapObject, icon0)
-    projection("separate", MapObject, icon1)
-    projection("separate", MapObject, icon2)
-    projection("separate", MapObject, icon3)
-    
+    if icon0 != None:
+        projection("separate", MapObject, icon0)
+    if icon1 != None:
+        projection("separate", MapObject, icon1)
+    if icon2 != None:
+        projection("separate", MapObject, icon2)
+    if icon3 != None:
+        projection("separate", MapObject, icon3)
 
     bpy.ops.object.select_all(action='DESELECT')
 
