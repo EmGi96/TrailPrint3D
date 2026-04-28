@@ -10,5 +10,6 @@ assets/other.blend1
 assets/holder.blend1
 assets/puzzles.blend1
 
-# Python cache
+# Other cache
 __pycache__/
+.claude
