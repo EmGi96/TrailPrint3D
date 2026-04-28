@@ -3927,6 +3927,7 @@ def remeshClearing(obj, voxelSize2, tolerance):
     remesh.use_smooth_shade = True
 
 
+
     applyModifier(obj, remesh)
 
 
@@ -3951,19 +3952,65 @@ def remeshClearing(obj, voxelSize2, tolerance):
         v.select = abs(v.co.z - bottom_z) >= voxelSize2/2+0.001
     bmesh.update_edit_mesh(obj.data)
 
+    #----------------------
+    bpy.ops.object.mode_set(mode='OBJECT')
+
+    # Build a cube that's slightly larger than obj in XY, bottom face at z=0, 50 units tall.
+    # Subtracting it from obj keeps only whatever is above z=50 and cuts a clean plane there.
+    mw  = obj.matrix_world
+    xs  = [(mw @ v.co).x for v in obj.data.vertices]
+    ys  = [(mw @ v.co).y for v in obj.data.vertices]
+    pad = 0.5
+    cx  = (min(xs) + max(xs)) / 2
+    cy  = (min(ys) + max(ys)) / 2
+    sx  = (max(xs) - min(xs)) + pad * 2
+    sy  = (max(ys) - min(ys)) + pad * 2
+
+    bm_c = bmesh.new()
+    bmesh.ops.create_cube(bm_c, size=1.0)
+    _cube_mesh = bpy.data.meshes.new("_BoolCube")
+    bm_c.to_mesh(_cube_mesh)
+    bm_c.free()
+
+    cube_obj = bpy.data.objects.new("_BoolCube", _cube_mesh)
+    bpy.context.collection.objects.link(cube_obj)
+    cube_obj.scale    = (sx, sy, 50.0)
+    cube_obj.location = (cx, cy, 25.0)   # bottom face lands at z=0, top at z=50
+
+    bpy.context.view_layer.objects.active = obj
+    obj.select_set(True)
+    bool_mod = obj.modifiers.new(name="_BoolCube", type='BOOLEAN')
+    bool_mod.operation = 'DIFFERENCE'
+    bool_mod.object    = cube_obj
+    bool_mod.solver    = 'MANIFOLD'
+    applyModifier(obj, bool_mod)
+    bpy.data.objects.remove(cube_obj, do_unlink=True)
+
+    # Keep only the topmost vertices (the flat cap left by the cube's top face)
+    top_z = max(v.co.z for v in obj.data.vertices)
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_mode(type='VERT')
+    bm2 = bmesh.from_edit_mesh(obj.data)
+    bm2.verts.ensure_lookup_table()
+    for v in bm2.verts:
+        v.select = abs(v.co.z - top_z) > 0.001
+    bmesh.update_edit_mesh(obj.data)
     bpy.ops.mesh.delete(type='VERT')
+    #bpy.ops.object.mode_set(mode='OBJECT')
+    #----------------
+    #bpy.ops.mesh.delete(type='VERT')
 
 
-    # Flatten remaining verts to exactly bottom_z
+    # Flatten remaining verts to exactly z 0
     bm = bmesh.from_edit_mesh(obj.data)
     for v in bm.verts:
-        v.co.z = bottom_z
+        v.co.z = 0
     bmesh.update_edit_mesh(obj.data)
 
+
+
     # Extrude upward by 30
-    bpy.ops.mesh.select_mode(type='VERT')
-    bpy.ops.mesh.select_all(action='SELECT')
-    bpy.ops.mesh.fill()
     bpy.ops.mesh.select_mode(type='FACE')
     bpy.ops.mesh.select_all(action='SELECT')
     bpy.ops.mesh.extrude_region_move(
@@ -3971,6 +4018,8 @@ def remeshClearing(obj, voxelSize2, tolerance):
     )
     bpy.ops.object.mode_set(mode='OBJECT')
 
+
+    #raise Exception("NO")
 
     recalculateNormals(obj)
 
@@ -4983,6 +5032,7 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
 
                     created_objects.append(obj)
 
+
                 # If nothing was created, return None
                 if not created_objects:
                     return None
@@ -4996,6 +5046,8 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
                 # Deselect all first
                 bpy.ops.object.select_all(action='DESELECT')
 
+
+    
         for obj in created_objects:
             try:
                 obj.select_set(True)
@@ -5013,6 +5065,7 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
             except Exception as e:
                 print(f"Error applying modifiers on {obj.name}: {e}")
 
+
         # Merge (join) all created objects into a single object
         # Re-select all created_objects, set active to the first one and join
         bpy.ops.object.select_all(action='DESELECT')
@@ -5024,6 +5077,7 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
             bpy.ops.object.join()
         except Exception as e:
             print(f"Join failed: {e}")
+
 
         # The joined object is now the active object
         merged_obj = bpy.context.view_layer.objects.active
@@ -5050,10 +5104,12 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
         set_origin_to_3d_cursor(roads)
         #boolean_operation(roads, obj, "INTERSECT")
 
+
         selectBottomFacesByZ(roads)
         bpy.ops.mesh.select_all(action='INVERT')
         bpy.ops.mesh.delete(type='VERT')
         bpy.ops.object.mode_set(mode='OBJECT')
+
 
         remeshClearing(roads, 0.2, 0)
 
@@ -6178,7 +6234,7 @@ def createOcean(bboxBigger,waterHeight,scaleHor,landpoints, baseplate, tile, bas
         flip_override = bpy.context.scene.tp3d.el_oFlip
         merged_object = cut_coastline(coastcurve, coastobj, land_hints=landpoints, flip_override=flip_override)
 
-        remove_objects(coastcurve)
+        #remove_objects(coastcurve)
 
         mat = bpy.data.materials.get("WATER")
         merged_object.data.materials.clear()
@@ -6364,6 +6420,7 @@ def cut_coastline(curve_obj, target_obj, land_hints=None, flip_override=False):
         extrude_plane(target_obj,-0.1)
 
 
+
         # --- 2b) flip cutter normals so they point away from land (toward ocean) ---
         # extrude_edge_only normals point to the RIGHT of each edge's travel direction.
         # For a CCW-wound curve that means normals point OUTWARD; for CW they point INWARD.
@@ -6413,12 +6470,15 @@ def cut_coastline(curve_obj, target_obj, land_hints=None, flip_override=False):
             should_flip = auto_flip != flip_override
             print(f"cut_coastline: is_ccw={is_ccw}, land_inside={land_is_inside}, auto_flip={auto_flip}, override={flip_override}, final={should_flip}")
 
+
             if should_flip:
                 bm_flip = bmesh.new()
                 bm_flip.from_mesh(cutter_obj.data)
-                bmesh.ops.reverse_faces(bm_flip, faces=bm_flip.faces)
+                bmesh.ops.reverse_faces(bm_flip, faces=list(bm_flip.faces))
                 bm_flip.to_mesh(cutter_obj.data)
                 bm_flip.free()
+                cutter_obj.data.update()
+            
 
         # ensure cutter has correct transform (we added world coords directly so keep identity)
         cutter_obj.matrix_world = Matrix() if hasattr(bpy, 'Matrix') else cutter_obj.matrix_world  # type: ignore
@@ -6460,6 +6520,8 @@ def cut_coastline(curve_obj, target_obj, land_hints=None, flip_override=False):
         bool_mod.object = cutter_obj
         #bool_mod.solver = 'MANIFOLD'
         bool_mod.solver = 'EXACT'
+
+        raise Exception("Yeah")
     
         # try applying modifier
         try:
@@ -6474,7 +6536,7 @@ def cut_coastline(curve_obj, target_obj, land_hints=None, flip_override=False):
             raise RuntimeError("Boolean operation failed: " + str(e))
 
         #REMOVE THE CUTTER OBJECT
-        remove_objects(cutter_obj)
+        #remove_objects(cutter_obj)
 
         # Remove all vertices from target_obj that are not on Z=0
         bpy.context.view_layer.objects.active = target_obj
