@@ -1,0 +1,9 @@
+blank_issues_enabled: false
+
+contact_links:
+  - name: TrailPrint3D Website
+    url: https://www.trailprint3d.com
+    about: Visit the official site for downloads and guides.
+  - name: Video Tutorial
+    url: https://www.youtube.com/watch?v=2NzwC3188HY&t=242s
+    about: Watch the video walkthrough before opening a support issue.
