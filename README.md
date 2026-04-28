@@ -44,7 +44,7 @@ Automatically fetches and renders geographic data from OpenStreetMap:
 
 ## Requirements
 
-- Blender **5.0** or newer
+- Blender **4.5** or newer (Version 5.1 recommended for best stability)
 - Internet connection for elevation and map data APIs
 - (Optional) OpenTopography API key — free at [portal.opentopography.org](https://portal.opentopography.org)
 - (Optional) [3MF Addon by Clonephaze](https://github.com/Clonephaze/3MF-Blender-Add-on---Maintained) for 3MF export
