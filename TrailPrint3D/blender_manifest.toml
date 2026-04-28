@@ -5,7 +5,7 @@ name = "TrailPrint3D"
 tagline = "Create 3D Printable Miniature Maps of your Adventures"
 maintainer = "EmGi"
 type = "add-on"
-blender_version_min = "4.2.0"
+blender_version_min = "4.5.0"
 license = [
   "SPDX:GPL-3.0-or-later",
 ]
