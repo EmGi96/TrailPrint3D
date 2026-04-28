@@ -7687,7 +7687,14 @@ def _rg_validate_inputs(flags):
     Returns a props dict on success, or None if validation fails (console
     is toggled closed before returning None).
     """
-    
+    if bpy.app.version < const.required_blender_version:
+        show_message_box(
+            f"TrailPrint3D requires Blender "
+            f"{const.required_blender_version[0]}.{const.required_blender_version[1]}"
+            f" or higher. (you are using {bpy.app.version_string}).  "
+        )
+        return None
+
     start_time = time.time()
     for i in range(30):
         print(" ")
@@ -8553,6 +8560,18 @@ def runGeneration(type):
         convert_to_blender_coordinates(lat, lon, ele, timestamp)
         for lat, lon, ele, timestamp in coordinates
     ]
+    _g_slopes = []
+    _all_segs = blender_coords_separate if blender_coords_separate else [blender_coords]
+    for _seg in _all_segs:
+        for _i in range(len(_seg) - 1):
+            x1, y1, z1 = _seg[_i]
+            x2, y2, z2 = _seg[_i+1]
+            _h = math.sqrt((x2-x1)**2 + (y2-y1)**2)
+            if _h > 0:
+                _g_slopes.append(abs(z2 - z1) / _h)
+    if _g_slopes:
+        _avg_g = sum(_g_slopes) / len(_g_slopes)
+        print(f"[DEBUG] GPX avg slope:     {_avg_g:.4f}  ({math.degrees(math.atan(_avg_g)):.2f}°)")
     blender_coords = simplify_curve(blender_coords, .12)
     blender_coords = separate_duplicate_xy(blender_coords, 0.05)
     if ("separate_paths" in flags or len(separate_paths) > 1) and "trail_map" not in flags:
@@ -8624,8 +8643,12 @@ def runGeneration(type):
     lowestZ  = 1000
     highestZ = 0
     _total_verts = len(mesh.vertices)
+    _obj_matrix = MapObject.matrix_world
     for i, vert in enumerate(mesh.vertices):
-        vert.co.z = tileVerts[i] / 1000 * props['scaleElevation'] * autoScale
+        _world_co = _obj_matrix @ vert.co
+        _vert_lat, _unused_var = convert_to_geo(_world_co.x, _world_co.y)
+        _merc = 1 / math.cos(math.radians(_vert_lat))
+        vert.co.z = tileVerts[i] / 1000 * props['scaleElevation'] * autoScale * _merc 
         lowestZ  = min(lowestZ,  vert.co.z)
         highestZ = max(highestZ, vert.co.z)
         if i % 5000 == 0:
@@ -8640,6 +8663,16 @@ def runGeneration(type):
     print(f"additionalExtrusion: {additionalExtrusion}")
     print(f"Lowest z: {lowestZ}")
     print(f"Highest z: {highestZ}")
+    _t_slopes = []
+    for edge in mesh.edges:
+        v1 = mesh.vertices[edge.vertices[0]].co
+        v2 = mesh.vertices[edge.vertices[1]].co
+        _h = math.sqrt((v2.x-v1.x)**2 + (v2.y-v1.y)**2)
+        if _h > 0:
+            _t_slopes.append(abs(v2.z - v1.z) / _h)
+    if _t_slopes:
+        _avg_t = sum(_t_slopes) / len(_t_slopes)
+        print(f"[DEBUG] Terrain avg slope: {_avg_t:.4f}  ({math.degrees(math.atan(_avg_t)):.2f}°)")
 
 
     # Snap trail curves onto terrain surface
