@@ -1,0 +1,14 @@
+schema_version = "1.0.0"
+id = "trailprint3d"
+version = "3.0.8"
+name = "TrailPrint3D"
+tagline = "Create 3D Printable Miniature Maps of your Adventures"
+maintainer = "EmGi"
+type = "add-on"
+blender_version_min = "4.2.0"
+license = [
+  "SPDX:GPL-3.0-or-later",
+]
+[permissions]
+network = "To fetch elevation data and map tiles from online services"
+files = "To save generated 3D models files to the user's system"

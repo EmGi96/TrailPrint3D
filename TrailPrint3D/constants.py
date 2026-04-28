@@ -6,7 +6,9 @@
 import bpy
 import os
 
-required_blender_version = (5, 0, 0)
+ADDON_NAME = "TrailPrint3D"
+ADDON_VERSION = (3, 0, 8)
+
 R = 6371.0  # Earth radius in kilometers
 
 WATER_MAXSIZE = 5000
