@@ -7687,13 +7687,6 @@ def _rg_validate_inputs(flags):
     Returns a props dict on success, or None if validation fails (console
     is toggled closed before returning None).
     """
-    if bpy.app.version < const.required_blender_version:
-        show_message_box(
-            f"TrailPrint3D requires Blender "
-            f"{const.required_blender_version[0]}.{const.required_blender_version[1]}"
-            f" or higher. (you are using {bpy.app.version_string}).  "
-        )
-        return None
 
     start_time = time.time()
     for i in range(30):
