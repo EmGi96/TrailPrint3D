@@ -8647,7 +8647,7 @@ def runGeneration(type):
     _obj_matrix = MapObject.matrix_world
     for i, vert in enumerate(mesh.vertices):
         _world_co = _obj_matrix @ vert.co
-        _vert_lat, _ = convert_to_geo(_world_co.x, _world_co.y)
+        _vert_lat, _unused_var = convert_to_geo(_world_co.x, _world_co.y)
         _merc = 1 / math.cos(math.radians(_vert_lat))
         vert.co.z = tileVerts[i] / 1000 * props['scaleElevation'] * autoScale * _merc 
         lowestZ  = min(lowestZ,  vert.co.z)
