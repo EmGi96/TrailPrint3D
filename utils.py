@@ -45,6 +45,12 @@ from . import bl_info
 from . import panels
 from . import constants as const
 
+# Sentinels returned by coloring_main so callers can distinguish outcomes:
+#   _COLORING_EMPTY   – request OK, 0 usable features in this area
+#   _COLORING_PAINTED – request OK, painted onto map then deleted (PAINT mode)
+_COLORING_EMPTY   = object()
+_COLORING_PAINTED = object()
+
 
 
 
@@ -3428,7 +3434,6 @@ def intersect_alltrails_with_existing_box(cutobject):
                 #bpy.data.objects.remove(robj, do_unlink=True)
                 #break
     if done == False:
-        print("No matching trail found. removing cutobject")
         bpy.data.objects.remove(cutobject, do_unlink=True)
         if trail_mesh:
             bpy.data.objects.remove(trail_mesh, do_unlink=True)
@@ -3545,7 +3550,6 @@ def intersect_trail_with_existing_box(cutobject,trail):
     
 
     if done == False:
-        print("No matching trail found. removing cutobject")
         bpy.data.objects.remove(cutobject, do_unlink=True)
         if trail_mesh:
             bpy.data.objects.remove(trail_mesh, do_unlink=True)
@@ -4553,6 +4557,7 @@ def create_buildings(map, default_height=10, scaleHor=1.0):
                 _ov = _progress.ProgressOverlay.get()
                 if _ov.active:
                     _ov.update(message=f"Buildings: tile {_cntr}/{_maxcntr} — fetching…")
+                    _ov.set_fetch_progress('buildings', _cntr / _maxcntr)
                 south = minLat + k * lat_step
                 north = south + lat_step
                 west = minLon + l * lon_step
@@ -4570,7 +4575,7 @@ def create_buildings(map, default_height=10, scaleHor=1.0):
 
                 n_buildings = len([e for e in data['elements'] if e['type'] == 'way'])
                 if _ov.active:
-                    _ov.update(message=f"Buildings: tile {_cntr}/{_maxcntr} — creating {n_buildings} buildings…")
+                    _ov.update(message=f"Buildings: tile {_cntr}/{_maxcntr} — calculating {n_buildings} buildings…")
                 # Cache node id -> (lat, lon) and node id -> (x, y, z_base) to avoid repeated conversions
                 raw_nodes = {n['id']: (n['lat'], n['lon']) for n in data['elements'] if n['type'] == 'node'}
 
@@ -4606,7 +4611,6 @@ def create_buildings(map, default_height=10, scaleHor=1.0):
                 ways_by_id = {e['id']: e for e in data['elements'] if e['type'] == 'way'}
 
                 relation_elements = [e for e in data['elements'] if e['type'] == 'relation']
-                print(f"[BUILDINGS] ways: {len(ways_by_id)}, relations: {len(relation_elements)}, nodes in node_xy: {len(node_xy)}")
 
                 for i,element in enumerate(data['elements']):
                     if element['type'] == 'relation':
@@ -4618,9 +4622,7 @@ def create_buildings(map, default_height=10, scaleHor=1.0):
                                 if outer_way:
                                     break
                         if outer_way is None:
-                            print(f"[BUILDINGS] relation {element['id']}: no outer way found, members={element.get('members', [])[:3]}")
                             continue
-                        print(f"[BUILDINGS] relation {element['id']}: outer_way={outer_way['id']}, nodes={len(outer_way.get('nodes', []))}")
                         # Treat the relation like the outer way but use relation tags if present
                         node_ids = outer_way.get('nodes', [])
                         tags = element.get('tags') or outer_way.get('tags', {})
@@ -4691,6 +4693,9 @@ def create_buildings(map, default_height=10, scaleHor=1.0):
                     vert_count += n * 2
 
                 obj = None
+
+                if _ov.active:
+                    _ov.update(message=f"Buildings: tile {_cntr}/{_maxcntr} — creating {n_buildings} buildings…")
                 
                 if vert_count > 0:
                     # Create mesh and object
@@ -4722,8 +4727,8 @@ def create_buildings(map, default_height=10, scaleHor=1.0):
                     obj.data.materials.append(mat)
 
                 
-
     remove_objects(wall_obj)
+
     return obj
 
 def merge_objects(created_objects, new_name="MergedObject"):
@@ -4862,6 +4867,7 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
                 _ov = _progress.ProgressOverlay.get()
                 if _ov.active:
                     _ov.update(message=f"Roads: tile {_cntr}/{_maxcntr} — fetching…")
+                    _ov.set_fetch_progress('roads', _cntr / _maxcntr)
 
                 south = minLat + k * lat_step
                 north = south + lat_step
@@ -4883,7 +4889,7 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
                 print(f"Road nodes: {len(nodes)}")
                 n_roads = len([e for e in data['elements'] if e['type'] == 'way'])
                 if _ov.active:
-                    _ov.update(message=f"Roads: tile {_cntr}/{_maxcntr} — creating {n_roads} road segments…")
+                    _ov.update(message=f"Roads: tile {_cntr}/{_maxcntr} — calculating {n_roads} road segments…")
 
                 # Cache converted coordinates per node id (as Vector)
                 coord_cache = {}
@@ -4999,6 +5005,9 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
 
                 wm.progress_end()
 
+                if _ov.active:
+                    _ov.update(message=f"Roads: tile {_cntr}/{_maxcntr} — creating {n_roads} road mesh…")
+
                 # Create mesh objects for each group
                 created_objects = []
                 for key in sorted(groups.keys()):
@@ -5047,7 +5056,7 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
                 bpy.ops.object.select_all(action='DESELECT')
 
 
-    
+
         for obj in created_objects:
             try:
                 obj.select_set(True)
@@ -5064,6 +5073,9 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
                 obj.select_set(False)
             except Exception as e:
                 print(f"Error applying modifiers on {obj.name}: {e}")
+
+        if _ov.active:
+            _ov.update(message=f"Roads: Merge road segments into single object")
 
 
         # Merge (join) all created objects into a single object
@@ -5109,7 +5121,9 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
         bpy.ops.mesh.select_all(action='INVERT')
         bpy.ops.mesh.delete(type='VERT')
         bpy.ops.object.mode_set(mode='OBJECT')
-
+        
+        if _ov.active:
+            _ov.update(message=f"Roads: Remeshing roads for clean geometry")
 
         remeshClearing(roads, 0.2, 0)
 
@@ -5198,6 +5212,7 @@ def coloring_main(map,kind = "WATER"):
     waterDeleted = 0
     waterCreated = 0
     total_fetched = 0
+    _api_empty    = False   # set True when OSM responded with 0 usable features
 
     if maxLat - minLat < lat_step:
         lat_step = maxLat - minLat
@@ -5226,6 +5241,7 @@ def coloring_main(map,kind = "WATER"):
                 _ov = _progress.ProgressOverlay.get()
                 if _ov.active:
                     _ov.update(message=f"{kind.capitalize()}: tile {cntr}/{maxcntr} — fetching…")
+                    _ov.set_fetch_progress(kind.lower(), cntr / maxcntr)
                 south = minLat + k * lat_step
                 north = south + lat_step
                 west = minLon + l * lon_step
@@ -5252,7 +5268,7 @@ def coloring_main(map,kind = "WATER"):
                 n_features = len([e for e in data['elements'] if e['type'] == 'way'])
                 if _ov.active:
                     src = "cached" if from_cache else "live"
-                    _ov.update(message=f"{kind.capitalize()}: tile {cntr}/{maxcntr} — building mesh ({n_features} features, {src})…")
+                    _ov.update(message=f"{kind.capitalize()}: tile {cntr}/{maxcntr} — calculating mesh ({n_features} features, {src})…")
                 nodes = build_osm_nodes(data)
                 bodies, negatives = extract_multipolygon_bodies(data['elements'], nodes)
                 total_fetched += n_features + len(bodies) + len(negatives)
@@ -5265,6 +5281,9 @@ def coloring_main(map,kind = "WATER"):
                         for member in el.get('members', []):
                             if member['type'] == 'way':
                                 relation_way_ids.add(member['ref'])
+                
+                if _ov.active:
+                    _ov.update(message=f"{kind.capitalize()}: tile {cntr}/{maxcntr} — creating bodies")
 
                 for i, coords in enumerate(bodies):
                     blender_coords = [convert_to_blender_coordinates(lat, lon, ele, 0) for lat, lon, ele in coords]
@@ -5276,7 +5295,10 @@ def coloring_main(map,kind = "WATER"):
                         waterCreated += 1
                     else:
                         waterDeleted += 1
-                
+
+                if _ov.active:
+                    _ov.update(message=f"{kind.capitalize()}: tile {cntr}/{maxcntr} — creating negative bodies")
+
                 for i, coords in enumerate(negatives):
                     blender_coords = [convert_to_blender_coordinates(lat, lon, ele, 0) for lat, lon, ele in coords]
                     calcArea = calculate_polygon_area_2d(blender_coords)
@@ -5288,6 +5310,8 @@ def coloring_main(map,kind = "WATER"):
                     else:
                         waterDeleted += 1
 
+                if _ov.active:
+                    _ov.update(message=f"{kind.capitalize()}: tile {cntr}/{maxcntr} — creating ways")
 
                 for i, element in enumerate(data['elements']):
                     #print(i)
@@ -5338,8 +5362,10 @@ def coloring_main(map,kind = "WATER"):
     else:
         if total_fetched == 0:
             _progress.WarningsOverlay.add_warning(f"No {kind.capitalize()} elements returned from API.", "warn")
+            _api_empty = True
         elif waterCreated == 0:
             _progress.WarningsOverlay.add_warning(f"All {kind.capitalize()} elements are below the area threshold.", "warn")
+            _api_empty = True
 
 
     #raise Exception("DEUBG")
@@ -5497,6 +5523,9 @@ def coloring_main(map,kind = "WATER"):
     created_negatives_booleaned = []
     merged_object = None
 
+    if _ov.active:
+        _ov.update(message=f"{kind.capitalize()}: process parts, boolean with map, and merge")
+
     if created_objects:
         print(f"Unique objects from element:{ len(created_objects)}")
         bpy.ops.object.select_all(action='DESELECT')
@@ -5523,7 +5552,6 @@ def coloring_main(map,kind = "WATER"):
 
         
         for cntr, tobj in enumerate(list(negative_object), start = 1):
-            print("Extruding negative object")
             area, new_objs = _process_coloring_object(tobj,map,tol, extrudeVal = 200)
             biggestArea = max(biggestArea, area)
             for to in new_objs:
@@ -5607,8 +5635,9 @@ def coloring_main(map,kind = "WATER"):
             merged_object.data.materials.clear()
             merged_object.data.materials.append(mat)
 
+        if _ov.active:
+            _ov.update(message=f"{kind.capitalize()}: applying Element handling option ({elementMode})")
         
-        print(elementMode)
         if "SINGLECOLORMODE" in elementMode and 1 == 0:
             _VALID_SHAPES = {
                 "SQUARE", "HEXAGON", "HEXAGON INNER TEXT", "HEXAGON OUTER TEXT",
@@ -5680,10 +5709,13 @@ def coloring_main(map,kind = "WATER"):
              
     bpy.context.preferences.edit.use_global_undo = True
 
-    if elementMode != "PAINT" and merged_object != None:
+    if elementMode != "PAINT" and merged_object is not None:
         return merged_object
-    else:
-        return None
+    if elementMode == "PAINT" and merged_object is not None:
+        return _COLORING_PAINTED   # objects were painted onto the map then deleted
+    if _api_empty:
+        return _COLORING_EMPTY
+    return None
 
 def color_map_faces_by_terrain(map_obj, terrain_obj, up_threshold=0.05):
     """
@@ -6521,7 +6553,6 @@ def cut_coastline(curve_obj, target_obj, land_hints=None, flip_override=False):
         #bool_mod.solver = 'MANIFOLD'
         bool_mod.solver = 'EXACT'
 
-        raise Exception("Yeah")
     
         # try applying modifier
         try:
@@ -8105,13 +8136,36 @@ def _rg_build_terrain_elements(obj, scaleHor, curveObj=None):
             _ov.update(percent=pct, phase=phase_label, message=msg)
         _elem_idx[0] += 1
 
+    _water_feat_active = (
+        (tp3d.col_wPondsActive or tp3d.col_wSmallRiversActive or tp3d.col_wBigRiversActive)
+        and map_km <= const.WATER_MAXSIZE
+    )
+    _ocean_active = tp3d.el_oActive == 1
+    _water_ocean_combined = _water_feat_active and _ocean_active
+
     terrain = {}
     for key, flag_attr, max_size, phase, msg in COLORING_ELEMENTS:
         terrain[key] = None
         if (flag_attr(tp3d) if callable(flag_attr) else getattr(tp3d, flag_attr) == 1):
             if map_km <= max_size:
                 _advance_elem_progress(phase, msg)
-                terrain[key] = coloring_main(obj, key.upper())  #COLORING MAIN---------------------------------------------------------------------------------------------------
+                _ov.set_fetch_progress(key, 0.0)
+                _result = coloring_main(obj, key.upper())
+                if _result is _COLORING_EMPTY:
+                    terrain[key] = None
+                    _ov.set_fetch_empty(key)
+                elif _result is _COLORING_PAINTED:
+                    terrain[key] = None          # object was deleted after painting
+                    _ov.set_fetch_done(key, success=True)
+                elif _result is None:
+                    terrain[key] = None
+                    _ov.set_fetch_done(key, success=False)
+                else:
+                    terrain[key] = _result
+                    _ov.set_fetch_done(key, success=True)
+                if key == 'water' and _water_ocean_combined:
+                    # Ocean will complete this chip; hold at 50%
+                    _ov.set_fetch_progress('water', 0.5)
             else:
                 print(f"INFO: MAP IS TOO BIG FOR {key.upper()} (< {max_size} km required)")
                 _progress.WarningsOverlay.add_warning(f"Map too big for {phase} layer.", "warn")
@@ -8123,6 +8177,7 @@ def _rg_build_terrain_elements(obj, scaleHor, curveObj=None):
     terrain['ocean'] = None
     if tp3d.el_oActive == 1:
         _advance_elem_progress("Ocean", "Creating ocean…")
+        _ov.set_fetch_progress('water', 0.5 if _water_feat_active else 0.0)
         minLat = tp3d.minLat
         minLon = tp3d.minLon
         maxLat = tp3d.maxLat
@@ -8155,6 +8210,7 @@ def _rg_build_terrain_elements(obj, scaleHor, curveObj=None):
             (minLat - ocean_pad_lat, bbox_west, maxLat + ocean_pad_lat, bbox_east),
             2, scaleHor, landpoints, obj, obj, tp3d.minThickness,
         )
+        _ov.set_fetch_done('water', success=terrain['ocean'] is not None)
 
     print("Base elements Created")
 
@@ -8173,15 +8229,16 @@ def _rg_build_terrain_elements(obj, scaleHor, curveObj=None):
     if tp3d.el_bActive == 1:
         if map_km <= const.BUILDINGS_MAXSIZE:
             _advance_elem_progress("Buildings", "Fetching building data…")
+            _ov.set_fetch_progress('buildings', 0.0)
 
             buildings = create_buildings(obj, 10, scaleHor)
-
 
             set_origin_to_3d_cursor(buildings)
             intersectWithTile(obj, buildings)
             buildings.name = obj.name + "_" + "Buildings"
             terrain['buildings'] = buildings
             writeMetadata(buildings, type="BUILDINGS")
+            _ov.set_fetch_done('buildings', success=buildings is not None)
         else:
             print("INFO: MAP IS TOO BIG FOR BUILDINGS (< 10Km Map size Required)")
             _progress.WarningsOverlay.add_warning("Map too big for Buildings.", "warn")
@@ -8193,18 +8250,20 @@ def _rg_build_terrain_elements(obj, scaleHor, curveObj=None):
     if any([tp3d.el_sBigActive, tp3d.el_sMedActive, tp3d.el_sSmallActive]):
         if map_km <= const.ROADS_MAXSIZE:
             _advance_elem_progress("Roads", "Fetching road data…")
+            _ov.set_fetch_progress('roads', 0.0)
             roads = create_roads(obj, 20, scaleHor, map_km)
             if roads is not None:
-
                 roads = bpy.context.active_object
                 roads.data.materials.clear()
                 roads.data.materials.append(bpy.data.materials.get("BLACK"))
                 terrain['roads'] = roads
                 roads.name = obj.name + "_" + "Roads"
                 writeMetadata(roads, type="ROADS")
+                _ov.set_fetch_done('roads', success=True)
             else:
                 print("INFO: No road data returned, skipping road processing.")
                 _progress.WarningsOverlay.add_warning("No road data returned.", "warn")
+                _ov.set_fetch_done('roads', success=False)
         else:
             print("INFO: MAP IS TOO BIG FOR STREETS (< 100Km Map size Required)")
             _progress.WarningsOverlay.add_warning("Map too big for Roads.", "warn")
@@ -8273,12 +8332,15 @@ def _rg_apply_single_color_mode(obj, curveObjs, terrain, props):
                     boolean_operation(elem_obj, tcrv)
 
     if props['elementMode'] in ("SINGLECOLORMODE", "SINGLECOLORMODE_REMESH") or 1 == 0:
+
+        if _ov.active:
+            _ov.update(message=f"Applying Single-color Mode for {terrain.get(key).name if terrain.get(key) else 'terrain layers'}…")
         # Maps key -> thicker mesh object, filled as each element is processed.
         thicker_by_key = {}
 
         _scm_fn = single_color_mode_mesh_remesh if props['elementMode'] == "SINGLECOLORMODE_REMESH" else single_color_mode_mesh_wireframe
 
-    
+
         for i, key in enumerate(TERRAIN_PRIORITY_ORDER):
             elem_obj = terrain.get(key)
             if not elem_obj:
@@ -8289,6 +8351,9 @@ def _rg_apply_single_color_mode(obj, curveObjs, terrain, props):
 
             thicker = _scm_fn(elem_obj, obj)
             thicker_by_key[key] = thicker
+
+            if _ov.active:
+                _ov.update(message=f"subtract other layers from {elem_obj.name}…")
 
             # Subtract all curve thicker-bodies
             for tcrv in thickerCurves:
@@ -8448,6 +8513,42 @@ _GEN_FLAGS = {
 }
 
 # ---------------------------------------------------------------------------
+# Shared helper: build the fetch-item list for the progress chip strip
+# ---------------------------------------------------------------------------
+
+def build_fetch_items(map_km=None):
+    """Return the list of fetch-item dicts for the active scene settings."""
+    tp3d = bpy.context.scene.tp3d
+    if map_km is None:
+        map_km = round(tp3d.get("sMapInKm", 0), 1)
+    items = [{'key': 'elevation', 'icon': 'E', 'label': 'Elevation'}]
+    defs = [
+        ('forest',     'col_fActive',   const.FOREST_MAXSIZE,     'F', 'Forest'),
+        ('water',      None,            const.WATER_MAXSIZE,       'W', 'Water'),
+        ('scree',      'col_scrActive', const.SCREE_MAXSIZE,       'S', 'Scree'),
+        ('city',       'col_cActive',   const.CITY_MAXSIZE,        'C', 'City'),
+        ('greenspace', 'col_grActive',  const.GREENSPACE_MAXSIZE,  'G', 'Green'),
+        ('farmland',   'col_faActive',  const.FARMLAND_MAXSIZE,    'A', 'Farm'),
+        ('glacier',    'col_glActive',  const.GLACIER_MAXSIZE,     'I', 'Glacr'),
+        ('buildings',  'el_bActive',    const.BUILDINGS_MAXSIZE,   'B', 'Build'),
+        ('roads',      None,            const.ROADS_MAXSIZE,       'R', 'Roads'),
+    ]
+    for key, flag, max_size, icon, label in defs:
+        if key == 'water':
+            water_feats = ((tp3d.col_wPondsActive or tp3d.col_wSmallRiversActive
+                            or tp3d.col_wBigRiversActive) and map_km <= const.WATER_MAXSIZE)
+            active = water_feats or (tp3d.el_oActive == 1)
+            max_size = None
+        elif key == 'roads':
+            active = any([tp3d.el_sBigActive, tp3d.el_sMedActive, tp3d.el_sSmallActive])
+        else:
+            active = bool(flag and getattr(tp3d, flag, 0) == 1)
+        if active and (max_size is None or map_km <= max_size):
+            items.append({'key': key, 'icon': icon, 'label': label})
+    return items
+
+
+# ---------------------------------------------------------------------------
 # Main generation orchestrator
 # ---------------------------------------------------------------------------
 
@@ -8577,6 +8678,9 @@ def runGeneration(type):
     _map_km = round(bpy.context.scene.tp3d.get("sMapInKm", 0), 1)
     overlay.add_completed_step(f"Map shape created  ({props['shape'].capitalize()}, {_map_km} km)")
 
+    # Build the fetch-item strip
+    overlay.set_fetch_items(build_fetch_items(_map_km))
+
     # --- Phase 9: Fetch terrain elevation data ---
     overlay.update(0.38, "Fetching Elevation Data", "Querying API — this may take a moment…")
     print("------------------------------------------------")
@@ -8586,6 +8690,7 @@ def runGeneration(type):
 
     def _elevation_progress(pct):
         t = pct / 100.0
+        overlay.set_fetch_progress('elevation', t)
         overlay.update(
             0.38 + t * (0.65 - 0.38),
             "Fetching Elevation Data",
@@ -8597,6 +8702,7 @@ def runGeneration(type):
     tileVerts, diff = get_tile_elevation(MapObject, progress_cb=_elevation_progress)
     print("Elevation Data fetched")
     overlay.sub_percent = None   # hide sub-bar now that elevation is done
+    overlay.set_fetch_done('elevation', success=True)
     overlay.add_completed_step(f"Elevation fetched  ({len(tileVerts)} pts)")
     overlay.update(0.65, "Elevation Data Ready", f"{len(tileVerts)} points fetched")
 
@@ -8623,6 +8729,18 @@ def runGeneration(type):
         convert_to_blender_coordinates(lat, lon, ele, timestamp)
         for lat, lon, ele, timestamp in coordinates
     ]
+    _g_slopes = []
+    _all_segs = blender_coords_separate if blender_coords_separate else [blender_coords]
+    for _seg in _all_segs:
+        for _i in range(len(_seg) - 1):
+            x1, y1, z1 = _seg[_i]
+            x2, y2, z2 = _seg[_i+1]
+            _h = math.sqrt((x2-x1)**2 + (y2-y1)**2)
+            if _h > 0:
+                _g_slopes.append(abs(z2 - z1) / _h)
+    if _g_slopes:
+        _avg_g = sum(_g_slopes) / len(_g_slopes)
+        print(f"[DEBUG] GPX avg slope:     {_avg_g:.4f}  ({math.degrees(math.atan(_avg_g)):.2f}°)")
     blender_coords = simplify_curve(blender_coords, .12)
     blender_coords = separate_duplicate_xy(blender_coords, 0.05)
     if ("separate_paths" in flags or len(separate_paths) > 1) and "trail_map" not in flags:
@@ -8694,13 +8812,17 @@ def runGeneration(type):
     lowestZ  = 1000
     highestZ = 0
     _total_verts = len(mesh.vertices)
+    _obj_matrix = MapObject.matrix_world
     for i, vert in enumerate(mesh.vertices):
-        vert.co.z = tileVerts[i] / 1000 * props['scaleElevation'] * autoScale
+        _world_co = _obj_matrix @ vert.co
+        _vert_lat, _unused_var = convert_to_geo(_world_co.x, _world_co.y)
+        _merc = 1 / math.cos(math.radians(_vert_lat))
+        vert.co.z = tileVerts[i] / 1000 * props['scaleElevation'] * autoScale * _merc 
         lowestZ  = min(lowestZ,  vert.co.z)
         highestZ = max(highestZ, vert.co.z)
         if i % 5000 == 0:
-            overlay.update(sub_percent=i / _total_verts, sub_label="Displacing vertices…")
-    overlay.update(sub_percent=_total_verts / _total_verts, sub_label="Displacing vertices…")
+            overlay.update(i / _total_verts, "Displacing vertices…")
+    overlay.update(_total_verts / _total_verts, "Displacing vertices…")
     overlay.sub_percent = None
     additionalExtrusion = lowestZ
     bpy.context.scene.tp3d.sAdditionalExtrusion = additionalExtrusion
@@ -8710,6 +8832,16 @@ def runGeneration(type):
     print(f"additionalExtrusion: {additionalExtrusion}")
     print(f"Lowest z: {lowestZ}")
     print(f"Highest z: {highestZ}")
+    _t_slopes = []
+    for edge in mesh.edges:
+        v1 = mesh.vertices[edge.vertices[0]].co
+        v2 = mesh.vertices[edge.vertices[1]].co
+        _h = math.sqrt((v2.x-v1.x)**2 + (v2.y-v1.y)**2)
+        if _h > 0:
+            _t_slopes.append(abs(v2.z - v1.z) / _h)
+    if _t_slopes:
+        _avg_t = sum(_t_slopes) / len(_t_slopes)
+        print(f"[DEBUG] Terrain avg slope: {_avg_t:.4f}  ({math.degrees(math.atan(_avg_t)):.2f}°)")
 
 
     # Snap trail curves onto terrain surface
@@ -8850,7 +8982,7 @@ def runGeneration(type):
 
 
     # --- Phases 16-18: Assign materials, export, and finalize ---
-    overlay.update(0.97, "Finalizing", "Assigning materials and exporting…")
+    overlay.update(0.97, "Finalizing", "Exporting files...")
     _rg_assign_materials_and_export(
         obj, curveObjs, textobj, plateobj, props, buggyDataset, start_time, exportformat, elements
     )
@@ -8866,6 +8998,7 @@ def runGeneration(type):
 
     _elapsed = int(time.time() - overlay._start_time) if overlay._start_time else 0
     _m, _s = divmod(_elapsed, 60)
+    overlay.update(1.0, "Done", "")
     overlay.add_completed_step(f"Done  —  {_m:02d}:{_s:02d} total")
-    overlay.finish()
+    #overlay.finish()
     _progress.WarningsOverlay.get().show()

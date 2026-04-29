@@ -15,14 +15,111 @@ Usage:
 
 import math
 import time
+import json
+import pathlib
+import subprocess
+import sys
+import tempfile
 import bpy
 import gpu
 import blf
 from gpu_extras.batch import batch_for_shader
 
+_CREATE_NO_WINDOW = 0x08000000 if sys.platform == 'win32' else 0
+
+
+class SubprocessProgress:
+    """Drives an external progress window via a shared JSON temp file.
+
+    Spawns progress_win.py using Blender's own Python interpreter.
+    That script starts a local HTTP server and opens the browser in
+    --app mode (frameless card).  The window stays responsive while
+    Blender's main thread is blocked.
+    """
+
+    _instance     = None
+    _json_path    = pathlib.Path(tempfile.gettempdir()) / 'trailprint_progress.json'
+    _cancel_path  = pathlib.Path(tempfile.gettempdir()) / 'trailprint_cancel.flag'
+
+    def __init__(self):
+        self._proc = None
+
+    @classmethod
+    def get(cls):
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
+
+    # ── Public API ────────────────────────────────────────────────────────────
+
+    def is_cancel_requested(self):
+        return self._cancel_path.exists()
+
+    def start(self):
+        try:
+            self._cancel_path.unlink()
+        except Exception:
+            pass
+        self._write({'active': True, 'percent': 0.0, 'phase': 'Starting…', 'message': ''})
+        script = pathlib.Path(__file__).parent / 'progress_win.py'
+        if not script.exists():
+            print('TrailPrint3D: progress_win.py not found')
+            return
+
+        try:
+            self._proc = subprocess.Popen(
+                [sys.executable, str(script), str(self._json_path)],
+                creationflags=_CREATE_NO_WINDOW,
+            )
+        except Exception as e:
+            print(f'TrailPrint3D: Could not launch progress window: {e}')
+            self._proc = None
+
+    def update(self, percent=0.0, phase='', message='',
+               sub_percent=None, sub_label=None, steps=None, fetch_items=None,
+               map_preview=None):
+        data = {'active':  True,
+                'percent': float(percent),
+                'phase':   str(phase),
+                'message': str(message)}
+        if sub_percent is not None:
+            data['sub_percent'] = float(sub_percent)
+            data['sub_label']   = str(sub_label or '')
+        if steps:
+            data['steps'] = [str(s) for s in steps]
+        if fetch_items:
+            data['fetch_items'] = fetch_items
+        if map_preview:
+            data['map_preview'] = map_preview
+        self._write(data)
+
+    def finish(self, map_preview=None):
+        data = {'active': False, 'percent': 1.0, 'phase': 'Done', 'message': ''}
+        if map_preview:
+            data['map_preview'] = map_preview
+        self._write(data)
+        if self._proc is not None:
+            try:
+                self._proc.wait(timeout=3)
+            except Exception:
+                try:
+                    self._proc.kill()
+                except Exception:
+                    pass
+            self._proc = None
+
+    def _write(self, data):
+        try:
+            self._json_path.write_text(json.dumps(data), encoding='utf-8')
+        except Exception:
+            pass
+
 
 class ProgressOverlay:
     _instance = None
+
+    # Set to True to re-enable the Blender viewport overlay.
+    _DRAW_ENABLED = False
 
     # --- Layout ---
     W           = 400
@@ -49,6 +146,25 @@ class ProgressOverlay:
     COL_MUTED        = (0.55, 0.55, 0.55, 1.00)
     COL_STEP_OK      = (0.30, 0.85, 0.40, 1.00)   # green checkmark
 
+    # --- Fetch-item strip ---
+    FETCH_ROW_H  = 18
+    COL_FETCH_DONE = (0.20, 0.72, 0.30, 1.00)
+    COL_FETCH_FAIL = (0.78, 0.18, 0.18, 1.00)
+    COL_FETCH_IDLE = (0.25, 0.25, 0.25, 1.00)
+    FETCH_COLORS = {
+        'elevation':  (0.25, 0.45, 0.70, 1.00),
+        'forest':     (0.20, 0.58, 0.25, 1.00),
+        'water':      (0.18, 0.48, 0.80, 1.00),
+        'scree':      (0.52, 0.42, 0.32, 1.00),
+        'city':       (0.60, 0.30, 0.60, 1.00),
+        'greenspace': (0.38, 0.72, 0.32, 1.00),
+        'farmland':   (0.72, 0.65, 0.25, 1.00),
+        'glacier':    (0.55, 0.78, 0.90, 1.00),
+        'ocean':      (0.08, 0.28, 0.62, 1.00),
+        'buildings':  (0.82, 0.52, 0.12, 1.00),
+        'roads':      (0.28, 0.28, 0.28, 1.00),
+    }
+
     def __init__(self):
         self.percent         = 0.0
         self.phase           = ""
@@ -56,6 +172,8 @@ class ProgressOverlay:
         self.sub_percent     = None   # float 0-1 when sub-bar is active, else None
         self.sub_label       = ""
         self.completed_steps = []     # list of strings shown with green checkmarks
+        self.fetch_items     = []     # list of {key, icon, label, status, percent}
+        self.map_preview     = None   # dict with shape/trail data for the mini-map
         self.active          = False
         self._handler        = None
         self._start_time     = None
@@ -76,6 +194,8 @@ class ProgressOverlay:
             body_h += 6                          # separator gap
             body_h += len(visible) * self.STEP_ROW_H
             body_h += 4                          # top gap
+        if self.fetch_items:
+            body_h += 8 + self.FETCH_ROW_H + 4  # fetch strip
         body_h += 10                             # top body padding
         return body_h + self.HEADER_H
 
@@ -92,13 +212,65 @@ class ProgressOverlay:
         self.sub_percent     = None
         self.sub_label       = ""
         self.completed_steps = []
+        self.fetch_items     = []
+        self.map_preview     = None
         self.active          = True
         self._start_time     = time.time()
-        if self._handler is None:
+        if self._DRAW_ENABLED and self._handler is None:
             self._handler = bpy.types.SpaceView3D.draw_handler_add(
                 self._draw_cb, (), 'WINDOW', 'POST_PIXEL'
             )
+        SubprocessProgress.get().start()
         _force_redraw()
+
+    def set_fetch_items(self, items):
+        """Register the list of fetch items (call once before fetching begins)."""
+        self.fetch_items = [
+            {'key': it['key'], 'icon': it['icon'], 'label': it['label'],
+             'status': 'pending', 'percent': 0.0}
+            for it in items
+        ]
+        self._sync_subprocess()
+        _force_redraw()
+
+    def set_fetch_progress(self, key, percent):
+        """Mark an item as fetching with a progress value (0–1). No forced redraw."""
+        for item in self.fetch_items:
+            if item['key'] == key:
+                item['status'] = 'fetching'
+                item['percent'] = max(0.0, min(1.0, percent))
+                break
+        self._sync_subprocess()
+
+    def set_fetch_done(self, key, success=True):
+        """Mark an item as done (✓) or failed (✗) and force a redraw."""
+        for item in self.fetch_items:
+            if item['key'] == key:
+                item['status'] = 'done' if success else 'failed'
+                item['percent'] = 1.0 if success else 0.0
+                break
+        self._sync_subprocess()
+        _force_redraw()
+
+    def set_fetch_empty(self, key):
+        """Mark an item as fetched-but-empty: gray badge with '0'."""
+        for item in self.fetch_items:
+            if item['key'] == key:
+                item['status'] = 'empty'
+                item['percent'] = 1.0
+                break
+        self._sync_subprocess()
+        _force_redraw()
+
+    def _sync_subprocess(self):
+        SubprocessProgress.get().update(
+            self.percent, self.phase, self.message,
+            sub_percent=self.sub_percent,
+            sub_label=self.sub_label,
+            steps=self.completed_steps[-self.MAX_STEPS:] or None,
+            fetch_items=self.fetch_items or None,
+            map_preview=self.map_preview,
+        )
 
     def update(self, percent=None, phase=None, message=None, sub_percent=None, sub_label=None):
         if percent is not None:
@@ -111,16 +283,24 @@ class ProgressOverlay:
             self.sub_percent = max(0.0, min(1.0, sub_percent))
         if sub_label is not None:
             self.sub_label = sub_label
+        self._sync_subprocess()
         _force_redraw()
+
+    def set_map_preview(self, data):
+        """Set the top-down map shape + trail preview sent to the HTML window."""
+        self.map_preview = data
+        self._sync_subprocess()
 
     def add_completed_step(self, text):
         """Append a green-checkmark step. Only the last MAX_STEPS are shown."""
         self.completed_steps.append(text)
+        self._sync_subprocess()
         _force_redraw()
 
     def finish(self):
         self.active  = False
         self.percent = 1.0
+        SubprocessProgress.get().finish(map_preview=self.map_preview)
         if self._handler is not None:
             bpy.types.SpaceView3D.draw_handler_remove(self._handler, 'WINDOW')
             self._handler = None
@@ -209,6 +389,44 @@ class ProgressOverlay:
                 _text("✓", x + p, cur_y, 11, self.COL_STEP_OK)
                 _text(step, x + p + 16, cur_y, 11, self.COL_TEXT)
                 cur_y += self.STEP_ROW_H
+
+        # Fetch-item strip  [ICON] ✓ | [ICON] 35% | [ICON] 0%
+        if self.fetch_items:
+            cur_y += 8
+            n = len(self.fetch_items)
+            chip_w = bar_w / n if n > 0 else bar_w
+            badge_h = self.FETCH_ROW_H - 2
+            badge_w = badge_h
+
+            for i, item in enumerate(self.fetch_items):
+                chip_x = x + p + int(i * chip_w)
+                status = item['status']
+
+                if status == 'done':
+                    badge_col  = self.COL_FETCH_DONE
+                    status_col = self.COL_FETCH_DONE
+                    status_txt = '✓'
+                elif status == 'failed':
+                    badge_col  = self.COL_FETCH_FAIL
+                    status_col = self.COL_FETCH_FAIL
+                    status_txt = '✗'
+                elif status == 'empty':
+                    badge_col  = self.COL_FETCH_IDLE
+                    status_col = self.COL_MUTED
+                    status_txt = '0'
+                elif status == 'pending':
+                    badge_col  = self.COL_FETCH_IDLE
+                    status_col = self.COL_MUTED
+                    status_txt = '0%'
+                else:  # fetching
+                    badge_col  = self.FETCH_COLORS.get(item['key'], self.COL_ACCENT)
+                    status_col = self.COL_TEXT
+                    status_txt = f'{int(item["percent"] * 100)}%'
+
+                _rounded_rect(chip_x, cur_y, badge_w, badge_h, badge_col, 2)
+                _text(item.get('icon', '?'), chip_x + 4, cur_y + 3, 9,
+                      (1.0, 1.0, 1.0, 1.0))
+                _text(status_txt, chip_x + badge_w + 3, cur_y + 3, 9, status_col)
 
         gpu.state.blend_set('NONE')
 
@@ -376,7 +594,20 @@ def _invoke_warnings_modal():
 # ---------------------------------------------------------------------------
 
 def _force_redraw():
-    """Tag all 3D viewports for redraw and flush immediately."""
+    """Tag all 3D viewports for redraw.
+
+    The synchronous DRAW_WIN_SWAP flush is only needed when the in-viewport
+    overlay is active.  With _DRAW_ENABLED = False the subprocess HTML window
+    polls the JSON file directly, so a tag_redraw is enough (and avoids the
+    noisy timing messages Blender prints for that operator).
+    """
+    if not ProgressOverlay._DRAW_ENABLED:
+        for window in bpy.context.window_manager.windows:
+            for area in window.screen.areas:
+                if area.type == 'VIEW_3D':
+                    area.tag_redraw()
+        return
+
     target_window = None
     target_area   = None
     target_region = None
