@@ -125,7 +125,7 @@ class TP3D_Properties(bpy.types.PropertyGroup):
         ],
         default='FACTOR'
     )# type: ignore
-    pathScale: FloatProperty(name = _("Path Scale"), default = 0.8, min = 0.01, max = 200, description = _("Scale of Path in Relation to the Mapsize/GlobalScale (depending on scalemode)"))
+    pathScale: FloatProperty(name = _("Path Scale"), default = 0.8, min = 0.01, description = _("Scale of Path in Relation to the Mapsize/GlobalScale (depending on scalemode)"))
     scaleLon1: FloatProperty(name = "Lon1", default = 0, description = _("The Longitude of the first coordinate"))
     scaleLat1: FloatProperty(name = "Lat1", default = 0, description = _("The Latitude of the first coordinate"))
     scaleLon2: FloatProperty(name = "Lon2", default = 0, description = _("The Longitude of the second coordinate"))
@@ -135,7 +135,7 @@ class TP3D_Properties(bpy.types.PropertyGroup):
 
     objSize: IntProperty(name= _("Object Size in mm"), default = 100, min = 5, max = 10000,description = _("Size of the map in mm"))
     num_subdivisions: IntProperty(name = _("Resolution"), default = 4, min = 1, max = 10, description = _("(max recommended 8) Higher Number = more detailed terrain but slower generation"))
-    scaleElevation: FloatProperty(name = _("Elevation Scale"), default = 10, min = 0, max = 10000, description = _("Multiplier to the Elevation"))
+    scaleElevation: FloatProperty(name = _("Elevation Scale"), default = 1, min = 0, max = 10000, description = _("Multiplier to the Elevation"))
     pathThickness: FloatProperty(name = _("Path Thickness"), default = 1.2, min = 0.1, max = 5, description = _("Thickness of the path in mm"))
     shapeRotation: IntProperty(name = _("ShapeRotation"), default = 0, min = -360, max = 360, description = _("Rotation of the shape") )
     overwritePathElevation: BoolProperty(name= _("Overwrite Path Elevation"), default=True, description = _("Cast each point of the trail onto the Terrain Mesh"))
