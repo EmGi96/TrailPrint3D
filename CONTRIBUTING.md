@@ -16,12 +16,12 @@ Thanks for wanting to help! Here's everything you need to know.
 
 1. Clone the repo:
    ```bash
-   git clone https://github.com/EmGi96/TrailPrint3DOfficial.git
+   git clone https://github.com/EmGi96/TrailPrint3D.git
    ```
 2. Symlink or copy the folder into your Blender addons directory:
-   - **Windows:** `%APPDATA%\Blender Foundation\Blender\<version>\scripts\addons\TrailPrint3DOfficial`
-   - **macOS:** `~/Library/Application Support/Blender/<version>/scripts/addons/TrailPrint3DOfficial`
-   - **Linux:** `~/.config/blender/<version>/scripts/addons/TrailPrint3DOfficial`
+   - **Windows:** `%APPDATA%\Blender Foundation\Blender\<version>\scripts\addons\TrailPrint3D`
+   - **macOS:** `~/Library/Application Support/Blender/<version>/scripts/addons/TrailPrint3D`
+   - **Linux:** `~/.config/blender/<version>/scripts/addons/TrailPrint3D`
 3. Enable **TrailPrint3D** in Edit → Preferences → Add-ons.
 4. After making changes, reload the addon with **Edit → Preferences → Add-ons → Reload** (or use the [Blender Development](https://marketplace.visualstudio.com/items?itemName=JacquesLucke.blender-development) VS Code extension).
 
