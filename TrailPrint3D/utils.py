@@ -4902,6 +4902,7 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
                 # Group geometry by width key (rounded width to avoid float equality issues)
                 groups = {}
                 element_count = len(data['elements'])
+                any_adjusted = False
 
                 for idx, el in enumerate(data['elements']):
                     wm.progress_update(int(idx * 100 / element_count))
@@ -4947,6 +4948,13 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
 
                     # Keep same streetWidth logic as before
                     streetWidth = (width_m * 0.5) * 0.2 * scaleHor * 0.02 * streetwidthMultiplier
+
+                    print(f"Road width: {streetWidth}")
+
+                    if streetWidth <= 0.1:
+                        streetWidth *= 0.1/streetWidth
+                        any_adjusted = True
+                        print(f"Adjusted road width: {streetWidth}")
 
 
                     # Compute segment directions and per-node perpendiculars (2D perp)
@@ -5135,6 +5143,9 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
         bpy.ops.mesh.extrude_region_move(TRANSFORM_OT_translate={"value": (0, 0, 0.2)})
         bpy.ops.object.mode_set(mode='OBJECT')
 
+
+        if any_adjusted:
+            _progress.WarningsOverlay.add_warning("Some roads were too thin and made thicker", "warn")
 
         return roads
 
