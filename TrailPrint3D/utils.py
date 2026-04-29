@@ -4005,10 +4005,10 @@ def remeshClearing(obj, voxelSize2, tolerance):
     #bpy.ops.mesh.delete(type='VERT')
 
 
-    # Flatten remaining verts to exactly z 0
+    # Flatten remaining verts to exactly z bottom_z
     bm = bmesh.from_edit_mesh(obj.data)
     for v in bm.verts:
-        v.co.z = 0
+        v.co.z = bottom_z
     bmesh.update_edit_mesh(obj.data)
 
 
@@ -4022,7 +4022,6 @@ def remeshClearing(obj, voxelSize2, tolerance):
     bpy.ops.object.mode_set(mode='OBJECT')
 
 
-    #raise Exception("NO")
 
     recalculateNormals(obj)
 
@@ -4053,6 +4052,7 @@ def single_color_mode_mesh_remesh(original, map, tolerance = None):
     bpy.ops.object.mode_set(mode='OBJECT')
 
     remeshClearing(obj, voxelSize2, tolerance)
+
 
 
     # Boolean subtract from map
@@ -7796,7 +7796,7 @@ def _rg_validate_inputs(flags):
     shape              = tp3d.shape
     name               = tp3d.get('trailName', "")
     size               = tp3d.get('objSize', 100)
-    scaleElevation     = tp3d.get('scaleElevation', 10)
+    scaleElevation     = tp3d.get('scaleElevation', 1)
     scalemode          = tp3d.scalemode
     scaleLon1          = tp3d.get('scaleLon1', 0)
     scaleLat1          = tp3d.get('scaleLat1', 0)
@@ -8275,7 +8275,7 @@ def _rg_apply_single_color_mode(obj, curveObjs, terrain, props):
     """
     # Priority order: index 0 = highest priority (subtracted from everything below it).
     # Add new terrain keys here to include them automatically.
-    TERRAIN_PRIORITY_ORDER = ['water', 'forest', 'scree', 'city', 'farmland', 'glacier', 'ocean']
+    TERRAIN_PRIORITY_ORDER = ['water', 'forest', 'scree', 'city', 'greenspace', 'farmland', 'glacier', 'ocean']
 
 
     thickerCurves = []
@@ -8325,8 +8325,9 @@ def _rg_apply_single_color_mode(obj, curveObjs, terrain, props):
 
     if props['elementMode'] in ("SINGLECOLORMODE", "SINGLECOLORMODE_REMESH") or 1 == 0:
 
+        _ov = _progress.ProgressOverlay.get()
         if _ov.active:
-            _ov.update(message=f"Applying Single-color Mode for {terrain.get(key).name if terrain.get(key) else 'terrain layers'}…")
+            _ov.update(message=f"Applying Single-color Mode…")
         # Maps key -> thicker mesh object, filled as each element is processed.
         thicker_by_key = {}
 
@@ -8992,5 +8993,5 @@ def runGeneration(type):
     _m, _s = divmod(_elapsed, 60)
     overlay.update(1.0, "Done", "")
     overlay.add_completed_step(f"Done  —  {_m:02d}:{_s:02d} total")
-    #overlay.finish()
+    overlay.finish()
     _progress.WarningsOverlay.get().show()
