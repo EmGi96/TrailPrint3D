@@ -1,0 +1,83 @@
+name: Bug Report
+description: Something isn't working right
+labels: ["bug", "needs triage"]
+assignees: ["EmGi96"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill this out! The more detail you provide, the faster the bug can be fixed.
+
+  - type: input
+    id: addon-version
+    attributes:
+      label: TrailPrint3D Version
+      description: Found in Edit → Preferences → Add-ons → TrailPrint3D
+      placeholder: "e.g. 3.08"
+    validations:
+      required: true
+
+  - type: input
+    id: blender-version
+    attributes:
+      label: Blender Version
+      placeholder: "e.g. 5.0"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating System
+      placeholder: "e.g. Windows 11, macOS 14, Ubuntu 24.04"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: generation-mode
+    attributes:
+      label: Generation Mode (if applicable)
+      options:
+        - Single Trail
+        - Multi-Trail Chain (Premium)
+        - Terrain (Premium)
+        - Not applicable / other feature
+    validations:
+      required: false
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe what went wrong. Include any error messages from the Blender console.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Walk us through exactly what you did before hitting the bug.
+      placeholder: |
+        1. Imported GPX file '...'
+        2. Set shape to '...'
+        3. Clicked Generate
+        4. Saw error '...'
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Additional context
+      description: Attach screenshots, your GPX file, or anything else that might help.
+    validations:
+      required: false
