@@ -41,7 +41,6 @@ from . import progress as _progress
 from . import addon_preferences
 
 
-from . import bl_info
 from . import panels
 from . import constants as const
 
@@ -7284,8 +7283,8 @@ def writeMetadata(obj, type = "MAP"):
 
     if type == "MAP":
         obj["Object type"] = type
-        obj["Addon"] = bl_info["name"]
-        obj["Version"] = bl_info["version"]
+        obj["Addon"] = const.ADDON_NAME
+        obj["Version"] = const.ADDON_VERSION
 
         obj["Generation Duration"] = str( bpy.context.scene.tp3d.sRunDuration) + " seconds"
         obj["Shape"] = bpy.context.scene.tp3d.shape
@@ -7402,8 +7401,8 @@ def writeMetadata(obj, type = "MAP"):
 
     if type =="TRAIL":
         obj["Object type"] = type
-        obj["Addon"] = bl_info["name"]
-        obj["Version"] = bl_info["version"]
+        obj["Addon"] = const.ADDON_NAME
+        obj["Version"] = const.ADDON_VERSION
         obj["xTerrainOffset"] = bpy.context.scene.tp3d.xTerrainOffset
         obj["yTerrainOffset"] = bpy.context.scene.tp3d.yTerrainOffset
         obj["singleColorModeTrail"] = bpy.context.scene.tp3d.singleColorMode
@@ -7414,8 +7413,8 @@ def writeMetadata(obj, type = "MAP"):
     
     if type == "CITY" or type == "WATER" or type == "FOREST" or type == "GLACIER" or type == "FARMLAND" or type == "SCREE" or type == "GREENSPACE":
         obj["Object type"] = type
-        obj["Addon"] = bl_info["name"]
-        obj["Version"] = bl_info["version"]
+        obj["Addon"] = const.ADDON_NAME
+        obj["Version"] = const.ADDON_VERSION
         obj["minThickness"] = bpy.context.scene.tp3d.minThickness
         obj["xTerrainOffset"] = bpy.context.scene.tp3d.xTerrainOffset
         obj["yTerrainOffset"] = bpy.context.scene.tp3d.yTerrainOffset
@@ -7426,8 +7425,8 @@ def writeMetadata(obj, type = "MAP"):
     if type == "BUILDINGS" or type == "ROADS":
 
         obj["Object type"] = type
-        obj["Addon"] = bl_info["name"]
-        obj["Version"] = bl_info["version"]
+        obj["Addon"] = const.ADDON_NAME
+        obj["Version"] = const.ADDON_VERSION
         obj["minThickness"] = bpy.context.scene.tp3d.minThickness
         obj["xTerrainOffset"] = bpy.context.scene.tp3d.xTerrainOffset
         obj["yTerrainOffset"] = bpy.context.scene.tp3d.yTerrainOffset
@@ -7437,8 +7436,8 @@ def writeMetadata(obj, type = "MAP"):
 
     if type == "PLATE":
         obj["Object type"] = type
-        obj["Addon"] = bl_info["name"]
-        obj["Version"] = bl_info["version"]
+        obj["Addon"] = const.ADDON_NAME
+        obj["Version"] = const.ADDON_VERSION
         obj["Shape"] = bpy.context.scene.tp3d.shape
         obj["textFont"] = bpy.context.scene.tp3d.textFont
         obj["textSize"] = bpy.context.scene.tp3d.textSize
@@ -7461,8 +7460,8 @@ def writeMetadata(obj, type = "MAP"):
     
     if type == "TEXT":
         obj["Object type"] = type
-        obj["Addon"] = bl_info["name"]
-        obj["Version"] = bl_info["version"]
+        obj["Addon"] = const.ADDON_NAME
+        obj["Version"] = const.ADDON_VERSION
         obj["Shape"] = bpy.context.scene.tp3d.shape
         obj["textFont"] = bpy.context.scene.tp3d.textFont
         obj["textSize"] = bpy.context.scene.tp3d.textSize
@@ -7781,13 +7780,6 @@ def _rg_validate_inputs(flags):
     Returns a props dict on success, or None if validation fails (console
     is toggled closed before returning None).
     """
-    if bpy.app.version < const.required_blender_version:
-        show_message_box(
-            f"TrailPrint3D requires Blender "
-            f"{const.required_blender_version[0]}.{const.required_blender_version[1]}"
-            f" or higher. (you are using {bpy.app.version_string}).  "
-        )
-        return None
 
     start_time = time.time()
     for i in range(30):

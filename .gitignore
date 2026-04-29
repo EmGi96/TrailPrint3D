@@ -5,6 +5,7 @@ assets/puzzles.blend
 
 # Build/dev files
 build.py
+*.zip
 assets/connectors.blend1
 assets/other.blend1
 assets/holder.blend1

@@ -75,23 +75,23 @@ Version 3.0
 
 bl_info = {
     "name": "TrailPrint3D",
-    "blender": (5, 1, 0),
-    "category": "Object",
     "author": "EmGi",
     "version": (3, 0, 8),
+    "blender": (4, 5, 0),
+    "location": "View3D > Sidebar > TrailPrint3D",
     "description": "Create 3D Printable Miniature Maps of your Adventures",
     "warning": "",
-    "doc_url": "",
-    "tracker_url": "",
+    "doc_url": "https://www.trailprint3d.com",
+    "tracker_url": "https://github.com/EmGi96/TrailPrint3D/issues",
+    "category": "Object",
     "support": "COMMUNITY",
-    "license": "GPL"
 }
 
 import bpy
 import os
 
 from . import translation
-from . import constants
+from . import constants as const
 from . import temp
 from . import addon_preferences
 from . import props
@@ -192,7 +192,7 @@ def register():
 
     bpy.utils.register_class(addon_preferences.TP3D_AddonPreferences)
     bpy.utils.register_class(props.TP3D_Properties)
-    bpy.app.translations.register(bl_info["name"], translation.translations_dict)
+    bpy.app.translations.register(const.ADDON_NAME, translation.translations_dict)
     bpy.types.Scene.tp3d = bpy.props.PointerProperty(type=props.TP3D_Properties)
     bpy.types.Scene.preset_list = bpy.props.EnumProperty(
         name="Presets",
@@ -226,7 +226,7 @@ def _load_collections_deferred():
 
 
 def unregister():
-    bpy.app.translations.unregister(bl_info["name"])
+    bpy.app.translations.unregister(const.ADDON_NAME)
 
     if temp.PREMIUMVERSION:
         import sys

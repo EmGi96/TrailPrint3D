@@ -360,7 +360,7 @@ def is_3mf_extension_installed():
 #Install 3mf Addon
 def install_3mf_extension():
     try:
-        bpy.ops.extensions.package_install(package_id="ThreeMF_io")
+        bpy.ops.extensions.package_install(pkg_id="ThreeMF_io")
         return True
     except Exception as e:
         print(f"Installation failed: {e}")
