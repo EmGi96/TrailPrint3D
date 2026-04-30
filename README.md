@@ -57,6 +57,9 @@ Automatically fetches and renders geographic data from OpenStreetMap:
 4. If not visible, Press "N" on your Keyboard to open the Sidebar. Navigate to the
    TrailPrint3D Tab in the Sidebar
 
+Video Tutorial for the Installation:
+https://youtu.be/qfpxZbYOvvk
+
 
 ## Data Sources
 
