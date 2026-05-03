@@ -7,12 +7,7 @@ import bpy  # type: ignore
 import os
 import tempfile
 from mathutils import Vector  # type: ignore
-try:
-    from bl_ext.blender_org.ThreeMF_io.api import export_3mf
-    from bl_ext.blender_org.ThreeMF_io.api import is_available
-except ImportError:
-    export_3mf = None
-    is_available = None
+from .threemf_discovery import get_threemf_api, is_threemf_available
 
 from . import progress as _progress
 from . import addon_preferences
@@ -205,12 +200,13 @@ def export_selected_to_3mf():
 
     full_path = exportPath + bpy.context.scene.tp3d.modelname + ".3mf"
 
-    if export_3mf is None:
+    _3mf_api = get_threemf_api()
+    if _3mf_api is None:
         _progress.WarningsOverlay.add_warning("3MF Addon not installed", "error")
         return
 
     try:
-        result = export_3mf(
+        result = _3mf_api.export_3mf(
             filepath=full_path,
             use_selection=True,
             use_mesh_modifiers=True,
@@ -346,13 +342,7 @@ def get_selection_center(objects):
 
 
 def is_3mf_extension_installed():
-    #is_installed, is_enabled = addon_utils.check("bl_ext.blender_org.ThreeMF_io")
-    if is_available is None:
-        temp.has3mf = False
-        return False
-    is_en = is_available()
-    #has_ex = has_capability("global_scale")
-    #print(f"has Capability: {has_ex}")
+    is_en = is_threemf_available()
     temp.has3mf = is_en
     return is_en
 
