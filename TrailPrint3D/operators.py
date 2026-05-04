@@ -24,8 +24,8 @@ from bpy.app.translations import pgettext_iface as _ #For Translation of Text Re
 
 
 # Define the operator (script execution)
-class TP3D_Op_runGeneration(bpy.types.Operator):
-    bl_idname = "wm.run_my_script"
+class TP3D_OT_run_generation(bpy.types.Operator):
+    bl_idname = "tp3d.run_generation"
     bl_label = "Generate"
     bl_description = "Generate the Path and the Map with current Settings"
 
@@ -36,8 +36,8 @@ class TP3D_Op_runGeneration(bpy.types.Operator):
         
         return {'FINISHED'}
 
-class TP3D_Op_ExportSTL(bpy.types.Operator):
-    bl_idname = "wm.exportstl"
+class TP3D_OT_export_stl(bpy.types.Operator):
+    bl_idname = "tp3d.export_stl"
     bl_label = "Export STL"
     bl_description = "Export Selected Objects as Separate STL (Will lose Colors)"
 
@@ -71,8 +71,8 @@ class TP3D_Op_ExportSTL(bpy.types.Operator):
         
         return {'FINISHED'}
     
-class TP3D_Op_ExportOBJ(bpy.types.Operator):
-    bl_idname = "wm.exportobj"
+class TP3D_OT_export_obj(bpy.types.Operator):
+    bl_idname = "tp3d.export_obj"
     bl_label = "Export OBJ"
     bl_description = "Export Selected Objects as Separate OBJ"
 
@@ -106,8 +106,8 @@ class TP3D_Op_ExportOBJ(bpy.types.Operator):
         
         return {'FINISHED'}
 
-class TP3D_Op_ExportThreeMF(bpy.types.Operator):
-    bl_idname = "wm.exportthreemf"
+class TP3D_OT_export_three_mf(bpy.types.Operator):
+    bl_idname = "tp3d.export_three_mf"
     bl_label = "Export 3mf"
     bl_description = "Export Selected Objects as Separate 3MF"
 
@@ -149,8 +149,8 @@ class TP3D_Op_ExportThreeMF(bpy.types.Operator):
         return {'FINISHED'}
 
 
-class TP3D_Op_OpenWebsite(bpy.types.Operator):
-    bl_idname = "wm.open_website"
+class TP3D_OT_open_website(bpy.types.Operator):
+    bl_idname = "tp3d.open_website"
     bl_label = "Visit My Website"
     bl_description = "The Patreon Version has Additional Features!"
 
@@ -160,8 +160,8 @@ class TP3D_Op_OpenWebsite(bpy.types.Operator):
     
 
 # Operator to open a website
-class TP3D_Op_JoinDiscord(bpy.types.Operator):
-    bl_idname = "wm.join_discord"
+class TP3D_OT_join_discord(bpy.types.Operator):
+    bl_idname = "tp3d.join_discord"
     bl_label = "Join Discord"
     bl_description = "Discord Community for TrailPrint3D!"
 
@@ -170,8 +170,8 @@ class TP3D_Op_JoinDiscord(bpy.types.Operator):
         return {'FINISHED'}
 
 # Operator to open a website
-class TP3D_Op_infoVideo(bpy.types.Operator):
-    bl_idname = "wm.infovideo"
+class TP3D_OT_info_video(bpy.types.Operator):
+    bl_idname = "tp3d.info_video"
     bl_label = "Tutorial Video"
     bl_description = "Link to Video explaining this Feature"
 
@@ -183,8 +183,8 @@ class TP3D_Op_infoVideo(bpy.types.Operator):
         utils.open_website(self, context, self.url)
         return {'FINISHED'}
     
-class TP3D_Op_Rescale(bpy.types.Operator):
-    bl_idname = "wm.rescale"
+class TP3D_OT_rescale(bpy.types.Operator):
+    bl_idname = "tp3d.rescale"
     bl_label = "Rescale the z value"
     bl_description = "Rescales the Elevation the Currently selected objects"
     bl_options = {'REGISTER', 'UNDO'}
@@ -242,8 +242,8 @@ class TP3D_Op_Rescale(bpy.types.Operator):
 
         return {'FINISHED'}
     
-class TP3D_Op_savePreset(bpy.types.Operator):
-    bl_idname="wm.savepreset"
+class TP3D_OT_save_preset(bpy.types.Operator):
+    bl_idname = "tp3d.save_preset"
     bl_label = _("Save preset")
     bl_description = "Save the current settings as a preset"
     bl_options = {'REGISTER', 'UNDO'}
@@ -267,8 +267,8 @@ class TP3D_Op_savePreset(bpy.types.Operator):
 
         return {'FINISHED'}
 
-class TP3D_Op_loadPreset(bpy.types.Operator):
-    bl_idname="wm.loadpreset"
+class TP3D_OT_load_preset(bpy.types.Operator):
+    bl_idname = "tp3d.load_preset"
     bl_label = _("Load preset")
     bl_description = "Load the current settings as a preset"
     bl_options = {'REGISTER', 'UNDO'}
@@ -281,8 +281,8 @@ class TP3D_Op_loadPreset(bpy.types.Operator):
 
         return {'FINISHED'}
 
-class TP3D_Op_deletePreset(bpy.types.Operator):
-    bl_idname="wm.deletepreset"
+class TP3D_OT_delete_preset(bpy.types.Operator):
+    bl_idname = "tp3d.delete_preset"
     bl_label = _("Delete preset")
     bl_description = "Delete the current selected preset"
     bl_options = {'REGISTER', 'UNDO'}
@@ -295,8 +295,8 @@ class TP3D_Op_deletePreset(bpy.types.Operator):
 
         return {'FINISHED'}
 
-class TP3D_Op_clearCache(bpy.types.Operator):
-    bl_idname="wm.clearcache"
+class TP3D_OT_clear_cache(bpy.types.Operator):
+    bl_idname = "tp3d.clear_cache"
     bl_label = "Clear Cache"
     bl_description = "Delete all Cached Files from API calls"
     bl_options = {'REGISTER', 'UNDO'}
@@ -324,8 +324,8 @@ class TP3D_Op_clearCache(bpy.types.Operator):
         return {'FINISHED'}
 
 
-class TP3D_Op_thicken(bpy.types.Operator):
-    bl_idname="wm.thicken"
+class TP3D_OT_thicken(bpy.types.Operator):
+    bl_idname = "tp3d.thicken"
     bl_label = "Thicken Map"
     bl_description = "Make the selected Map thicker"
     bl_options = {'REGISTER', 'UNDO'}
@@ -380,8 +380,8 @@ class TP3D_Op_thicken(bpy.types.Operator):
 
         return {'FINISHED'}
 
-class TP3D_Op_PinCoords(bpy.types.Operator):
-    bl_idname="wm.pincoords"
+class TP3D_OT_pin_coords(bpy.types.Operator):
+    bl_idname = "tp3d.pin_coords"
     bl_label = "PinCoords"
     bl_description = "Place a Pin on a Coordinate"
     bl_options = {'REGISTER', 'UNDO'}
@@ -434,8 +434,8 @@ class TP3D_Op_PinCoords(bpy.types.Operator):
 
         return {'FINISHED'}
 
-class TP3D_Op_MagnetHoles(bpy.types.Operator):
-    bl_idname = "wm.magnetholes"
+class TP3D_OT_magnet_holes(bpy.types.Operator):
+    bl_idname = "tp3d.magnet_holes"
     bl_label = "Magnet Holes"
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -569,8 +569,8 @@ class TP3D_Op_MagnetHoles(bpy.types.Operator):
 
         return{'FINISHED'}
 
-class TP3D_Op_Dovetail(bpy.types.Operator):
-    bl_idname = "wm.dovetail"
+class TP3D_OT_dovetail(bpy.types.Operator):
+    bl_idname = "tp3d.dovetail"
     bl_label = "Dovetail"
     bl_options = {'REGISTER', 'UNDO'}
     
@@ -734,8 +734,8 @@ class TP3D_Op_Dovetail(bpy.types.Operator):
 
         return{"FINISHED"}
 
-class TP3D_Op_BottomMark(bpy.types.Operator):
-    bl_idname = "wm.bottommark"
+class TP3D_OT_bottom_mark(bpy.types.Operator):
+    bl_idname = "tp3d.bottom_mark"
     bl_label = "Bottom Mark"
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -806,16 +806,16 @@ class TP3D_Op_BottomMark(bpy.types.Operator):
 
         return{'FINISHED'}
 
-class TP3D_Op_TerrainDummy(bpy.types.Operator):
-    bl_idname = "wm.dummy"
+class TP3D_OT_terrain_dummy(bpy.types.Operator):
+    bl_idname = "tp3d.terrain_dummy"
     bl_label = "Dummy Operator"
     def execute(self,context):
         utils.show_message_box("This Feature is Exclusive for Patreon Supporters")
         return{"FINISHED"}
 
 
-class TP3D_Op_ColorMountain(bpy.types.Operator):
-    bl_idname="wm.colormountain"
+class TP3D_OT_color_mountain(bpy.types.Operator):
+    bl_idname = "tp3d.color_mountain"
     bl_label = "Color Mountains"
     bl_description = "Color Mountains above a certain Threshold"
     bl_options = {'REGISTER', 'UNDO'}
@@ -939,8 +939,8 @@ class TP3D_Op_ColorMountain(bpy.types.Operator):
 
         return {'FINISHED'}
 
-class TP3D_Op_ContourLines(bpy.types.Operator):
-    bl_idname="wm.contourlines"
+class TP3D_OT_contour_lines(bpy.types.Operator):
+    bl_idname = "tp3d.contour_lines"
     bl_label = _("Contour Lines")
     bl_description = "Generate contour lines on the map"
     bl_options = {'REGISTER', 'UNDO'}
@@ -956,8 +956,8 @@ class TP3D_Op_ContourLines(bpy.types.Operator):
 
         return {'FINISHED'}
     
-class TP3D_Op_popup_Merge(bpy.types.Operator):
-    bl_idname = "pop.merge"
+class TP3D_OT_popup_merge(bpy.types.Operator):
+    bl_idname = "tp3d.popup_merge"
     bl_label = "Merge Object with Map"
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -1071,8 +1071,8 @@ class TP3D_Op_popup_Merge(bpy.types.Operator):
 
         return context.window_manager.invoke_props_dialog(self)
 
-class TP3D_Op_ImportText(bpy.types.Operator):
-    bl_idname="wm.importtext"
+class TP3D_OT_import_text(bpy.types.Operator):
+    bl_idname = "tp3d.import_text"
     bl_label = "Import Text"
     bl_description = "Import Text to place it on your Map"
     bl_options = {'REGISTER', 'UNDO'}
@@ -1088,11 +1088,11 @@ class TP3D_Op_ImportText(bpy.types.Operator):
             utils.show_message_box("Selected object is not a Map")
             return {'FINISHED'}
 
-        bpy.ops.pop.text('INVOKE_DEFAULT')
+        bpy.ops.tp3d.popup_text('INVOKE_DEFAULT')
         return {'FINISHED'}
 
-class TP3D_Op_popup_Text(bpy.types.Operator):
-    bl_idname = "pop.text"
+class TP3D_OT_popup_text(bpy.types.Operator):
+    bl_idname = "tp3d.popup_text"
     bl_label = "Import Text"
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -1332,8 +1332,8 @@ class TP3D_Op_popup_Text(bpy.types.Operator):
 
         return context.window_manager.invoke_props_dialog(self)
 
-class TP3D_Op_ImportSvg(bpy.types.Operator):
-    bl_idname="wm.importsvg"
+class TP3D_OT_import_svg(bpy.types.Operator):
+    bl_idname = "tp3d.import_svg"
     bl_label = "Import SVG"
     bl_description = "Import an SVG file onto the map"
     bl_options = {'REGISTER', 'UNDO'}
@@ -1349,11 +1349,11 @@ class TP3D_Op_ImportSvg(bpy.types.Operator):
             utils.show_message_box("Selected object is not a Map")
             return {'FINISHED'}
 
-        bpy.ops.pop.svg('INVOKE_DEFAULT')
+        bpy.ops.tp3d.popup_svg('INVOKE_DEFAULT')
         return {'FINISHED'}
     
-class TP3D_Op_popup_Svg(bpy.types.Operator):
-    bl_idname = "pop.svg"
+class TP3D_OT_popup_svg(bpy.types.Operator):
+    bl_idname = "tp3d.popup_svg"
     bl_label = "Import SVG"
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -1557,28 +1557,8 @@ class TP3D_Op_popup_Svg(bpy.types.Operator):
 
         return context.window_manager.invoke_props_dialog(self)
 
-class TP3D_Op_ImportPin(bpy.types.Operator):
-    bl_idname="wm.importpin"
-    bl_label = "Import Pin"
-    bl_description = "Place Pin on Position"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    def execute(self,context):
-        
-        obj = bpy.context.view_layer.objects.active
-        if obj == None:
-            utils.show_message_box("No Map Selected")
-            return {'FINISHED'}
-
-        if "objSize" not in obj.keys():
-            utils.show_message_box("Selected object is not a Map")
-            return {'FINISHED'}
-
-        bpy.ops.pop.svg('INVOKE_DEFAULT')
-        return {'FINISHED'}
-
-class TP3D_Op_ImportPin(bpy.types.Operator):
-    bl_idname = "wm.importpin"
+class TP3D_OT_import_pin(bpy.types.Operator):
+    bl_idname = "tp3d.import_pin"
     bl_label = "Import Pin"
     bl_description = "Place a Pin on your Map interactively"
     bl_options = {'REGISTER', 'UNDO'}
@@ -1593,12 +1573,12 @@ class TP3D_Op_ImportPin(bpy.types.Operator):
             utils.show_message_box("Selected object is not a Map")
             return {'FINISHED'}
 
-        bpy.ops.pop.pin('INVOKE_DEFAULT')
+        bpy.ops.tp3d.popup_pin('INVOKE_DEFAULT')
         return {'FINISHED'}
 
 
-class TP3D_Op_popup_Pin(bpy.types.Operator):
-    bl_idname = "pop.pin"
+class TP3D_OT_popup_pin(bpy.types.Operator):
+    bl_idname = "tp3d.popup_pin"
     bl_label = "Place Pin"
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -1742,8 +1722,8 @@ class TP3D_Op_popup_Pin(bpy.types.Operator):
 
         return context.window_manager.invoke_props_dialog(self)
 
-class TP3D_Op_InstallThreeMF(bpy.types.Operator):
-    bl_idname = "wm.install_3mf"
+class TP3D_OT_install_three_mf(bpy.types.Operator):
+    bl_idname = "tp3d.install_three_mf"
     bl_label = "Install 3MF Extension"
     bl_description = "Automatically downloads and enables the 3MF extension by Clonephaze"
 

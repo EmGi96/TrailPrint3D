@@ -33,7 +33,7 @@ def generation_mode_update(self, context):
 
     
 # Define a Property Group to store variables
-class TP3D_Properties(bpy.types.PropertyGroup):
+class TP3D_PG_properties(bpy.types.PropertyGroup):
     file_path: StringProperty(
         name= _("File Path"),
         description= _("Select a file"),
