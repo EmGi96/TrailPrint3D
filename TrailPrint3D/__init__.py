@@ -175,6 +175,9 @@ def startup_function(scene, dummy = None):
     #utils.load_myproperties_from_csv(current)
 
 def register():
+    # Ensure cache/preset dirs exist before anything else uses them.
+    const._ensure_dirs()
+
     # Detect premium here — register() is called after Blender finishes reloading
     # all submodules, so temp.py can no longer reset PREMIUMVERSION to False after us.
     _addon_dir = os.path.dirname(__file__)

@@ -8,17 +8,14 @@ import os
 
 import bmesh # type: ignore
 import math
-from mathutils import Quaternion, Vector, bvhtree, Euler
-import time
-import requests
+from mathutils import Quaternion, Vector, Euler
 
 from . import constants as const
-from . import temp
 from . import utils
 from . import props
 from . import addon_preferences
 
-from bpy.props import FloatProperty, IntProperty, StringProperty, BoolProperty, EnumProperty, PointerProperty
+from bpy.props import StringProperty
 
 from bpy.app.translations import pgettext_iface as _ #For Translation of Text Required
 
@@ -30,7 +27,7 @@ class TP3D_OT_run_generation(bpy.types.Operator):
     bl_description = "Generate the Path and the Map with current Settings"
 
     def execute(self, context):
-        props = context.scene.tp3d  # Access stored variables
+        tp3d = context.scene.tp3d  # Access stored variables
         
         utils.runGeneration(0)
         
@@ -42,29 +39,29 @@ class TP3D_OT_export_stl(bpy.types.Operator):
     bl_description = "Export Selected Objects as Separate STL (Will lose Colors)"
 
     def execute(self, context):
-        props = context.scene.tp3d  # Access stored variables
+        tp3d = context.scene.tp3d  # Access stored variables
 
-        exportPath = props.get('export_path', None)
+        exportPath = tp3d.get('export_path', None)
 
         if not exportPath:
             exportPath = addon_preferences.get_prefs().default_export_folder
 
         if not exportPath:
-            utils.show_message_box("'Export path' is Empty. Please select a Directory For the finished files")
-            return {'FINISHED'}
+            self.report({'ERROR'}, "'Export path' is Empty. Please select a Directory For the finished files")
+            return {'CANCELLED'}
 
         exportPath = bpy.path.abspath(exportPath)
 
         if not exportPath or exportPath == "":
-            utils.show_message_box("Export path is empty! Please select a valid folder.")
-            return {'FINISHED'}
+            self.report({'ERROR'}, "Export path is empty! Please select a valid folder.")
+            return {'CANCELLED'}
         if not os.path.isdir(exportPath):
-            utils.show_message_box(f"Invalid export Directory: {exportPath}. Please select a valid Directory.")
-            return {'FINISHED'}
+            self.report({'ERROR'}, f"Invalid export Directory: {exportPath}. Please select a valid Directory.")
+            return {'CANCELLED'}
 
-        if not bpy.context.selected_objects:
-            utils.show_message_box("Please select the Object you want to Export")
-            return{'FINISHED'}
+        if not context.selected_objects:
+            self.report({'ERROR'}, "Please select the Object you want to Export")
+            return {'CANCELLED'}
 
         utils.export_selected_to_STL("STL")
 
@@ -77,29 +74,29 @@ class TP3D_OT_export_obj(bpy.types.Operator):
     bl_description = "Export Selected Objects as Separate OBJ"
 
     def execute(self, context):
-        props = context.scene.tp3d  # Access stored variables
+        tp3d = context.scene.tp3d  # Access stored variables
 
-        exportPath = props.get('export_path', None)
+        exportPath = tp3d.get('export_path', None)
 
         if not exportPath:
             exportPath = addon_preferences.get_prefs().default_export_folder
 
         if not exportPath:
-            utils.show_message_box("'Export path' is Empty. Please select a Directory For the finished files")
-            return {'FINISHED'}
+            self.report({'ERROR'}, "'Export path' is Empty. Please select a Directory For the finished files")
+            return {'CANCELLED'}
 
         exportPath = bpy.path.abspath(exportPath)
 
         if not exportPath or exportPath == "":
-            utils.show_message_box("Export path is empty! Please select a valid folder.")
-            return {'FINISHED'}
+            self.report({'ERROR'}, "Export path is empty! Please select a valid folder.")
+            return {'CANCELLED'}
         if not os.path.isdir(exportPath):
-            utils.show_message_box(f"Invalid export Directory: {exportPath}. Please select a valid Directory.")
-            return {'FINISHED'}
+            self.report({'ERROR'}, f"Invalid export Directory: {exportPath}. Please select a valid Directory.")
+            return {'CANCELLED'}
 
-        if not bpy.context.selected_objects:
-            utils.show_message_box("Please select the Object you want to Export")
-            return{'FINISHED'}
+        if not context.selected_objects:
+            self.report({'ERROR'}, "Please select the Object you want to Export")
+            return {'CANCELLED'}
 
         utils.export_selected_to_STL("OBJ")
 
@@ -112,33 +109,33 @@ class TP3D_OT_export_three_mf(bpy.types.Operator):
     bl_description = "Export Selected Objects as Separate 3MF"
 
     def execute(self, context):
-        props = context.scene.tp3d  # Access stored variables
+        tp3d = context.scene.tp3d  # Access stored variables
 
         installed = utils.is_3mf_extension_installed()
 
         if installed == True:
         
-            exportPath = props.get('export_path', None)
+            exportPath = tp3d.get('export_path', None)
 
             if not exportPath:
                 exportPath = addon_preferences.get_prefs().default_export_folder
 
             if not exportPath:
-                utils.show_message_box("'Export path' is Empty. Please select a Directory For the finished files")
-                return {'FINISHED'}
+                self.report({'ERROR'}, "'Export path' is Empty. Please select a Directory For the finished files")
+                return {'CANCELLED'}
 
             exportPath = bpy.path.abspath(exportPath)
 
             if not exportPath or exportPath == "":
-                utils.show_message_box("Export path is empty! Please select a valid folder.")
-                return {'FINISHED'}
+                self.report({'ERROR'}, "Export path is empty! Please select a valid folder.")
+                return {'CANCELLED'}
             if not os.path.isdir(exportPath):
-                utils.show_message_box(f"Invalid export Directory: {exportPath}. Please select a valid Directory.")
-                return {'FINISHED'}
+                self.report({'ERROR'}, f"Invalid export Directory: {exportPath}. Please select a valid Directory.")
+                return {'CANCELLED'}
             
-            if not bpy.context.selected_objects:
-                utils.show_message_box("Please select the Object you want to Export")
-                return{'FINISHED'}
+            if not context.selected_objects:
+                self.report({'ERROR'}, "Please select the Object you want to Export")
+                return {'CANCELLED'}
             
             utils.export_selected_to_3mf()
         else:
@@ -387,12 +384,12 @@ class TP3D_OT_pin_coords(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        props = context.scene.tp3d
+        tp3d = context.scene.tp3d
         
-        minThickness = props.minThickness
+        minThickness = tp3d.minThickness
 
-        centerlat = props.pinLat
-        centerlon = props.pinLon
+        centerlat = tp3d.pinLat
+        centerlon = tp3d.pinLon
 
 
 
@@ -442,7 +439,7 @@ class TP3D_OT_magnet_holes(bpy.types.Operator):
 
     
     def execute(self,context):
-        props = context.scene.tp3d
+        tp3d = context.scene.tp3d
 
         selected_objects = context.selected_objects
 
@@ -464,7 +461,7 @@ class TP3D_OT_magnet_holes(bpy.types.Operator):
             zobj.select_set(True)
             bpy.context.view_layer.objects.active = zobj
 
-            obj_size = props.objSize
+            obj_size = tp3d.objSize
 
             #Check for selection and custom property
             if zobj:
@@ -620,26 +617,11 @@ class TP3D_OT_dovetail(bpy.types.Operator):
             #Flip normals and Get bottom faces
             utils.selectBottomFaces(zobj)
 
-            #get the lowest zValue of one the faces
-            zValue = 0
-
             # Switch to Edit Mode
             #bpy.ops.object.mode_set(mode='EDIT')
             mesh = bmesh.from_edit_mesh(zobj.data)
 
-            # Get the world matrix to convert local to global coordinates
-            world_matrix = zobj.matrix_world
-
-            # Collect global Z-values of selected faces
-            z_values = [
-                (world_matrix @ face.calc_center_median()).z
-                for face in mesh.faces if face.select
-            ]
-            
-            zValue = min(z_values)
-
             bpy.ops.object.mode_set(mode='OBJECT')
-
 
             #Set 3D cursor to object's origin
             bpy.context.scene.cursor.location = zobj.location
@@ -810,7 +792,7 @@ class TP3D_OT_terrain_dummy(bpy.types.Operator):
     bl_idname = "tp3d.terrain_dummy"
     bl_label = "Dummy Operator"
     def execute(self,context):
-        utils.show_message_box("This Feature is Exclusive for Patreon Supporters")
+        self.report({'INFO'}, "This Feature is Exclusive for Patreon Supporters")
         return{"FINISHED"}
 
 
@@ -855,7 +837,6 @@ class TP3D_OT_color_mountain(bpy.types.Operator):
 
         #---------------------------------------
         #Create or get green material
-        matG = bpy.data.materials.get("BASE")
        
         #Create or get a gray material
         mat = bpy.data.materials.get("MOUNTAIN")
@@ -873,32 +854,12 @@ class TP3D_OT_color_mountain(bpy.types.Operator):
                 
             print("Apply Mountain Color")
 
-
-            vertical_normal_tol = 0.02
-            faces_to_remove = []
-            global_cut_vertices_for_face = []
-            ztol = 0.001
-
-
             #obj.data.materials.clear()
             #obj.data.materials.append(matG)  # creates first slot and assigns
 
             def cut_mesh_at_height(obj, z_height):
                 bpy.context.view_layer.objects.active = obj
                 bpy.ops.object.mode_set(mode='EDIT')
-                bm = bmesh.from_edit_mesh(obj.data)
-
-                plane_co = Vector((0, 0, z_height))
-                plane_no = Vector((0, 0, 1))
-
-                result = bmesh.ops.bisect_plane(
-                    bm,
-                    geom=bm.verts[:] + bm.edges[:] + bm.faces[:],
-                    plane_co=plane_co,
-                    plane_no=plane_no,
-                    clear_outer=False,
-                    clear_inner=False
-                )
 
                 bmesh.update_edit_mesh(obj.data)
                 bpy.ops.object.mode_set(mode='OBJECT')
@@ -920,8 +881,6 @@ class TP3D_OT_color_mountain(bpy.types.Operator):
                         
 
             obj = bpy.context.view_layer.objects.active
-
-            mesh = obj.data
 
             #Ensure MOUNTAIN material exists on the object before coloring
             mat_index = obj.data.materials.find("MOUNTAIN")

@@ -5,9 +5,6 @@
 
 import bpy
 
-from . import utils
-from . import operators
-from . import constants as const
 from . import temp
 
 from bpy.app.translations import pgettext_iface as _ #For Translation of Text Required

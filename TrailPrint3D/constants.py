@@ -32,25 +32,25 @@ counter_file = os.path.join(bpy.utils.user_resource('CONFIG'), "api_request_coun
 
 #Set up a folder that holds all Cache Data
 cache_dir = os.path.join(bpy.utils.user_resource('CONFIG'), "TrailPrint3D_Cache")
-if not os.path.exists(cache_dir):
-    os.makedirs(cache_dir)
 
 elevation_cache_file = os.path.join(bpy.utils.user_resource('CONFIG'), "TrailPrint3D_Cache","elevation_cache.json")
 
 # Set up a cache directory for Terrarium tiles
 terrarium_cache_dir = os.path.join(bpy.utils.user_resource('CONFIG'), "TrailPrint3D_Cache","terrarium_cache")
-if not os.path.exists(terrarium_cache_dir):
-    os.makedirs(terrarium_cache_dir)
 
 # Set up a cache for Overpass Files
 overpass_cache_dir = os.path.join(bpy.utils.user_resource('CONFIG'), "TrailPrint3D_Cache","overpass_cache")
-if not os.path.exists(overpass_cache_dir):
-    os.makedirs(overpass_cache_dir)
 
 #Set up a folder for Presets
 preset_dir = os.path.join(bpy.utils.user_resource('CONFIG'), "TP3D-presets")
-if not os.path.exists(preset_dir):
-    os.makedirs(preset_dir)
+
+
+def _ensure_dirs():
+    """Create addon cache/preset directories. Call from register() only."""
+    os.makedirs(cache_dir, exist_ok=True)
+    os.makedirs(terrarium_cache_dir, exist_ok=True)
+    os.makedirs(overpass_cache_dir, exist_ok=True)
+    os.makedirs(preset_dir, exist_ok=True)
 
 
 

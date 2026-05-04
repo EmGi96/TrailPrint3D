@@ -18,7 +18,7 @@ TrailPrint3D/
   props.py              - TP3D_PG_properties (scene property group)
   temp.py               - runtime flags (PREMIUMVERSION, has3mf)
   utils/
-    __init__.py         - explicit re-exports only (no wildcard imports)
+    __init__.py         - re-exports from submodules (wildcards OK here, see §10)
     elevation.py        - elevation API helpers
     generation.py       - runGeneration() orchestration
     geo.py              - coordinate math
@@ -221,19 +221,25 @@ props = context.scene.tp3d
 
 ---
 
-## 10. No Wildcard Re-exports in `utils/__init__.py`
+## 10. Wildcard Imports in `utils/__init__.py`
+
+`utils/__init__.py` exists purely as an aggregation shim so callers can write `utils.show_message_box()` instead of importing from individual submodules. Wildcard re-exports are acceptable **only** in this file for that purpose.
 
 ```python
-# ❌
+# ✅ — fine in utils/__init__.py (aggregation shim)
 from .mesh_ops import *
-from .geo import *
+from .scene import *
 
-# ✅
+# ✅ — explicit is also fine and preferred where collisions are a concern
 from .mesh_ops import selectBottomFaces, recalculateNormals, merge_with_map
-from .geo import haversine, convert_to_blender_coordinates
 ```
 
-Wildcard imports hide name origins, create silent collisions, and break IDE navigation.
+In every other file — operators, panels, regular utility modules — wildcard imports are forbidden. They hide name origins, create silent shadowing between submodules, and break IDE navigation.
+
+```python
+# ❌ — in operators.py, panels.py, or any non-aggregator module
+from .utils.mesh_ops import *
+```
 
 ---
 

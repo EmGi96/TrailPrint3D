@@ -6,9 +6,7 @@
 import bpy
 from bpy.props import FloatProperty, IntProperty, StringProperty, BoolProperty, EnumProperty, PointerProperty
 from . import utils
-from . import panels
 from . import constants as const
-from . import temp
 
 
 from bpy.app.translations import pgettext_iface as _ #For Translation of Text Required
