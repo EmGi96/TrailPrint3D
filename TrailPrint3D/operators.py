@@ -27,8 +27,6 @@ class TP3D_OT_run_generation(bpy.types.Operator):
     bl_description = "Generate the Path and the Map with current Settings"
 
     def execute(self, context):
-        tp3d = context.scene.tp3d  # Access stored variables
-        
         utils.runGeneration(0)
         
         return {'FINISHED'}
@@ -113,7 +111,7 @@ class TP3D_OT_export_three_mf(bpy.types.Operator):
 
         installed = utils.is_3mf_extension_installed()
 
-        if installed == True:
+        if installed:
         
             exportPath = tp3d.get('export_path', None)
 
@@ -474,7 +472,7 @@ class TP3D_OT_magnet_holes(bpy.types.Operator):
             if "MagnetHoles" not in zobj.keys():
                 continue
 
-            if zobj["MagnetHoles"] == True:
+            if zobj["MagnetHoles"]:
                 continue
 
             magnetDiameter = props.magnetDiameter
@@ -591,7 +589,7 @@ class TP3D_OT_dovetail(bpy.types.Operator):
             if "Dovetail" not in zobj.keys():
                 continue
 
-            if zobj["Dovetail"] == True:
+            if zobj["Dovetail"]:
                 continue
 
             zobj.select_set(True)
@@ -742,7 +740,7 @@ class TP3D_OT_bottom_mark(bpy.types.Operator):
             if "BottomMark" not in zobj.keys():
                 continue
 
-            if zobj["BottomMark"] == True:
+            if zobj["BottomMark"]:
                 continue
 
             if zobj.type == "MESH" and "objSize" in zobj:
@@ -753,7 +751,7 @@ class TP3D_OT_bottom_mark(bpy.types.Operator):
                 mark = utils.BottomText(zobj)
                 generated = True
 
-                if bottomMarkCutout == True:
+                if bottomMarkCutout:
 
                     mark.scale.z = 2
 
@@ -777,7 +775,7 @@ class TP3D_OT_bottom_mark(bpy.types.Operator):
 
 
         
-        if generated == False:
+        if not generated:
             utils.show_message_box("Not a valid Object selected")
 
         bpy.context.view_layer.objects.active = selected_objects[0]
@@ -961,7 +959,8 @@ class TP3D_OT_popup_merge(bpy.types.Operator):
     def execute(self, context):
 
         obj = context.active_object
-        if not obj: return {'CANCELLED'}
+        if not obj:
+            return {'CANCELLED'}
 
         # Convert to Mesh and Extrude
         bpy.ops.object.convert(target='MESH')
@@ -1039,7 +1038,7 @@ class TP3D_OT_import_text(bpy.types.Operator):
     def execute(self,context):
         
         obj = bpy.context.view_layer.objects.active
-        if obj == None:
+        if obj is None:
             utils.show_message_box("No Map Selected")
             return {'FINISHED'}
 
@@ -1126,14 +1125,14 @@ class TP3D_OT_popup_text(bpy.types.Operator):
         layout.prop(self, "scaleFac")
         layout.prop(self, "rotation")
         layout.prop(self, "bottomSide")
-        if self.bottomSide == False:
+        if not self.bottomSide:
             layout.prop(self, "operation")
 
     def check(self, context):
         obj = context.active_object
 
         multi = 1
-        if self.bottomSide == True:
+        if self.bottomSide:
             multi = -1
 
         # Apply transforms
@@ -1146,11 +1145,11 @@ class TP3D_OT_popup_text(bpy.types.Operator):
         # Update Text Body
         obj.data.body = self.text
 
-        if self.bottomSide == True and self.rv3d.view_rotation == Quaternion((1, 0, 0, 0)):
+        if self.bottomSide and self.rv3d.view_rotation == Quaternion((1, 0, 0, 0)):
             self.rv3d.view_rotation = Quaternion((0,0,1,0))
             obj.location.z  = self.bottomZ
         
-        if self.bottomSide == False and self.rv3d.view_rotation == Quaternion((0,0,1,0)):
+        if not self.bottomSide and self.rv3d.view_rotation == Quaternion((0,0,1,0)):
             self.rv3d.view_rotation = Quaternion((1,0,0,0))
             obj.location.z  = self.topZ
         
@@ -1159,7 +1158,8 @@ class TP3D_OT_popup_text(bpy.types.Operator):
     def execute(self, context):
 
         obj = context.active_object
-        if not obj: return {'CANCELLED'}
+        if not obj:
+            return {'CANCELLED'}
 
         # Save last used font to scene props
         if self.textFont:
@@ -1180,7 +1180,7 @@ class TP3D_OT_popup_text(bpy.types.Operator):
 
         
 
-        if self.bottomSide == False:
+        if not self.bottomSide:
             obj.location.z = -1
             utils.projection(self.operation, Mapobject, obj)
         else:
@@ -1300,7 +1300,7 @@ class TP3D_OT_import_svg(bpy.types.Operator):
     def execute(self,context):
         
         obj = bpy.context.view_layer.objects.active
-        if obj == None:
+        if obj is None:
             utils.show_message_box("No Map Selected")
             return {'FINISHED'}
 
@@ -1360,7 +1360,7 @@ class TP3D_OT_popup_svg(bpy.types.Operator):
         layout.prop(self, "scaleFac")
         layout.prop(self, "rotation")
         layout.prop(self, "bottomSide")
-        if self.bottomSide == False:
+        if not self.bottomSide:
             layout.prop(self, "operation")
 
     def check(self, context):
@@ -1376,7 +1376,7 @@ class TP3D_OT_popup_svg(bpy.types.Operator):
             return False
         
         multi = 1
-        if self.bottomSide == True:
+        if self.bottomSide:
             multi = -1
 
         # Apply transforms
@@ -1386,11 +1386,11 @@ class TP3D_OT_popup_svg(bpy.types.Operator):
         obj.scale.x = self._start_scale * self.scaleFac * multi
         obj.scale.y = self._start_scale * self.scaleFac
 
-        if self.bottomSide == True and self.rv3d.view_rotation == Quaternion((1, 0, 0, 0)):
+        if self.bottomSide and self.rv3d.view_rotation == Quaternion((1, 0, 0, 0)):
             self.rv3d.view_rotation = Quaternion((0,0,1,0))
             obj.location.z  = self.bottomZ
         
-        if self.bottomSide == False and self.rv3d.view_rotation == Quaternion((0,0,1,0)):
+        if not self.bottomSide and self.rv3d.view_rotation == Quaternion((0,0,1,0)):
             self.rv3d.view_rotation = Quaternion((1,0,0,0))
             obj.location.z  = self.topZ
 
@@ -1409,7 +1409,7 @@ class TP3D_OT_popup_svg(bpy.types.Operator):
         utils.recalculateNormals(obj)
 
 
-        if self.bottomSide == False:
+        if not self.bottomSide:
             obj.location.z = -1
             utils.projection(self.operation, Mapobject, obj)
         else:
@@ -1469,7 +1469,7 @@ class TP3D_OT_popup_svg(bpy.types.Operator):
 
         svg.data.materials.clear()
 
-        if svg == None:
+        if svg is None:
             self.report({'WARNING'}, "No Valid object selected")
             utils.show_message_box("No valid Map selected")
             return {'CANCELLED'}

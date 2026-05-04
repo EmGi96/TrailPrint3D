@@ -171,8 +171,7 @@ def startup_function(scene, dummy = None):
 
     utils.is_3mf_extension_installed()
 
-    current = bpy.context.scene.preset_list
-    #utils.load_myproperties_from_csv(current)
+    #utils.load_myproperties_from_csv(bpy.context.scene.preset_list)
 
 def register():
     # Ensure cache/preset dirs exist before anything else uses them.

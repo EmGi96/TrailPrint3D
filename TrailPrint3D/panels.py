@@ -298,8 +298,7 @@ class TP3D_PT_advanced(bpy.types.Panel):
             box.operator("tp3d.import_pin", text=_("Place Pin"), icon="PINNED")
 
             box.separator(factor=0.5)
-            if temp.PREMIUMVERSION == True:
-                box.label(text=_("Set pin by Cityname"))
+            if temp.PREMIUMVERSION:
                 box.prop(props, "cityname")
                 box.operator("tp3d.city_coords", text=_("Pin on City"), icon="UNPINNED")
             else:
@@ -307,7 +306,7 @@ class TP3D_PT_advanced(bpy.types.Panel):
                 box.operator("tp3d.terrain_dummy", text=_("Pin on City"), icon="LOCKED")
 
         # --- SPECIAL ---
-        if temp.PREMIUMVERSION == True:
+        if temp.PREMIUMVERSION:
             layout.prop(props, "show_special", icon="TRIA_DOWN" if props.show_special else "TRIA_RIGHT", emboss=False)
             if props.show_special:
                 box = layout.box()
@@ -384,7 +383,7 @@ class TP3D_PT_advanced(bpy.types.Panel):
             sub.operator("tp3d.import_text", text=_("Place Text"), icon='FONT_DATA')
 
             sub = box.box()
-            if temp.PREMIUMVERSION == True:
+            if temp.PREMIUMVERSION:
                 sub.operator("tp3d.import_height_map", text=_("Import 2D Heightmap"), icon='IMAGE_DATA')
             else:
                 sub.operator("tp3d.terrain_dummy", text=_("Create Heightmap"), icon="LOCKED")

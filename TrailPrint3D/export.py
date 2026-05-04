@@ -209,7 +209,7 @@ def export_selected_to_3mf():
         return
 
     try:
-        result = export_3mf(
+        export_3mf(
             filepath=full_path,
             use_selection=True,
             use_mesh_modifiers=True,
