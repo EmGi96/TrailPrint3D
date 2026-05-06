@@ -27,9 +27,12 @@ def calculate_scale(mapSize, coordinates, gen_type):
         distance = math.sqrt((x2 - x1)**2 + (y2 - y1)**2)
 
     else:
-        width = haversine(min_lat, min_lon, min_lat, max_lon) * 1
-        height = haversine(min_lat, min_lon, max_lat,min_lon) * 1
-        distance = haversine(min_lat,min_lon,max_lat,max_lon)*1
+        #width = haversine(min_lat, min_lon, min_lat, max_lon) * 1
+        #height = haversine(min_lat, min_lon, max_lat,min_lon) * 1
+        #distance = haversine(min_lat,min_lon,max_lat,max_lon)*1
+        width = abs(x2 - x1)
+        height = abs(y2 - y1)
+        distance = math.sqrt((x2 - x1)**2 + (y2 - y1)**2)
 
 
     if scalemode == "SCALE":
@@ -43,8 +46,8 @@ def calculate_scale(mapSize, coordinates, gen_type):
         distance = 0
 
 
-    maxer = max(width,height, distance)
-
+    #maxer = max(width,height, distance)
+    maxer = max(width,height)
     scale = 1
     if scalemode == "COORDINATES" or gen_type == 2 or gen_type == 3:
         print("scalemode1")
