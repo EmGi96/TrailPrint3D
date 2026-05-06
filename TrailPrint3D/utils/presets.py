@@ -114,6 +114,9 @@ def loadCollections(self, context):
 
     const.specialCollection = [(name, name, "") for name in names]
 
+    if not names:
+        return
+
     first_name = names[0]
     if first_name in [item.identifier for item in bpy.context.scene.tp3d.bl_rna.properties["specialCollectionName"].enum_items]:
         bpy.context.scene.tp3d.specialCollectionName = first_name

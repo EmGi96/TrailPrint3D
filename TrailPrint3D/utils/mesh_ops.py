@@ -753,7 +753,7 @@ def intersect_alltrails_with_existing_box(cutobject):
                 #break
     if done == False:
         bpy.data.objects.remove(cutobject, do_unlink=True)
-        if trail_mesh:
+        if trail_mesh and trail_mesh.name in bpy.data.objects:
             bpy.data.objects.remove(trail_mesh, do_unlink=True)
 
     #Pfade kopieren, zusammenfügen und die boolean operation mit allen trails kombiniert ausführen
@@ -868,7 +868,7 @@ def intersect_trail_with_existing_box(cutobject,trail):
 
     if done == False:
         bpy.data.objects.remove(cutobject, do_unlink=True)
-        if trail_mesh:
+        if trail_mesh and trail_mesh.name in bpy.data.objects:
             bpy.data.objects.remove(trail_mesh, do_unlink=True)
     #Pfade kopieren, zusammenfügen und die boolean operation mit allen trails kombiniert ausführen
     if done == True:
