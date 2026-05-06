@@ -464,6 +464,17 @@ def _free_port():
 def _find_chromium():
     """Return path to Edge or Chrome executable, or None."""
     import os
+    if sys.platform == 'darwin':
+        candidates = [
+            '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+            '/Applications/Chromium.app/Contents/MacOS/Chromium',
+            '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+        ]
+        for p in candidates:
+            if os.path.exists(p):
+                return p
+        return None
+
     candidates = [
         r'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe',
         r'C:\Program Files\Microsoft\Edge\Application\msedge.exe',
@@ -665,7 +676,7 @@ if __name__ == '__main__':
     if len(sys.argv) < 2:
         sys.exit(1)
     _path = pathlib.Path(sys.argv[1])
-    if sys.platform == 'win32':
+    if sys.platform in ('win32', 'darwin'):
         try:
             _run_browser(_path)
         except Exception as e:

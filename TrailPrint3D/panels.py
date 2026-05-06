@@ -101,6 +101,8 @@ class TP3D_P_Generate(bpy.types.Panel):
                     col.operator("wm.dummy", text=_("Create Map from selected"), icon="LOCKED")
                     col.operator("wm.dummy", text=_("Merge with Map"), icon="LOCKED")
                     col.operator("wm.dummy", text=_("Create Blank"), icon="LOCKED")
+                col.separator(factor=1.0)
+                col.operator("wm.mappicker", text=_("Pick Area on Map"), icon='WORLD')
             else:
                 # Files
                 box = layout.box()

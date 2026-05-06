@@ -97,6 +97,7 @@ from . import addon_preferences
 from . import props
 from . import progress
 from . import utils
+from . import map_picker
 from . import operators
 from . import panels
 from bpy.app.handlers import persistent
@@ -157,6 +158,7 @@ _PREMIUM_CLASS_NAMES = [
     "TP3D_Op_ExtendTile",
     "TP3D_Op_ImportHeightMap",
     "TP3D_Op_popup_Heightmap",
+    "TP3D_Op_MapPicker",
 ]
 
 

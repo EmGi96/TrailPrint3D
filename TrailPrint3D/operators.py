@@ -5,11 +5,11 @@
 
 import bpy
 import os
+import math
+import time
 
 import bmesh # type: ignore
-import math
 from mathutils import Quaternion, Vector, bvhtree, Euler
-import time
 import requests
 
 from . import constants as const
@@ -1595,6 +1595,7 @@ class TP3D_Op_ImportPin(bpy.types.Operator):
 
         bpy.ops.pop.pin('INVOKE_DEFAULT')
         return {'FINISHED'}
+
 
 
 class TP3D_Op_popup_Pin(bpy.types.Operator):

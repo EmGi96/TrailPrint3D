@@ -540,7 +540,7 @@ def _rg_apply_single_color_mode(obj, curveObjs, terrain, props):
 
 
     thickerCurves = []
-    if props['singleColorMode'] == 1:
+    if props['singleColorMode']:
         if curveObjs:
             dpt = 1
             dup = obj.copy()
@@ -580,7 +580,7 @@ def _rg_apply_single_color_mode(obj, curveObjs, terrain, props):
             bpy.ops.object.mode_set(mode='OBJECT')
 
 
-            if props['singleColorMode'] == 1:
+            if props['singleColorMode']:
                 for tcrv in curveObjs:
                     boolean_operation(elem_obj, tcrv)
 
@@ -755,7 +755,7 @@ _GEN_FLAGS = {
     0:  frozenset({"gpx_file",  "trail", "stats", "gpx_scale"}),
     1:  frozenset({"gpx_chain", "trail", "stats", "gpx_scale", "separate_paths", "chain_coords_center"}),
     2:  frozenset({"jmap"}),
-    3:  frozenset({"jmap_bbox", "trail"}),
+    3:  frozenset({"jmap_bbox"}),
     4:  frozenset({"gpx_file",  "jmap",  "trail", "trail_map"}),
     10: frozenset({"gpx_file", "stats", "gpx_scale"}),
     11: frozenset({"gpx_chain", "stats", "gpx_scale", "separate_path", "chain_coords_center"}),
@@ -803,7 +803,7 @@ def build_fetch_items(map_km=None):
 # Main generation orchestrator
 # ---------------------------------------------------------------------------
 
-def runGeneration(type):
+def runGeneration(type, locked_scale=None):
 
     """Orchestrate the full 3D map generation pipeline."""
     from .geo import calculate_scale, convert_to_blender_coordinates, convert_to_geo, haversine, separate_duplicate_xy, midpoint_spherical  # deferred to avoid circular import at load time
@@ -865,7 +865,7 @@ def runGeneration(type):
     scalecoords = coordinates
     if props['scalemode'] == "COORDINATES" and "gpx_scale" in flags:
         scalecoords = ((props['scaleLon1'], props['scaleLat1']), (props['scaleLon2'], props['scaleLat2']))
-    scaleHor = calculate_scale(props['size'], scalecoords, type)
+    scaleHor = locked_scale if locked_scale is not None else calculate_scale(props['size'], scalecoords, type)
     bpy.context.scene.tp3d["sScaleHor"] = scaleHor
 
     # --- Phase 6: Convert to Blender coordinates and find map center ---

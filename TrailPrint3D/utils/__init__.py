@@ -63,3 +63,9 @@ from .osm import *
 from .scene import *
 from .terrain import *
 from .generation import *
+from .generation import (
+    _rg_validate_inputs, _rg_load_coordinates, _rg_compute_trail_stats,
+    _rg_create_map_object, _rg_build_terrain_elements,
+    _rg_apply_single_color_mode, _rg_assign_materials_and_export,
+    _GEN_FLAGS,
+)
