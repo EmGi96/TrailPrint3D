@@ -218,6 +218,10 @@ def register():
     # fully available.
     bpy.app.timers.register(_load_collections_deferred, first_interval=0)
 
+    # Check 3MF availability now — all addon modules are importable at this
+    # point regardless of registration order, so addon_utils can find it.
+    utils.is_3mf_extension_installed()
+
 
 def _load_collections_deferred():
     try:
