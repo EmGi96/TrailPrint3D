@@ -31,7 +31,6 @@ def update_request_counter():
 
     api = bpy.context.scene.tp3d.api
 
-    today = date.today().isoformat()
     today_date = date.today().isoformat()
     today_month = date.today().month
     count_openTopodata, date_openTopoData, count_openElevation, date_openElevation = load_counter()
@@ -361,7 +360,6 @@ def get_elevation_TerrainTiles(coords, lenv=0, pointsDone=0, zoom=10, progress_c
     #calculating zoom
     zoom = 10
     horVerts = 1 + 2**(num_subdivisions+1)
-    dist = 25.00000 / 2**(num_subdivisions-1) #25 is the rough distance between verts on resolution 1
     strt = 156543 #m/Pixel on Tile PNG
     cntr = 2
 
@@ -556,7 +554,6 @@ def get_elevation_openTopography(coords, lenv=0, pointsDone=0, progress_cb=None)
 
 def get_elevation_path_openElevation(vertices):
     """Fetches real elevation for each vertex using OpenTopoData with request batching."""
-    v = vertices
     coords = [(v[0], v[1], v[2], v[3]) for v in vertices]
     elevations = []
     batch_size = 1000
@@ -596,7 +593,6 @@ def get_elevation_path_openTopoData(vertices):
 
     print("Getting elevation")
     """Fetches real elevation for each vertex using OpenTopoData with request batching."""
-    v = vertices
     coords = [(v[0], v[1], v[2], v[3]) for v in vertices]
     elevations = []
     batch_size = 100
@@ -648,11 +644,6 @@ def get_tile_elevation(obj, progress_cb=None):
     max_x = max(v.x for v in world_verts)
     min_y = min(v.y for v in world_verts)
     max_y = max(v.y for v in world_verts)
-
-
-    # Use object's world location as reference origin
-    origin_lat = obj_matrix.translation.y
-    origin_lon = obj_matrix.translation.x
 
     minl = convert_to_geo(min_x, min_y)
     maxl = convert_to_geo(max_x, max_y)

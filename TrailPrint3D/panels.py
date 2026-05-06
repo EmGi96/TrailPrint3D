@@ -5,17 +5,14 @@
 
 import bpy
 
-from . import utils
-from . import operators
-from . import constants as const
 from . import temp
 
 from bpy.app.translations import pgettext_iface as _ #For Translation of Text Required
 
 
-class TP3D_P_Generate(bpy.types.Panel):
+class TP3D_PT_generate(bpy.types.Panel):
     bl_label = "Create"
-    bl_idname = "PT_EmGi_3DPath+"
+    bl_idname = "TP3D_PT_generate"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = "TrailPrint3D"
@@ -28,8 +25,8 @@ class TP3D_P_Generate(bpy.types.Panel):
 
         # --- Header ---
         row = layout.row(align=True)
-        row.operator("wm.open_website", text=_("Patreon"), icon='FUND')
-        row.operator("wm.join_discord", text=_("Discord"), icon='URL')
+        row.operator("tp3d.open_website", text=_("Patreon"), icon='FUND')
+        row.operator("tp3d.join_discord", text=_("Discord"), icon='URL')
         edition = "Premium" if temp.PREMIUMVERSION else "Free"
         layout.label(text=_(f"Created by: EmGi  |  {edition} v3.08"), icon='INFO')
         layout.separator()
@@ -40,29 +37,29 @@ class TP3D_P_Generate(bpy.types.Panel):
             row.prop(props, "generation_mode", expand=True)
         else:
             row.prop_enum(props, "generation_mode", 'GENERATION')
-            row.operator("wm.dummy", text=_("Multi"), icon='LOCKED')
-            row.operator("wm.dummy", text=_("Terrain"), icon='LOCKED')
+            row.operator("tp3d.terrain_dummy", text=_("Multi"), icon='LOCKED')
+            row.operator("tp3d.terrain_dummy", text=_("Terrain"), icon='LOCKED')
 
         # --- Generate button ---
         col = layout.column()
         col.scale_y = 1.4
         if props.generation_mode == 'GENERATION':
-            col.operator("wm.run_my_script", icon='DISC')
+            col.operator("tp3d.run_generation", icon='DISC')
         elif props.generation_mode == 'MULTI':
             if temp.PREMIUMVERSION:
-                col.operator("wm.chaingeneration", icon="OUTLINER_DATA_CURVES")
+                col.operator("tp3d.chain_generation", icon="OUTLINER_DATA_CURVES")
             else:
-                col.operator("wm.dummy", text=_("Multi Generation"), icon="LOCKED")
+                col.operator("tp3d.terrain_dummy", text=_("Multi Generation"), icon="LOCKED")
         else:  # TERRAIN
             if props.sScaleHor is not None and temp.PREMIUMVERSION:
                 if props.mapmode == 'FROMCENTER':
-                    col.operator("wm.fromcentergeneration", text=_("Generate (Center + Radius)"), icon='DISC')
+                    col.operator("tp3d.from_center_generation", text=_("Generate (Center + Radius)"), icon='DISC')
                 elif props.mapmode == 'FROMPLANE':
-                    col.operator("wm.terrain", text=_("Generate from Blank"), icon="OBJECT_DATA")
+                    col.operator("tp3d.terrain", text=_("Generate from Blank"), icon="OBJECT_DATA")
                 elif props.mapmode == '2POINTS':
-                    col.operator("wm.2pointgeneration", text=_("Generate (2 Corner Points)"), icon='DISC')
+                    col.operator("tp3d.2point_generation", text=_("Generate (2 Corner Points)"), icon='DISC')
             else:
-                col.operator("wm.dummy", text=_("Generate Terrain"), icon="LOCKED")
+                col.operator("tp3d.terrain_dummy", text=_("Generate Terrain"), icon="LOCKED")
 
         # --- Settings (collapsible) ---
         layout.prop(props, "show_create_settings",
@@ -76,8 +73,8 @@ class TP3D_P_Generate(bpy.types.Panel):
                     box.prop(props, "mapmode", text=_("Mode"))
                     boxer = box.box()
                     if props.mapmode == "FROMPLANE":
-                        boxer.operator("wm.create_blank", text=_("Create Blank"), icon="SNAP_FACE")
-                        boxer.operator("wm.extend_tile", text=_("Extend Selected Tile"), icon="SELECT_EXTEND")
+                        boxer.operator("tp3d.create_blank", text=_("Create Blank"), icon="SNAP_FACE")
+                        boxer.operator("tp3d.extend_tile", text=_("Extend Selected Tile"), icon="SELECT_EXTEND")
                         boxer.prop(props, "tileSpacing")
                         boxer.prop(props, "indipendendTiles")
                     elif props.mapmode == "FROMCENTER":
@@ -94,13 +91,13 @@ class TP3D_P_Generate(bpy.types.Panel):
                         row.prop(props, "jMapLon2")
                     box.separator(factor=0.5)
                     col = box.column(align=True)
-                    col.operator("wm.mergewithmap", text=_("Merge with Map"), icon="AUTOMERGE_OFF")
-                    col.operator("wm.justtrail", text=_("Generate Just Trail"), icon="DECORATE_DRIVER")
+                    col.operator("tp3d.merge_with_map", text=_("Merge with Map"), icon="AUTOMERGE_OFF")
+                    col.operator("tp3d.generate_just_trail", text=_("Generate Just Trail"), icon="DECORATE_DRIVER")
                 else:
                     col = box.column(align=True)
-                    col.operator("wm.dummy", text=_("Create Map from selected"), icon="LOCKED")
-                    col.operator("wm.dummy", text=_("Merge with Map"), icon="LOCKED")
-                    col.operator("wm.dummy", text=_("Create Blank"), icon="LOCKED")
+                    col.operator("tp3d.terrain_dummy", text=_("Create Map from selected"), icon="LOCKED")
+                    col.operator("tp3d.terrain_dummy", text=_("Merge with Map"), icon="LOCKED")
+                    col.operator("tp3d.terrain_dummy", text=_("Create Blank"), icon="LOCKED")
             else:
                 # Files
                 box = layout.box()
@@ -160,9 +157,9 @@ class TP3D_P_Generate(bpy.types.Panel):
         layout.separator(factor=0.5)
         layout.label(text=props.o_time, icon='TIME')
 
-class TP3D_P_Advanced(bpy.types.Panel):
+class TP3D_PT_advanced(bpy.types.Panel):
     bl_label = "Advanced"
-    bl_idname = "PT_Advanced"
+    bl_idname = "TP3D_PT_advanced"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "TrailPrint3D"
@@ -177,11 +174,11 @@ class TP3D_P_Advanced(bpy.types.Panel):
             box = layout.box()
             row = box.row(align=True)
             if temp.has3mf and not props.disable_3mf_export:
-                row.operator("wm.exportthreemf", text="3MF")
-            row.operator("wm.exportobj", text="OBJ")
-            row.operator("wm.exportstl", text="STL")
+                row.operator("tp3d.export_three_mf", text="3MF")
+            row.operator("tp3d.export_obj", text="OBJ")
+            row.operator("tp3d.export_stl", text="STL")
             if not temp.has3mf:
-                box.operator("wm.install_3mf", text=_("Install 3MF Addon"), icon='IMPORT')
+                box.operator("tp3d.install_three_mf", text=_("Install 3MF Addon"), icon='IMPORT')
             box.prop(props, "disable_auto_export")
             if temp.has3mf:
                 box.prop(props, "disable_3mf_export")
@@ -298,28 +295,27 @@ class TP3D_P_Advanced(bpy.types.Panel):
         layout.prop(props, "show_pin", icon="TRIA_DOWN" if props.show_pin else "TRIA_RIGHT", emboss=False)
         if props.show_pin:
             box = layout.box()
-            box.operator("wm.importpin", text=_("Place Pin"), icon="PINNED")
+            box.operator("tp3d.import_pin", text=_("Place Pin"), icon="PINNED")
 
             box.separator(factor=0.5)
-            if temp.PREMIUMVERSION == True:
-                box.label(text=_("Set pin by Cityname"))
+            if temp.PREMIUMVERSION:
                 box.prop(props, "cityname")
-                box.operator("wm.citycoords", text=_("Pin on City"), icon="UNPINNED")
+                box.operator("tp3d.city_coords", text=_("Pin on City"), icon="UNPINNED")
             else:
                 box.prop(props, "cityname")
-                box.operator("wm.dummy", text=_("Pin on City"), icon="LOCKED")
+                box.operator("tp3d.terrain_dummy", text=_("Pin on City"), icon="LOCKED")
 
         # --- SPECIAL ---
-        if temp.PREMIUMVERSION == True:
+        if temp.PREMIUMVERSION:
             layout.prop(props, "show_special", icon="TRIA_DOWN" if props.show_special else "TRIA_RIGHT", emboss=False)
             if props.show_special:
                 box = layout.box()
                 col = box.column(align=True)
                 col.prop(props, "specialBlendFile")
                 col.prop(props, "specialCollectionName", text="Collection")
-                box.operator("wm.appendcollection", text=_("Import + Generate"), icon="IMPORT")
+                box.operator("tp3d.append_collection", text=_("Import + Generate"), icon="IMPORT")
                 if props.specialBlendFile == "puzzles.blend":
-                    box.operator("wm.appendcollection_blank", text=_("Import Blank"), icon="IMPORT")
+                    box.operator("tp3d.append_collection_blank", text=_("Import Blank"), icon="IMPORT")
         else:
             layout.prop(props, "show_special", icon="LOCKED", emboss=False)
             if props.show_special:
@@ -339,7 +335,7 @@ class TP3D_P_Advanced(bpy.types.Panel):
             sub.label(text=_("Color Mountains"), icon='RNDCURVE')
             col = sub.column(align=True)
             col.prop(props, "mountain_treshold")
-            col.operator("wm.colormountain", text=_("Color Mountains"), icon="RNDCURVE")
+            col.operator("tp3d.color_mountain", text=_("Color Mountains"), icon="RNDCURVE")
 
             sub = box.box()
             sub.label(text=_("Contour Lines"), icon='ALIGN_JUSTIFY')
@@ -347,7 +343,7 @@ class TP3D_P_Advanced(bpy.types.Panel):
             col.prop(props, "cl_thickness")
             col.prop(props, "cl_distance")
             col.prop(props, "cl_offset")
-            col.operator("wm.contourlines", icon="ALIGN_JUSTIFY")
+            col.operator("tp3d.contour_lines", icon="ALIGN_JUSTIFY")
 
             #sub = box.box()
             #sub.label(text=_("Rescale Elevation"), icon='DRIVER_DISTANCE')
@@ -366,41 +362,41 @@ class TP3D_P_Advanced(bpy.types.Panel):
             row = sub.row(align=True)
             row.prop(props, "magnetHeight")
             row.prop(props, "magnetDiameter")
-            sub.operator("wm.magnetholes", text=_("Add Magnet Holes"), icon="SNAP_OFF")
+            sub.operator("tp3d.magnet_holes", text=_("Add Magnet Holes"), icon="SNAP_OFF")
 
             sub = box.box()
-            sub.operator("wm.dovetail", text=_("Add Dovetail Cutouts"), icon="SHAPEKEY_DATA")
+            sub.operator("tp3d.dovetail", text=_("Add Dovetail Cutouts"), icon="SHAPEKEY_DATA")
 
             sub = box.box()
             sub.label(text=_("Bottom Mark"), icon='SMALL_CAPS')
             col = sub.column(align=True)
-            col.operator("wm.bottommark", text=_("Add Bottom Mark"), icon="SMALL_CAPS")
+            col.operator("tp3d.bottom_mark", text=_("Add Bottom Mark"), icon="SMALL_CAPS")
             col.prop(props, "bottomMarkCutout")
 
             sub = box.box()
             row = sub.row()
             row.label(text=_("SVG / Text Import"), icon='FILE_IMAGE')
-            ln = row.operator("wm.infovideo", text="", icon="QUESTION")
+            ln = row.operator("tp3d.info_video", text="", icon="QUESTION")
             ln.url = "https://www.youtube.com/@EmGi_"
             sub.prop(props, "svg_path")
-            sub.operator("wm.importsvg", text=_("Import SVG"))
-            sub.operator("wm.importtext", text=_("Place Text"), icon='FONT_DATA')
+            sub.operator("tp3d.import_svg", text=_("Import SVG"))
+            sub.operator("tp3d.import_text", text=_("Place Text"), icon='FONT_DATA')
 
             sub = box.box()
-            if temp.PREMIUMVERSION == True:
-                sub.operator("wm.importheightmap", text=_("Import 2D Heightmap"), icon='IMAGE_DATA')
+            if temp.PREMIUMVERSION:
+                sub.operator("tp3d.import_height_map", text=_("Import 2D Heightmap"), icon='IMAGE_DATA')
             else:
-                sub.operator("wm.dummy", text=_("Create Heightmap"), icon="LOCKED")
+                sub.operator("tp3d.terrain_dummy", text=_("Create Heightmap"), icon="LOCKED")
 
         # --- PRESET ---
         layout.prop(props, "show_preset", icon="TRIA_DOWN" if props.show_preset else "TRIA_RIGHT", emboss=False)
         if props.show_preset:
             box = layout.box()
             box.prop(context.scene, "preset_list")
-            box.operator("wm.loadpreset", icon="PRESET")
+            box.operator("tp3d.load_preset", icon="PRESET")
             row = box.row(align=True)
-            row.operator("wm.savepreset", icon="PRESET_NEW")
-            row.operator("wm.deletepreset", icon="REMOVE")
+            row.operator("tp3d.save_preset", icon="PRESET_NEW")
+            row.operator("tp3d.delete_preset", icon="REMOVE")
 
         # --- API ---
         layout.prop(props, "show_api", icon="TRIA_DOWN" if props.show_api else "TRIA_RIGHT", emboss=False)
@@ -433,14 +429,14 @@ class TP3D_P_Advanced(bpy.types.Panel):
             box.label(text=_("Elements (Water,forest,...) runs on the Overpass API"))
             box.prop(props, "apiRetries")
             box.separator(factor=0.5)
-            box.operator("wm.clearcache", icon="BRUSH_DATA")
+            box.operator("tp3d.clear_cache", icon="BRUSH_DATA")
 
         # --- STATS ---
         layout.prop(props, "show_stats", icon="TRIA_DOWN" if props.show_stats else "TRIA_RIGHT", emboss=False)
         if props.show_stats:
             box = layout.box()
             box.label(text=_("Get Input Settings of Selected Generate Map"), icon='QUESTION')
-            box.operator("object.show_custom_props_popup", icon="QUESTION")
+            box.operator("tp3d.show_custom_props_popup", icon="QUESTION")
             box.separator(factor=0.5)
             box.label(text=_("Last Generation"), icon='TIME')
             col = box.column(align=True)
@@ -468,9 +464,9 @@ class TP3D_P_Advanced(bpy.types.Panel):
             col.label(text=_("Terrain data from Mapzen, based on data © OpenStreetMap contributors, NASA SRTM, and USGS."))
 
 
-class TP3D_P_Shapes(bpy.types.Panel):
+class TP3D_PT_shapes(bpy.types.Panel):
     bl_label = "Additional Shape Settings"
-    bl_idname = "PT_ShapeSettings"
+    bl_idname = "TP3D_PT_shapes"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "TrailPrint3D"
@@ -516,19 +512,19 @@ class TP3D_P_Shapes(bpy.types.Panel):
 
                 row = layout.row()
                 split = row.split(factor=0.3)
-                split.operator("wm.dummy", text=_("Icon"), icon='LOCKED')
+                split.operator("tp3d.terrain_dummy", text=_('Icon'), icon='LOCKED')
                 split.prop(props,"titlefield", text = "")
                 row = layout.row()
                 split = row.split(factor=0.3)
-                split.operator("wm.dummy", text=_("Icon"), icon='LOCKED')
+                split.operator("tp3d.terrain_dummy", text=_('Icon'), icon='LOCKED')
                 split.prop(props, "textfield1", text = "")
                 row = layout.row()
                 split = row.split(factor=0.3)
-                split.operator("wm.dummy", text=_("Icon"), icon='LOCKED')
+                split.operator("tp3d.terrain_dummy", text=_('Icon'), icon='LOCKED')
                 split.prop(props, "textfield2", text = "")
                 row = layout.row()
                 split = row.split(factor=0.3)
-                split.operator("wm.dummy", text=_("Icon"), icon='LOCKED')
+                split.operator("tp3d.terrain_dummy", text=_('Icon'), icon='LOCKED')
                 split.prop(props, "textfield3", text = "")
 
             layout.prop(props, "plateThickness")
@@ -545,8 +541,8 @@ class TP3D_P_Shapes(bpy.types.Panel):
 
 
 
-class TP3D_Pop_ShowCustomPropsPopup(bpy.types.Operator):
-    bl_idname = "object.show_custom_props_popup"
+class TP3D_OT_show_custom_props_popup(bpy.types.Operator):
+    bl_idname = "tp3d.show_custom_props_popup"
     bl_label = _("Generation Settings")
     bl_description = _("Show what Settings were used to Generate this Object (With Map object Selected)")
     bl_options = {'REGISTER'}

@@ -89,7 +89,6 @@ def export_selected_to_3mf():
     if not exportPath:
         exportPath = addon_preferences.get_prefs().default_export_folder
     selected_objects = bpy.context.selected_objects
-    active_obj = bpy.context.active_object
 
     if not selected_objects:
         show_message_box("No objects selected")
