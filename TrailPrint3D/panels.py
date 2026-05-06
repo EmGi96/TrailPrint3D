@@ -95,11 +95,14 @@ class TP3D_PT_generate(bpy.types.Panel):
                     col.operator("tp3d.generate_just_trail", text=_("Generate Just Trail"), icon="DECORATE_DRIVER")
                 else:
                     col = box.column(align=True)
-                    col.operator("wm.dummy", text=_("Create Map from selected"), icon="LOCKED")
-                    col.operator("wm.dummy", text=_("Merge with Map"), icon="LOCKED")
-                    col.operator("wm.dummy", text=_("Create Blank"), icon="LOCKED")
+                    col.operator("tp3d.terrain_dummy", text=_("Create Map from selected"), icon="LOCKED")
+                    col.operator("tp3d.terrain_dummy", text=_("Merge with Map"), icon="LOCKED")
+                    col.operator("tp3d.terrain_dummy", text=_("Create Blank"), icon="LOCKED")
                 col.separator(factor=1.0)
-                col.operator("wm.mappicker", text=_("Pick Area on Map"), icon='WORLD')
+                if temp.PREMIUMVERSION:
+                    col.operator("tp3d.map_picker", text=_("Pick Area on Map"), icon='WORLD')
+                else:
+                    col.operator("tp3d.terrain_dummy", text=_("Pick Area on Map"), icon='WORLD')
             else:
                 # Files
                 box = layout.box()
