@@ -560,9 +560,9 @@ class WarningsOverlay:
         gpu.state.blend_set('NONE')
 
 
-class TRAILPRINT_OT_warnings_mouse(bpy.types.Operator):
+class TP3D_OT_warnings_mouse(bpy.types.Operator):
     """Modal that dismisses the warnings overlay on any mouse click."""
-    bl_idname  = "trailprint.warnings_mouse"
+    bl_idname  = "tp3d.warnings_mouse"
     bl_label   = "Warnings Mouse Watcher"
     bl_options = {'INTERNAL'}
 
@@ -583,7 +583,7 @@ class TRAILPRINT_OT_warnings_mouse(bpy.types.Operator):
 def _invoke_warnings_modal():
     """Called via timer so a valid window context exists."""
     try:
-        bpy.ops.trailprint.warnings_mouse('INVOKE_DEFAULT')
+        bpy.ops.tp3d.warnings_mouse('INVOKE_DEFAULT')
     except Exception:
         pass
     return None  # one-shot

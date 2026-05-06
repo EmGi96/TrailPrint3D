@@ -107,58 +107,57 @@ from bpy.app.handlers import persistent
 # addon reload order (Blender may reload temp.py *after* __init__.py,
 # resetting PREMIUMVERSION = False) cannot break detection.
 classes = [
-    progress.TRAILPRINT_OT_warnings_mouse,
-    panels.TP3D_P_Generate,
-    panels.TP3D_P_Advanced,
-    panels.TP3D_P_Shapes,
-    panels.TP3D_Pop_ShowCustomPropsPopup,
-    operators.TP3D_Op_runGeneration,
-    operators.TP3D_Op_ExportSTL,
-    operators.TP3D_Op_ExportOBJ,
-    operators.TP3D_Op_ExportThreeMF,
-    operators.TP3D_Op_OpenWebsite,
-    operators.TP3D_Op_JoinDiscord,
-    operators.TP3D_Op_Rescale,
-    operators.TP3D_Op_PinCoords,
-    operators.TP3D_Op_TerrainDummy,
-    operators.TP3D_Op_MagnetHoles,
-    operators.TP3D_Op_Dovetail,
-    operators.TP3D_Op_thicken,
-    operators.TP3D_Op_BottomMark,
-    operators.TP3D_Op_ColorMountain,
-    operators.TP3D_Op_ContourLines,
-    operators.TP3D_Op_savePreset,
-    operators.TP3D_Op_loadPreset,
-    operators.TP3D_Op_deletePreset,
-    operators.TP3D_Op_clearCache,
-    operators.TP3D_Op_ImportSvg,
-    operators.TP3D_Op_popup_Svg,
-    operators.TP3D_Op_infoVideo,
-    operators.TP3D_Op_popup_Text,
-    operators.TP3D_Op_ImportText,
-    operators.TP3D_Op_ImportPin,
-    operators.TP3D_Op_popup_Pin,
-    operators.TP3D_Op_popup_Merge,
-    operators.TP3D_Op_InstallThreeMF,
+    progress.TP3D_OT_warnings_mouse,
+    panels.TP3D_PT_generate,
+    panels.TP3D_PT_advanced,
+    panels.TP3D_PT_shapes,
+    panels.TP3D_OT_show_custom_props_popup,
+    operators.TP3D_OT_run_generation,
+    operators.TP3D_OT_export_stl,
+    operators.TP3D_OT_export_obj,
+    operators.TP3D_OT_export_three_mf,
+    operators.TP3D_OT_open_website,
+    operators.TP3D_OT_join_discord,
+    operators.TP3D_OT_rescale,
+    operators.TP3D_OT_pin_coords,
+    operators.TP3D_OT_terrain_dummy,
+    operators.TP3D_OT_magnet_holes,
+    operators.TP3D_OT_dovetail,
+    operators.TP3D_OT_thicken,
+    operators.TP3D_OT_bottom_mark,
+    operators.TP3D_OT_color_mountain,
+    operators.TP3D_OT_contour_lines,
+    operators.TP3D_OT_save_preset,
+    operators.TP3D_OT_load_preset,
+    operators.TP3D_OT_delete_preset,
+    operators.TP3D_OT_clear_cache,
+    operators.TP3D_OT_import_svg,
+    operators.TP3D_OT_popup_svg,
+    operators.TP3D_OT_info_video,
+    operators.TP3D_OT_popup_text,
+    operators.TP3D_OT_import_text,
+    operators.TP3D_OT_import_pin,
+    operators.TP3D_OT_popup_pin,
+    operators.TP3D_OT_popup_merge,
+    operators.TP3D_OT_install_three_mf,
 ]
 
 _PREMIUM_CLASS_NAMES = [
-    "TP3D_Op_Terrain",
-    "TP3D_Op_ChainGeneration",
-    "TP3D_Op_CityCoords",
-    "TP3D_Op_MergeWithMap",
-    "TP3D_Op_GenerateJustTrail",
-    "TP3D_Op_FromCenterGeneration",
-    "TP3D_Op_FromCenterGenerationWithTrail",
-    "TP3D_Op_2PointGeneration",
-    "TP3D_Op_SpecialCollection",
-    "TP3D_Op_AppendCollection",
-    "TP3D_Op_AppendCollectionBlank",
-    "TP3D_Op_CreateBlank",
-    "TP3D_Op_ExtendTile",
-    "TP3D_Op_ImportHeightMap",
-    "TP3D_Op_popup_Heightmap",
-    "TP3D_Op_MapPicker",
+    "TP3D_OT_terrain",
+    "TP3D_OT_chain_generation",
+    "TP3D_OT_city_coords",
+    "TP3D_OT_merge_with_map",
+    "TP3D_OT_generate_just_trail",
+    "TP3D_OT_from_center_generation",
+    "TP3D_OT_from_center_generation_with_trail",
+    "TP3D_OT_2point_generation",
+    "TP3D_OT_special_collection",
+    "TP3D_OT_append_collection",
+    "TP3D_OT_append_collection_blank",
+    "TP3D_OT_create_blank",
+    "TP3D_OT_extend_tile",
+    "TP3D_OT_import_height_map",
+    "TP3D_OT_popup_heightmap",
 ]
 
 
@@ -173,10 +172,12 @@ def startup_function(scene, dummy = None):
 
     utils.is_3mf_extension_installed()
 
-    current = bpy.context.scene.preset_list
-    #utils.load_myproperties_from_csv(current)
+    #utils.load_myproperties_from_csv(bpy.context.scene.preset_list)
 
 def register():
+    # Ensure cache/preset dirs exist before anything else uses them.
+    const._ensure_dirs()
+
     # Detect premium here — register() is called after Blender finishes reloading
     # all submodules, so temp.py can no longer reset PREMIUMVERSION to False after us.
     _addon_dir = os.path.dirname(__file__)
@@ -193,9 +194,9 @@ def register():
             temp.PREMIUMVERSION = False
 
     bpy.utils.register_class(addon_preferences.TP3D_AddonPreferences)
-    bpy.utils.register_class(props.TP3D_Properties)
+    bpy.utils.register_class(props.TP3D_PG_properties)
     bpy.app.translations.register(const.ADDON_NAME, translation.translations_dict)
-    bpy.types.Scene.tp3d = bpy.props.PointerProperty(type=props.TP3D_Properties)
+    bpy.types.Scene.tp3d = bpy.props.PointerProperty(type=props.TP3D_PG_properties)
     bpy.types.Scene.preset_list = bpy.props.EnumProperty(
         name="Presets",
         items=utils.list_files_callback,
@@ -217,6 +218,10 @@ def register():
     # deferred call here that runs once the event loop is back and context is
     # fully available.
     bpy.app.timers.register(_load_collections_deferred, first_interval=0)
+
+    # Check 3MF availability now — all addon modules are importable at this
+    # point regardless of registration order, so addon_utils can find it.
+    utils.is_3mf_extension_installed()
 
 
 def _load_collections_deferred():
@@ -249,7 +254,7 @@ def unregister():
             pass
 
     try:
-        bpy.utils.unregister_class(props.TP3D_Properties)
+        bpy.utils.unregister_class(props.TP3D_PG_properties)
     except Exception:
         pass
 

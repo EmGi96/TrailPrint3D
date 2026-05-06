@@ -6,9 +6,7 @@
 import bpy
 from bpy.props import FloatProperty, IntProperty, StringProperty, BoolProperty, EnumProperty, PointerProperty
 from . import utils
-from . import panels
 from . import constants as const
-from . import temp
 
 
 from bpy.app.translations import pgettext_iface as _ #For Translation of Text Required
@@ -33,7 +31,7 @@ def generation_mode_update(self, context):
 
     
 # Define a Property Group to store variables
-class TP3D_Properties(bpy.types.PropertyGroup):
+class TP3D_PG_properties(bpy.types.PropertyGroup):
     file_path: StringProperty(
         name= _("File Path"),
         description= _("Select a file"),

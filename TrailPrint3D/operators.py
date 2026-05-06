@@ -13,132 +13,129 @@ from mathutils import Quaternion, Vector, bvhtree, Euler
 import requests
 
 from . import constants as const
-from . import temp
 from . import utils
 from . import props
 from . import addon_preferences
 
-from bpy.props import FloatProperty, IntProperty, StringProperty, BoolProperty, EnumProperty, PointerProperty
+from bpy.props import StringProperty
 
 from bpy.app.translations import pgettext_iface as _ #For Translation of Text Required
 
 
 # Define the operator (script execution)
-class TP3D_Op_runGeneration(bpy.types.Operator):
-    bl_idname = "wm.run_my_script"
+class TP3D_OT_run_generation(bpy.types.Operator):
+    bl_idname = "tp3d.run_generation"
     bl_label = "Generate"
     bl_description = "Generate the Path and the Map with current Settings"
 
     def execute(self, context):
-        props = context.scene.tp3d  # Access stored variables
-        
         utils.runGeneration(0)
         
         return {'FINISHED'}
 
-class TP3D_Op_ExportSTL(bpy.types.Operator):
-    bl_idname = "wm.exportstl"
+class TP3D_OT_export_stl(bpy.types.Operator):
+    bl_idname = "tp3d.export_stl"
     bl_label = "Export STL"
     bl_description = "Export Selected Objects as Separate STL (Will lose Colors)"
 
     def execute(self, context):
-        props = context.scene.tp3d  # Access stored variables
+        tp3d = context.scene.tp3d  # Access stored variables
 
-        exportPath = props.get('export_path', None)
+        exportPath = tp3d.get('export_path', None)
 
         if not exportPath:
             exportPath = addon_preferences.get_prefs().default_export_folder
 
         if not exportPath:
-            utils.show_message_box("'Export path' is Empty. Please select a Directory For the finished files")
-            return {'FINISHED'}
+            self.report({'ERROR'}, "'Export path' is Empty. Please select a Directory For the finished files")
+            return {'CANCELLED'}
 
         exportPath = bpy.path.abspath(exportPath)
 
         if not exportPath or exportPath == "":
-            utils.show_message_box("Export path is empty! Please select a valid folder.")
-            return {'FINISHED'}
+            self.report({'ERROR'}, "Export path is empty! Please select a valid folder.")
+            return {'CANCELLED'}
         if not os.path.isdir(exportPath):
-            utils.show_message_box(f"Invalid export Directory: {exportPath}. Please select a valid Directory.")
-            return {'FINISHED'}
+            self.report({'ERROR'}, f"Invalid export Directory: {exportPath}. Please select a valid Directory.")
+            return {'CANCELLED'}
 
-        if not bpy.context.selected_objects:
-            utils.show_message_box("Please select the Object you want to Export")
-            return{'FINISHED'}
+        if not context.selected_objects:
+            self.report({'ERROR'}, "Please select the Object you want to Export")
+            return {'CANCELLED'}
 
         utils.export_selected_to_STL("STL")
 
         
         return {'FINISHED'}
     
-class TP3D_Op_ExportOBJ(bpy.types.Operator):
-    bl_idname = "wm.exportobj"
+class TP3D_OT_export_obj(bpy.types.Operator):
+    bl_idname = "tp3d.export_obj"
     bl_label = "Export OBJ"
     bl_description = "Export Selected Objects as Separate OBJ"
 
     def execute(self, context):
-        props = context.scene.tp3d  # Access stored variables
+        tp3d = context.scene.tp3d  # Access stored variables
 
-        exportPath = props.get('export_path', None)
+        exportPath = tp3d.get('export_path', None)
 
         if not exportPath:
             exportPath = addon_preferences.get_prefs().default_export_folder
 
         if not exportPath:
-            utils.show_message_box("'Export path' is Empty. Please select a Directory For the finished files")
-            return {'FINISHED'}
+            self.report({'ERROR'}, "'Export path' is Empty. Please select a Directory For the finished files")
+            return {'CANCELLED'}
 
         exportPath = bpy.path.abspath(exportPath)
 
         if not exportPath or exportPath == "":
-            utils.show_message_box("Export path is empty! Please select a valid folder.")
-            return {'FINISHED'}
+            self.report({'ERROR'}, "Export path is empty! Please select a valid folder.")
+            return {'CANCELLED'}
         if not os.path.isdir(exportPath):
-            utils.show_message_box(f"Invalid export Directory: {exportPath}. Please select a valid Directory.")
-            return {'FINISHED'}
+            self.report({'ERROR'}, f"Invalid export Directory: {exportPath}. Please select a valid Directory.")
+            return {'CANCELLED'}
 
-        if not bpy.context.selected_objects:
-            utils.show_message_box("Please select the Object you want to Export")
-            return{'FINISHED'}
+        if not context.selected_objects:
+            self.report({'ERROR'}, "Please select the Object you want to Export")
+            return {'CANCELLED'}
 
         utils.export_selected_to_STL("OBJ")
 
         
         return {'FINISHED'}
 
-class TP3D_Op_ExportThreeMF(bpy.types.Operator):
-    bl_idname = "wm.exportthreemf"
+class TP3D_OT_export_three_mf(bpy.types.Operator):
+    bl_idname = "tp3d.export_three_mf"
     bl_label = "Export 3mf"
     bl_description = "Export Selected Objects as Separate 3MF"
 
     def execute(self, context):
-        props = context.scene.tp3d  # Access stored variables
+        tp3d = context.scene.tp3d  # Access stored variables
 
         installed = utils.is_3mf_extension_installed()
 
-        if installed == True:
+        if installed:
         
-            exportPath = props.get('export_path', None)
+            exportPath = tp3d.get('export_path', None)
 
             if not exportPath:
                 exportPath = addon_preferences.get_prefs().default_export_folder
 
             if not exportPath:
-                utils.show_message_box("'Export path' is Empty. Please select a Directory For the finished files")
-                return {'FINISHED'}
+                self.report({'ERROR'}, "'Export path' is Empty. Please select a Directory For the finished files")
+                return {'CANCELLED'}
 
             exportPath = bpy.path.abspath(exportPath)
 
             if not exportPath or exportPath == "":
-                utils.show_message_box("Export path is empty! Please select a valid folder.")
-                return {'FINISHED'}
+                self.report({'ERROR'}, "Export path is empty! Please select a valid folder.")
+                return {'CANCELLED'}
             if not os.path.isdir(exportPath):
-                utils.show_message_box(f"Invalid export Directory: {exportPath}. Please select a valid Directory.")
-                return {'FINISHED'}
+                self.report({'ERROR'}, f"Invalid export Directory: {exportPath}. Please select a valid Directory.")
+                return {'CANCELLED'}
             
-            if not bpy.context.selected_objects:
-                utils.show_message_box("Please select the Object you want to Export")
-                return{'FINISHED'}
+            if not context.selected_objects:
+                self.report({'ERROR'}, "Please select the Object you want to Export")
+                return {'CANCELLED'}
             
             utils.export_selected_to_3mf()
         else:
@@ -149,8 +146,8 @@ class TP3D_Op_ExportThreeMF(bpy.types.Operator):
         return {'FINISHED'}
 
 
-class TP3D_Op_OpenWebsite(bpy.types.Operator):
-    bl_idname = "wm.open_website"
+class TP3D_OT_open_website(bpy.types.Operator):
+    bl_idname = "tp3d.open_website"
     bl_label = "Visit My Website"
     bl_description = "The Patreon Version has Additional Features!"
 
@@ -160,8 +157,8 @@ class TP3D_Op_OpenWebsite(bpy.types.Operator):
     
 
 # Operator to open a website
-class TP3D_Op_JoinDiscord(bpy.types.Operator):
-    bl_idname = "wm.join_discord"
+class TP3D_OT_join_discord(bpy.types.Operator):
+    bl_idname = "tp3d.join_discord"
     bl_label = "Join Discord"
     bl_description = "Discord Community for TrailPrint3D!"
 
@@ -170,8 +167,8 @@ class TP3D_Op_JoinDiscord(bpy.types.Operator):
         return {'FINISHED'}
 
 # Operator to open a website
-class TP3D_Op_infoVideo(bpy.types.Operator):
-    bl_idname = "wm.infovideo"
+class TP3D_OT_info_video(bpy.types.Operator):
+    bl_idname = "tp3d.info_video"
     bl_label = "Tutorial Video"
     bl_description = "Link to Video explaining this Feature"
 
@@ -183,8 +180,8 @@ class TP3D_Op_infoVideo(bpy.types.Operator):
         utils.open_website(self, context, self.url)
         return {'FINISHED'}
     
-class TP3D_Op_Rescale(bpy.types.Operator):
-    bl_idname = "wm.rescale"
+class TP3D_OT_rescale(bpy.types.Operator):
+    bl_idname = "tp3d.rescale"
     bl_label = "Rescale the z value"
     bl_description = "Rescales the Elevation the Currently selected objects"
     bl_options = {'REGISTER', 'UNDO'}
@@ -242,8 +239,8 @@ class TP3D_Op_Rescale(bpy.types.Operator):
 
         return {'FINISHED'}
     
-class TP3D_Op_savePreset(bpy.types.Operator):
-    bl_idname="wm.savepreset"
+class TP3D_OT_save_preset(bpy.types.Operator):
+    bl_idname = "tp3d.save_preset"
     bl_label = _("Save preset")
     bl_description = "Save the current settings as a preset"
     bl_options = {'REGISTER', 'UNDO'}
@@ -267,8 +264,8 @@ class TP3D_Op_savePreset(bpy.types.Operator):
 
         return {'FINISHED'}
 
-class TP3D_Op_loadPreset(bpy.types.Operator):
-    bl_idname="wm.loadpreset"
+class TP3D_OT_load_preset(bpy.types.Operator):
+    bl_idname = "tp3d.load_preset"
     bl_label = _("Load preset")
     bl_description = "Load the current settings as a preset"
     bl_options = {'REGISTER', 'UNDO'}
@@ -281,8 +278,8 @@ class TP3D_Op_loadPreset(bpy.types.Operator):
 
         return {'FINISHED'}
 
-class TP3D_Op_deletePreset(bpy.types.Operator):
-    bl_idname="wm.deletepreset"
+class TP3D_OT_delete_preset(bpy.types.Operator):
+    bl_idname = "tp3d.delete_preset"
     bl_label = _("Delete preset")
     bl_description = "Delete the current selected preset"
     bl_options = {'REGISTER', 'UNDO'}
@@ -295,8 +292,8 @@ class TP3D_Op_deletePreset(bpy.types.Operator):
 
         return {'FINISHED'}
 
-class TP3D_Op_clearCache(bpy.types.Operator):
-    bl_idname="wm.clearcache"
+class TP3D_OT_clear_cache(bpy.types.Operator):
+    bl_idname = "tp3d.clear_cache"
     bl_label = "Clear Cache"
     bl_description = "Delete all Cached Files from API calls"
     bl_options = {'REGISTER', 'UNDO'}
@@ -324,8 +321,8 @@ class TP3D_Op_clearCache(bpy.types.Operator):
         return {'FINISHED'}
 
 
-class TP3D_Op_thicken(bpy.types.Operator):
-    bl_idname="wm.thicken"
+class TP3D_OT_thicken(bpy.types.Operator):
+    bl_idname = "tp3d.thicken"
     bl_label = "Thicken Map"
     bl_description = "Make the selected Map thicker"
     bl_options = {'REGISTER', 'UNDO'}
@@ -380,19 +377,19 @@ class TP3D_Op_thicken(bpy.types.Operator):
 
         return {'FINISHED'}
 
-class TP3D_Op_PinCoords(bpy.types.Operator):
-    bl_idname="wm.pincoords"
+class TP3D_OT_pin_coords(bpy.types.Operator):
+    bl_idname = "tp3d.pin_coords"
     bl_label = "PinCoords"
     bl_description = "Place a Pin on a Coordinate"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        props = context.scene.tp3d
+        tp3d = context.scene.tp3d
         
-        minThickness = props.minThickness
+        minThickness = tp3d.minThickness
 
-        centerlat = props.pinLat
-        centerlon = props.pinLon
+        centerlat = tp3d.pinLat
+        centerlon = tp3d.pinLon
 
 
 
@@ -434,15 +431,15 @@ class TP3D_Op_PinCoords(bpy.types.Operator):
 
         return {'FINISHED'}
 
-class TP3D_Op_MagnetHoles(bpy.types.Operator):
-    bl_idname = "wm.magnetholes"
+class TP3D_OT_magnet_holes(bpy.types.Operator):
+    bl_idname = "tp3d.magnet_holes"
     bl_label = "Magnet Holes"
     bl_options = {'REGISTER', 'UNDO'}
 
 
     
     def execute(self,context):
-        props = context.scene.tp3d
+        tp3d = context.scene.tp3d
 
         selected_objects = context.selected_objects
 
@@ -464,7 +461,7 @@ class TP3D_Op_MagnetHoles(bpy.types.Operator):
             zobj.select_set(True)
             bpy.context.view_layer.objects.active = zobj
 
-            obj_size = props.objSize
+            obj_size = tp3d.objSize
 
             #Check for selection and custom property
             if zobj:
@@ -477,7 +474,7 @@ class TP3D_Op_MagnetHoles(bpy.types.Operator):
             if "MagnetHoles" not in zobj.keys():
                 continue
 
-            if zobj["MagnetHoles"] == True:
+            if zobj["MagnetHoles"]:
                 continue
 
             magnetDiameter = props.magnetDiameter
@@ -569,8 +566,8 @@ class TP3D_Op_MagnetHoles(bpy.types.Operator):
 
         return{'FINISHED'}
 
-class TP3D_Op_Dovetail(bpy.types.Operator):
-    bl_idname = "wm.dovetail"
+class TP3D_OT_dovetail(bpy.types.Operator):
+    bl_idname = "tp3d.dovetail"
     bl_label = "Dovetail"
     bl_options = {'REGISTER', 'UNDO'}
     
@@ -594,7 +591,7 @@ class TP3D_Op_Dovetail(bpy.types.Operator):
             if "Dovetail" not in zobj.keys():
                 continue
 
-            if zobj["Dovetail"] == True:
+            if zobj["Dovetail"]:
                 continue
 
             zobj.select_set(True)
@@ -620,26 +617,11 @@ class TP3D_Op_Dovetail(bpy.types.Operator):
             #Flip normals and Get bottom faces
             utils.selectBottomFaces(zobj)
 
-            #get the lowest zValue of one the faces
-            zValue = 0
-
             # Switch to Edit Mode
             #bpy.ops.object.mode_set(mode='EDIT')
             mesh = bmesh.from_edit_mesh(zobj.data)
 
-            # Get the world matrix to convert local to global coordinates
-            world_matrix = zobj.matrix_world
-
-            # Collect global Z-values of selected faces
-            z_values = [
-                (world_matrix @ face.calc_center_median()).z
-                for face in mesh.faces if face.select
-            ]
-            
-            zValue = min(z_values)
-
             bpy.ops.object.mode_set(mode='OBJECT')
-
 
             #Set 3D cursor to object's origin
             bpy.context.scene.cursor.location = zobj.location
@@ -734,8 +716,8 @@ class TP3D_Op_Dovetail(bpy.types.Operator):
 
         return{"FINISHED"}
 
-class TP3D_Op_BottomMark(bpy.types.Operator):
-    bl_idname = "wm.bottommark"
+class TP3D_OT_bottom_mark(bpy.types.Operator):
+    bl_idname = "tp3d.bottom_mark"
     bl_label = "Bottom Mark"
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -760,7 +742,7 @@ class TP3D_Op_BottomMark(bpy.types.Operator):
             if "BottomMark" not in zobj.keys():
                 continue
 
-            if zobj["BottomMark"] == True:
+            if zobj["BottomMark"]:
                 continue
 
             if zobj.type == "MESH" and "objSize" in zobj:
@@ -771,7 +753,7 @@ class TP3D_Op_BottomMark(bpy.types.Operator):
                 mark = utils.BottomText(zobj)
                 generated = True
 
-                if bottomMarkCutout == True:
+                if bottomMarkCutout:
 
                     mark.scale.z = 2
 
@@ -795,7 +777,7 @@ class TP3D_Op_BottomMark(bpy.types.Operator):
 
 
         
-        if generated == False:
+        if not generated:
             utils.show_message_box("Not a valid Object selected")
 
         bpy.context.view_layer.objects.active = selected_objects[0]
@@ -806,16 +788,16 @@ class TP3D_Op_BottomMark(bpy.types.Operator):
 
         return{'FINISHED'}
 
-class TP3D_Op_TerrainDummy(bpy.types.Operator):
-    bl_idname = "wm.dummy"
+class TP3D_OT_terrain_dummy(bpy.types.Operator):
+    bl_idname = "tp3d.terrain_dummy"
     bl_label = "Dummy Operator"
     def execute(self,context):
-        utils.show_message_box("This Feature is Exclusive for Patreon Supporters")
+        self.report({'INFO'}, "This Feature is Exclusive for Patreon Supporters")
         return{"FINISHED"}
 
 
-class TP3D_Op_ColorMountain(bpy.types.Operator):
-    bl_idname="wm.colormountain"
+class TP3D_OT_color_mountain(bpy.types.Operator):
+    bl_idname = "tp3d.color_mountain"
     bl_label = "Color Mountains"
     bl_description = "Color Mountains above a certain Threshold"
     bl_options = {'REGISTER', 'UNDO'}
@@ -855,7 +837,6 @@ class TP3D_Op_ColorMountain(bpy.types.Operator):
 
         #---------------------------------------
         #Create or get green material
-        matG = bpy.data.materials.get("BASE")
        
         #Create or get a gray material
         mat = bpy.data.materials.get("MOUNTAIN")
@@ -873,32 +854,12 @@ class TP3D_Op_ColorMountain(bpy.types.Operator):
                 
             print("Apply Mountain Color")
 
-
-            vertical_normal_tol = 0.02
-            faces_to_remove = []
-            global_cut_vertices_for_face = []
-            ztol = 0.001
-
-
             #obj.data.materials.clear()
             #obj.data.materials.append(matG)  # creates first slot and assigns
 
             def cut_mesh_at_height(obj, z_height):
                 bpy.context.view_layer.objects.active = obj
                 bpy.ops.object.mode_set(mode='EDIT')
-                bm = bmesh.from_edit_mesh(obj.data)
-
-                plane_co = Vector((0, 0, z_height))
-                plane_no = Vector((0, 0, 1))
-
-                result = bmesh.ops.bisect_plane(
-                    bm,
-                    geom=bm.verts[:] + bm.edges[:] + bm.faces[:],
-                    plane_co=plane_co,
-                    plane_no=plane_no,
-                    clear_outer=False,
-                    clear_inner=False
-                )
 
                 bmesh.update_edit_mesh(obj.data)
                 bpy.ops.object.mode_set(mode='OBJECT')
@@ -921,8 +882,6 @@ class TP3D_Op_ColorMountain(bpy.types.Operator):
 
             obj = bpy.context.view_layer.objects.active
 
-            mesh = obj.data
-
             #Ensure MOUNTAIN material exists on the object before coloring
             mat_index = obj.data.materials.find("MOUNTAIN")
             if mat_index == -1 and mat is not None:
@@ -939,8 +898,8 @@ class TP3D_Op_ColorMountain(bpy.types.Operator):
 
         return {'FINISHED'}
 
-class TP3D_Op_ContourLines(bpy.types.Operator):
-    bl_idname="wm.contourlines"
+class TP3D_OT_contour_lines(bpy.types.Operator):
+    bl_idname = "tp3d.contour_lines"
     bl_label = _("Contour Lines")
     bl_description = "Generate contour lines on the map"
     bl_options = {'REGISTER', 'UNDO'}
@@ -956,8 +915,8 @@ class TP3D_Op_ContourLines(bpy.types.Operator):
 
         return {'FINISHED'}
     
-class TP3D_Op_popup_Merge(bpy.types.Operator):
-    bl_idname = "pop.merge"
+class TP3D_OT_popup_merge(bpy.types.Operator):
+    bl_idname = "tp3d.popup_merge"
     bl_label = "Merge Object with Map"
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -1002,7 +961,8 @@ class TP3D_Op_popup_Merge(bpy.types.Operator):
     def execute(self, context):
 
         obj = context.active_object
-        if not obj: return {'CANCELLED'}
+        if not obj:
+            return {'CANCELLED'}
 
         # Convert to Mesh and Extrude
         bpy.ops.object.convert(target='MESH')
@@ -1071,8 +1031,8 @@ class TP3D_Op_popup_Merge(bpy.types.Operator):
 
         return context.window_manager.invoke_props_dialog(self)
 
-class TP3D_Op_ImportText(bpy.types.Operator):
-    bl_idname="wm.importtext"
+class TP3D_OT_import_text(bpy.types.Operator):
+    bl_idname = "tp3d.import_text"
     bl_label = "Import Text"
     bl_description = "Import Text to place it on your Map"
     bl_options = {'REGISTER', 'UNDO'}
@@ -1080,7 +1040,7 @@ class TP3D_Op_ImportText(bpy.types.Operator):
     def execute(self,context):
         
         obj = bpy.context.view_layer.objects.active
-        if obj == None:
+        if obj is None:
             utils.show_message_box("No Map Selected")
             return {'FINISHED'}
 
@@ -1088,11 +1048,11 @@ class TP3D_Op_ImportText(bpy.types.Operator):
             utils.show_message_box("Selected object is not a Map")
             return {'FINISHED'}
 
-        bpy.ops.pop.text('INVOKE_DEFAULT')
+        bpy.ops.tp3d.popup_text('INVOKE_DEFAULT')
         return {'FINISHED'}
 
-class TP3D_Op_popup_Text(bpy.types.Operator):
-    bl_idname = "pop.text"
+class TP3D_OT_popup_text(bpy.types.Operator):
+    bl_idname = "tp3d.popup_text"
     bl_label = "Import Text"
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -1167,14 +1127,14 @@ class TP3D_Op_popup_Text(bpy.types.Operator):
         layout.prop(self, "scaleFac")
         layout.prop(self, "rotation")
         layout.prop(self, "bottomSide")
-        if self.bottomSide == False:
+        if not self.bottomSide:
             layout.prop(self, "operation")
 
     def check(self, context):
         obj = context.active_object
 
         multi = 1
-        if self.bottomSide == True:
+        if self.bottomSide:
             multi = -1
 
         # Apply transforms
@@ -1187,11 +1147,11 @@ class TP3D_Op_popup_Text(bpy.types.Operator):
         # Update Text Body
         obj.data.body = self.text
 
-        if self.bottomSide == True and self.rv3d.view_rotation == Quaternion((1, 0, 0, 0)):
+        if self.bottomSide and self.rv3d.view_rotation == Quaternion((1, 0, 0, 0)):
             self.rv3d.view_rotation = Quaternion((0,0,1,0))
             obj.location.z  = self.bottomZ
         
-        if self.bottomSide == False and self.rv3d.view_rotation == Quaternion((0,0,1,0)):
+        if not self.bottomSide and self.rv3d.view_rotation == Quaternion((0,0,1,0)):
             self.rv3d.view_rotation = Quaternion((1,0,0,0))
             obj.location.z  = self.topZ
         
@@ -1200,7 +1160,8 @@ class TP3D_Op_popup_Text(bpy.types.Operator):
     def execute(self, context):
 
         obj = context.active_object
-        if not obj: return {'CANCELLED'}
+        if not obj:
+            return {'CANCELLED'}
 
         # Save last used font to scene props
         if self.textFont:
@@ -1221,7 +1182,7 @@ class TP3D_Op_popup_Text(bpy.types.Operator):
 
         
 
-        if self.bottomSide == False:
+        if not self.bottomSide:
             obj.location.z = -1
             utils.projection(self.operation, Mapobject, obj)
         else:
@@ -1332,8 +1293,8 @@ class TP3D_Op_popup_Text(bpy.types.Operator):
 
         return context.window_manager.invoke_props_dialog(self)
 
-class TP3D_Op_ImportSvg(bpy.types.Operator):
-    bl_idname="wm.importsvg"
+class TP3D_OT_import_svg(bpy.types.Operator):
+    bl_idname = "tp3d.import_svg"
     bl_label = "Import SVG"
     bl_description = "Import an SVG file onto the map"
     bl_options = {'REGISTER', 'UNDO'}
@@ -1341,7 +1302,7 @@ class TP3D_Op_ImportSvg(bpy.types.Operator):
     def execute(self,context):
         
         obj = bpy.context.view_layer.objects.active
-        if obj == None:
+        if obj is None:
             utils.show_message_box("No Map Selected")
             return {'FINISHED'}
 
@@ -1349,11 +1310,11 @@ class TP3D_Op_ImportSvg(bpy.types.Operator):
             utils.show_message_box("Selected object is not a Map")
             return {'FINISHED'}
 
-        bpy.ops.pop.svg('INVOKE_DEFAULT')
+        bpy.ops.tp3d.popup_svg('INVOKE_DEFAULT')
         return {'FINISHED'}
     
-class TP3D_Op_popup_Svg(bpy.types.Operator):
-    bl_idname = "pop.svg"
+class TP3D_OT_popup_svg(bpy.types.Operator):
+    bl_idname = "tp3d.popup_svg"
     bl_label = "Import SVG"
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -1401,7 +1362,7 @@ class TP3D_Op_popup_Svg(bpy.types.Operator):
         layout.prop(self, "scaleFac")
         layout.prop(self, "rotation")
         layout.prop(self, "bottomSide")
-        if self.bottomSide == False:
+        if not self.bottomSide:
             layout.prop(self, "operation")
 
     def check(self, context):
@@ -1417,7 +1378,7 @@ class TP3D_Op_popup_Svg(bpy.types.Operator):
             return False
         
         multi = 1
-        if self.bottomSide == True:
+        if self.bottomSide:
             multi = -1
 
         # Apply transforms
@@ -1427,11 +1388,11 @@ class TP3D_Op_popup_Svg(bpy.types.Operator):
         obj.scale.x = self._start_scale * self.scaleFac * multi
         obj.scale.y = self._start_scale * self.scaleFac
 
-        if self.bottomSide == True and self.rv3d.view_rotation == Quaternion((1, 0, 0, 0)):
+        if self.bottomSide and self.rv3d.view_rotation == Quaternion((1, 0, 0, 0)):
             self.rv3d.view_rotation = Quaternion((0,0,1,0))
             obj.location.z  = self.bottomZ
         
-        if self.bottomSide == False and self.rv3d.view_rotation == Quaternion((0,0,1,0)):
+        if not self.bottomSide and self.rv3d.view_rotation == Quaternion((0,0,1,0)):
             self.rv3d.view_rotation = Quaternion((1,0,0,0))
             obj.location.z  = self.topZ
 
@@ -1450,7 +1411,7 @@ class TP3D_Op_popup_Svg(bpy.types.Operator):
         utils.recalculateNormals(obj)
 
 
-        if self.bottomSide == False:
+        if not self.bottomSide:
             obj.location.z = -1
             utils.projection(self.operation, Mapobject, obj)
         else:
@@ -1510,7 +1471,7 @@ class TP3D_Op_popup_Svg(bpy.types.Operator):
 
         svg.data.materials.clear()
 
-        if svg == None:
+        if svg is None:
             self.report({'WARNING'}, "No Valid object selected")
             utils.show_message_box("No valid Map selected")
             return {'CANCELLED'}
@@ -1557,28 +1518,8 @@ class TP3D_Op_popup_Svg(bpy.types.Operator):
 
         return context.window_manager.invoke_props_dialog(self)
 
-class TP3D_Op_ImportPin(bpy.types.Operator):
-    bl_idname="wm.importpin"
-    bl_label = "Import Pin"
-    bl_description = "Place Pin on Position"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    def execute(self,context):
-        
-        obj = bpy.context.view_layer.objects.active
-        if obj == None:
-            utils.show_message_box("No Map Selected")
-            return {'FINISHED'}
-
-        if "objSize" not in obj.keys():
-            utils.show_message_box("Selected object is not a Map")
-            return {'FINISHED'}
-
-        bpy.ops.pop.svg('INVOKE_DEFAULT')
-        return {'FINISHED'}
-
-class TP3D_Op_ImportPin(bpy.types.Operator):
-    bl_idname = "wm.importpin"
+class TP3D_OT_import_pin(bpy.types.Operator):
+    bl_idname = "tp3d.import_pin"
     bl_label = "Import Pin"
     bl_description = "Place a Pin on your Map interactively"
     bl_options = {'REGISTER', 'UNDO'}
@@ -1593,13 +1534,13 @@ class TP3D_Op_ImportPin(bpy.types.Operator):
             utils.show_message_box("Selected object is not a Map")
             return {'FINISHED'}
 
-        bpy.ops.pop.pin('INVOKE_DEFAULT')
+        bpy.ops.tp3d.popup_pin('INVOKE_DEFAULT')
         return {'FINISHED'}
 
 
 
-class TP3D_Op_popup_Pin(bpy.types.Operator):
-    bl_idname = "pop.pin"
+class TP3D_OT_popup_pin(bpy.types.Operator):
+    bl_idname = "tp3d.popup_pin"
     bl_label = "Place Pin"
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -1743,8 +1684,8 @@ class TP3D_Op_popup_Pin(bpy.types.Operator):
 
         return context.window_manager.invoke_props_dialog(self)
 
-class TP3D_Op_InstallThreeMF(bpy.types.Operator):
-    bl_idname = "wm.install_3mf"
+class TP3D_OT_install_three_mf(bpy.types.Operator):
+    bl_idname = "tp3d.install_three_mf"
     bl_label = "Install 3MF Extension"
     bl_description = "Automatically downloads and enables the 3MF extension by Clonephaze"
 
