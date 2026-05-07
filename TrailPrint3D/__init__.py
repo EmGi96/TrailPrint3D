@@ -93,11 +93,15 @@ import os
 from . import translation
 from . import constants as const
 from . import temp
+from . import updater
 from . import addon_preferences
 from . import props
 from . import progress
 from . import utils
-from . import map_picker
+try:
+    from . import map_picker
+except ImportError:
+    map_picker = None
 from . import operators
 from . import panels
 from . import export
@@ -141,6 +145,8 @@ classes = [
     operators.TP3D_OT_popup_pin,
     operators.TP3D_OT_popup_merge,
     operators.TP3D_OT_install_three_mf,
+    operators.TP3D_OT_check_update,
+    operators.TP3D_OT_install_update,
 ]
 
 _PREMIUM_CLASS_NAMES = [
@@ -173,6 +179,8 @@ def startup_function(scene, dummy = None):
     utils.loadCollections(scene, dummy)
 
     export.is_3mf_extension_installed()
+
+    updater.start_check()
 
     #utils.load_myproperties_from_csv(bpy.context.scene.preset_list)
 

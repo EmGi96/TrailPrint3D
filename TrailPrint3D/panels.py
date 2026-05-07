@@ -6,6 +6,7 @@
 import bpy
 
 from . import temp
+from . import updater
 
 from bpy.app.translations import pgettext_iface as _ #For Translation of Text Required
 
@@ -22,6 +23,15 @@ class TP3D_PT_generate(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         props = context.scene.tp3d
+
+        # --- Update banner ---
+        if updater.status == "update_available":
+            box = layout.box()
+            col = box.column(align=True)
+            latest_str = ".".join(str(x) for x in updater.latest_version)
+            col.label(text=_(f"Update available: v{latest_str}"), icon='FUND')
+            col.scale_y = 1.3
+            col.operator("tp3d.install_update", text=_("Download & Install"), icon='IMPORT')
 
         # --- Header ---
         row = layout.row(align=True)
