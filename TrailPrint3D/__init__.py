@@ -100,6 +100,7 @@ from . import utils
 from . import map_picker
 from . import operators
 from . import panels
+from . import export
 from bpy.app.handlers import persistent
 
 # Base (non-premium) classes — built once at import time.
@@ -171,7 +172,7 @@ def startup_function(scene, dummy = None):
     
     utils.loadCollections(scene, dummy)
 
-    utils.is_3mf_extension_installed()
+    export.is_3mf_extension_installed()
 
     #utils.load_myproperties_from_csv(bpy.context.scene.preset_list)
 
@@ -222,7 +223,7 @@ def register():
 
     # Check 3MF availability now — all addon modules are importable at this
     # point regardless of registration order, so addon_utils can find it.
-    utils.is_3mf_extension_installed()
+    export.is_3mf_extension_installed()
 
 
 def _load_collections_deferred():
