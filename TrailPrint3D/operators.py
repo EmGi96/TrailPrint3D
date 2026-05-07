@@ -14,6 +14,7 @@ import requests
 
 from . import constants as const
 from . import utils
+from . import export
 from . import props
 from . import addon_preferences
 
@@ -63,7 +64,7 @@ class TP3D_OT_export_stl(bpy.types.Operator):
             self.report({'ERROR'}, "Please select the Object you want to Export")
             return {'CANCELLED'}
 
-        utils.export_selected_to_STL("STL")
+        export.export_selected_to_STL("STL")
 
         
         return {'FINISHED'}
@@ -98,7 +99,7 @@ class TP3D_OT_export_obj(bpy.types.Operator):
             self.report({'ERROR'}, "Please select the Object you want to Export")
             return {'CANCELLED'}
 
-        utils.export_selected_to_STL("OBJ")
+        export.export_selected_to_STL("OBJ")
 
         
         return {'FINISHED'}
@@ -111,7 +112,7 @@ class TP3D_OT_export_three_mf(bpy.types.Operator):
     def execute(self, context):
         tp3d = context.scene.tp3d  # Access stored variables
 
-        installed = utils.is_3mf_extension_installed()
+        installed = export.is_3mf_extension_installed()
 
         if installed:
         
@@ -137,7 +138,7 @@ class TP3D_OT_export_three_mf(bpy.types.Operator):
                 self.report({'ERROR'}, "Please select the Object you want to Export")
                 return {'CANCELLED'}
             
-            utils.export_selected_to_3mf()
+            export.export_selected_to_3mf()
         else:
             print("Addon not Installed")
 
@@ -1700,7 +1701,7 @@ class TP3D_OT_install_three_mf(bpy.types.Operator):
             print({'ERROR'}, f"Install failed: {e}")
             utils.show_message_box("Install failed: Online access may be disabled. Please enable it in Blender Preferences > System > Network.", "ERROR", "3MF Install Failed")
 
-        inst=  utils.is_3mf_extension_installed()
+        inst=  export.is_3mf_extension_installed()
         print(f"Inst {inst}")        
     
         return {'FINISHED'}
