@@ -1228,18 +1228,6 @@ def remeshClearing(obj, voxelSize2, tolerance):
     bpy.ops.object.mode_set(mode='OBJECT')
 
 
-    # Remove all vertices more than voxelSize away from bottom_z — leaves an edge loop
-    bpy.ops.object.select_all(action='DESELECT')
-    obj.select_set(True)
-    bpy.context.view_layer.objects.active = obj
-    bpy.ops.object.mode_set(mode='EDIT')
-    bpy.ops.mesh.select_mode(type='VERT')
-    bm = bmesh.from_edit_mesh(obj.data)
-    bm.verts.ensure_lookup_table()
-    for v in bm.verts:
-        v.select = abs(v.co.z - bottom_z) >= voxelSize2/2+0.001
-    bmesh.update_edit_mesh(obj.data)
-
     #----------------------
     bpy.ops.object.mode_set(mode='OBJECT')
 
@@ -1254,6 +1242,8 @@ def remeshClearing(obj, voxelSize2, tolerance):
     sx  = (max(xs) - min(xs)) + pad * 2
     sy  = (max(ys) - min(ys)) + pad * 2
 
+    print(f"Cube center: ({cx}, {cy}), size: ({sx}, {sy})")
+
     bm_c = bmesh.new()
     bmesh.ops.create_cube(bm_c, size=1.0)
     _cube_mesh = bpy.data.meshes.new("_BoolCube")
@@ -1263,7 +1253,7 @@ def remeshClearing(obj, voxelSize2, tolerance):
     cube_obj = bpy.data.objects.new("_BoolCube", _cube_mesh)
     bpy.context.collection.objects.link(cube_obj)
     cube_obj.scale    = (sx, sy, 50.0)
-    cube_obj.location = (cx, cy, 25.0)   # bottom face lands at z=0, top at z=50
+    cube_obj.location = (cx, cy, 25.0+bottom_z)   # bottom face lands at z=0, top at z=50
 
     bpy.context.view_layer.objects.active = obj
     obj.select_set(True)
@@ -1271,6 +1261,7 @@ def remeshClearing(obj, voxelSize2, tolerance):
     bool_mod.operation = 'DIFFERENCE'
     bool_mod.object    = cube_obj
     bool_mod.solver    = 'MANIFOLD'
+
     applyModifier(obj, bool_mod)
     bpy.data.objects.remove(cube_obj, do_unlink=True)
 
