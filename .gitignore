@@ -1,16 +1,16 @@
 # Premium files
 operators_pe.py
 utils_pe.py
-assets/puzzles.blend
+**/assets/puzzles.blend
 map_picker.py
 
 # Build/dev files
 build.py
 *.zip
-assets/connectors.blend1
-assets/other.blend1
-assets/holder.blend1
-assets/puzzles.blend1
+**/assets/connectors.blend1
+**/assets/other.blend1
+**/assets/holder.blend1
+**/assets/puzzles.blend1
 
 # Other cache
 __pycache__/
