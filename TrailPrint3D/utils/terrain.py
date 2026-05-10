@@ -454,57 +454,6 @@ def coloring_main(map, kind = "WATER"):
         if _ov.active:
             _ov.update(message=f"{kind.capitalize()}: applying Element handling option ({elementMode})")
 
-        if "SINGLECOLORMODE" in elementMode and 1 == 0:
-            _VALID_SHAPES = {
-                "SQUARE", "HEXAGON", "HEXAGON INNER TEXT", "HEXAGON OUTER TEXT",
-                "HEXAGON FRONT TEXT", "HEART", "OCTAGON", "OCTAGON OUTER TEXT",
-                "CIRCLE", "MEDAL", "ELLIPSE",
-            }
-            _map_shape  = bpy.context.scene.tp3d.shape
-            _obj_size   = bpy.context.scene.tp3d.objSize
-            _clip_inset = bpy.context.scene.tp3d.elementModeInset
-
-            if _map_shape in _VALID_SHAPES and _obj_size > 0:
-                _clip_size = _obj_size - _clip_inset
-                _half      = _clip_size / 2
-                bpy.ops.object.select_all(action="DESELECT")
-                if _map_shape == "SQUARE":
-                    _rH = bpy.context.scene.tp3d.rectangleHeight
-                    _clip_shape = create_rectangle(_clip_size, _rH, 1, "_clip_shape")
-                elif _map_shape in {"HEXAGON", "HEXAGON INNER TEXT", "HEXAGON OUTER TEXT", "HEXAGON FRONT TEXT"}:
-                    _clip_shape = create_hexagon(_half, 1, "_clip_shape")
-                elif _map_shape == "HEART":
-                    _clip_shape = create_heart(_half, 1, "_clip_shape")
-                elif _map_shape in {"OCTAGON", "OCTAGON OUTER TEXT"}:
-                    _clip_shape = create_octagon(_half, 1, "_clip_shape")
-                elif _map_shape in {"CIRCLE", "MEDAL"}:
-                    _clip_shape = create_circle(_half, 1, "_clip_shape")
-                elif _map_shape == "ELLIPSE":
-                    _ratio = bpy.context.scene.tp3d.ellipseRatio
-                    _clip_shape = create_ellipse(_half, 1, "_clip_shape", _ratio)
-                # Position at map XY, start 1 unit below to guarantee overlap
-                _clip_shape.location.x = map.location.x
-                _clip_shape.location.y = map.location.y
-                _clip_shape.location.z = map.location.z - 1
-                # Extrude upward by 50
-                _bm = bmesh.new()
-                _bm.from_mesh(_clip_shape.data)
-                _geom = _bm.faces[:]
-                _ret  = bmesh.ops.extrude_face_region(_bm, geom=_geom)
-                _ext_verts = [v for v in _ret["geom"] if isinstance(v, bmesh.types.BMVert)]
-                bmesh.ops.translate(_bm, verts=_ext_verts, vec=Vector((0, 0, 50)))
-                _bm.to_mesh(_clip_shape.data)
-                _bm.free()
-
-                print("Yessir")
-                # Intersect element against the clip shape (manifold solver)
-                boolean_operation(merged_object, _clip_shape, 'INTERSECT')
-
-                remove_objects(_clip_shape)
-
-                recalculateNormals(merged_object)
-
-
         if elementMode == "PAINT":
             print("PAINTING")
             recalculateNormals(map)
@@ -655,7 +604,8 @@ def plateInsert(plate, map):
 
 def createOcean(bboxBigger, waterHeight, scaleHor, landpoints, baseplate, tile, baseHeight):
     from .osm import create_element  # deferred to avoid circular import at load time
-    from .scene import set_origin_to_3d_cursor, projection  # deferred to avoid circular import at load time
+    from .scene import set_origin_to_3d_cursor  # deferred to avoid circular import at load time
+    from .mesh_ops import projection  # deferred to avoid circular import at load time
     from .primitives import create_rectangle  # deferred to avoid circular import at load time
 
     coastcurve = create_element(bboxBigger, waterHeight, scaleHor, "COASTLINE", baseHeight * 3)

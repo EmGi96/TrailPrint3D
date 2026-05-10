@@ -17,6 +17,12 @@ def transform_MapObject(obj, newX, newY):
 
 
 def zoom_camera_to_selected(obj):
+    if obj is None:
+        return
+    try:
+        obj.select_set  # raises ReferenceError if the object was freed
+    except ReferenceError:
+        return
 
     bpy.ops.object.select_all(action='DESELECT')
 
@@ -348,51 +354,6 @@ def toggle_console():
             bpy.ops.wm.console_toggle()
     except Exception as e:
         print(f"Could not toggle console: {e}")
-
-def projection(operation, Mapobject, obj):
-    from .mesh_ops import merge_with_map, single_color_mode_mesh_wireframe, single_color_mode_mesh_remesh, boolean_operation  # deferred to avoid circular import at load time
-    from .terrain import color_map_faces_by_terrain  # deferred to avoid circular import at load time
-
-    if operation == "paint":
-        merge_with_map(Mapobject, obj)
-
-        obj.location.z += 1
-
-        bpy.ops.object.origin_set(type='ORIGIN_CURSOR', center='MEDIAN')
-        color_map_faces_by_terrain(Mapobject, obj)
-        mesh_data = obj.data
-        bpy.data.objects.remove(obj, do_unlink=True)
-        bpy.data.meshes.remove(mesh_data)
-
-    if operation == "separate":
-        merge_with_map(Mapobject, obj, False)
-
-        obj.data.materials.clear()
-
-        obj.location.z += 0.2
-
-
-    if operation == "singleColorMode":
-
-        merge_with_map(Mapobject, obj,True)
-
-        obj.data.materials.clear()
-
-
-        thickerObj = single_color_mode_mesh_wireframe(obj,Mapobject)
-
-    if operation == "singleColorMode_remesh":
-
-        merge_with_map(Mapobject, obj, True)
-
-        obj.data.materials.clear()
-
-        thickerObj = single_color_mode_mesh_remesh(obj, Mapobject)
-
-    if operation == "negative":
-        merge_with_map(Mapobject, obj,True)
-        boolean_operation(Mapobject,obj,"DIFFERENCE")
-        remove_objects(obj)
 
 
 def importSVGtoMerge(Mapobject):

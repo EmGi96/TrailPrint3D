@@ -203,9 +203,6 @@ def merge_objects(objects, name="MergedObject"):
     if not mesh_objs:
         return None
 
-    # store previous selection to restore later (optional)
-    prev_active = bpy.context.view_layer.objects.active
-    prev_selected = [o for o in bpy.context.selected_objects]
 
     # ensure in same collection / visible
     bpy.ops.object.select_all(action='DESELECT')
@@ -219,14 +216,6 @@ def merge_objects(objects, name="MergedObject"):
     # the joined object is now the active object
     joined = bpy.context.view_layer.objects.active
     joined.name = name
-
-    # restore previous selection/active (optional)
-    #for o in bpy.context.selected_objects:
-    #    o.select_set(False)
-    #if prev_active:
-    #    bpy.context.view_layer.objects.active = prev_active
-    #for o in prev_selected:
-    #    o.select_set(True)
 
 
     return joined
@@ -1350,6 +1339,9 @@ def single_color_mode_mesh_remesh(original, map, tolerance = None):
 
 def merge_with_map(mapobject, mergeobject, flatBottom = False, singleColorMode = False,):
 
+    if mergeobject == None:
+        print("func merge_with_map: No Object to merge with Map")
+        return None
 
     if mergeobject.type == "CURVE":
         print("MERGE CURVE WITH MAP")
@@ -1474,3 +1466,59 @@ def merge_with_map(mapobject, mergeobject, flatBottom = False, singleColorMode =
     mergeobject.location.z += 0.05
 
     return mergeobject
+
+
+def projection(operation, Mapobject, obj):
+    from .terrain import color_map_faces_by_terrain  # deferred to avoid circular import at load time
+    from .scene import remove_objects  # deferred to avoid circular import at load time
+
+    for label, o in (("Mapobject", Mapobject), ("obj", obj)):
+        if o is None:
+            raise ValueError(f"projection: '{label}' is None")
+        try:
+            name = o.name  # raises ReferenceError if the Blender object was removed
+        except ReferenceError:
+            raise ValueError(f"projection: '{label}' refers to a removed Blender object")
+        if name not in bpy.data.objects:
+            raise ValueError(f"projection: '{label}' ('{name}') is not in the current scene")
+        if o.type != 'MESH' or o.data is None:
+            raise ValueError(f"projection: '{label}' ('{name}') is not a valid mesh object (type={o.type!r})")
+
+    if operation == "paint":
+        merge_with_map(Mapobject, obj)
+
+        obj.location.z += 1
+
+        bpy.ops.object.origin_set(type='ORIGIN_CURSOR', center='MEDIAN')
+        color_map_faces_by_terrain(Mapobject, obj)
+        mesh_data = obj.data
+        bpy.data.objects.remove(obj, do_unlink=True)
+        bpy.data.meshes.remove(mesh_data)
+
+    if operation == "separate":
+        merge_with_map(Mapobject, obj, False)
+
+        obj.data.materials.clear()
+
+        obj.location.z += 0.2
+
+    if operation == "singleColorMode":
+
+        merge_with_map(Mapobject, obj, True)
+
+        obj.data.materials.clear()
+
+        single_color_mode_mesh_wireframe(obj, Mapobject)
+
+    if operation == "singleColorMode_remesh":
+
+        merge_with_map(Mapobject, obj, True)
+
+        obj.data.materials.clear()
+
+        single_color_mode_mesh_remesh(obj, Mapobject)
+
+    if operation == "negative":
+        merge_with_map(Mapobject, obj, True)
+        boolean_operation(Mapobject, obj, "DIFFERENCE")
+        remove_objects(obj)

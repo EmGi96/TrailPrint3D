@@ -12,6 +12,7 @@ import pathlib
 import time
 import socket
 import threading
+import webbrowser
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 
@@ -608,7 +609,6 @@ def _run_browser(json_path):
             '--disable-background-networking',
         ])
     else:
-        import webbrowser
         webbrowser.open(url)
 
     # Wait until generation finishes

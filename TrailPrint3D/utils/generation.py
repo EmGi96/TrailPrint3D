@@ -336,11 +336,12 @@ def _rg_create_map_object(flags, props, modelname, centerx, centery):
     return MapObject
 
 
-def _rg_build_terrain_elements(obj, scaleHor, curveObj=None):
+def _rg_build_terrain_elements(obj, scaleHor, curveObj=None, phase_start=0.83, phase_end=0.95):
     """Create water, forest, city, glacier, building and road overlay meshes.
 
     Reads all flags directly from bpy.context.scene.tp3d.
     Returns a dict keyed by element name; values may be None if disabled.
+    phase_start/phase_end control the overlay progress range for multi-tile callers.
     """
     from .terrain import coloring_main, createOcean, _COLORING_EMPTY, _COLORING_PAINTED  # deferred to avoid circular import at load time
     from .osm import create_buildings, create_roads  # deferred to avoid circular import at load time
@@ -368,8 +369,8 @@ def _rg_build_terrain_elements(obj, scaleHor, curveObj=None):
     ]
 
     # Count total active elements (coloring + optional ocean/buildings/roads) for progress spread
-    _ELEM_PHASE_START = 0.83
-    _ELEM_PHASE_END   = 0.95
+    _ELEM_PHASE_START = phase_start
+    _ELEM_PHASE_END   = phase_end
     _active_elem_flags = (
         [flag for _, flag, size, _, _ in COLORING_ELEMENTS if (flag(tp3d) if callable(flag) else getattr(tp3d, flag) == 1) and map_km <= size]
         + (['_ocean']    if tp3d.el_oActive == 1 else [])
