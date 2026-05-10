@@ -14,6 +14,7 @@ import requests
 
 from . import constants as const
 from . import utils
+from . import export
 from . import props
 from . import addon_preferences
 
@@ -63,7 +64,7 @@ class TP3D_OT_export_stl(bpy.types.Operator):
             self.report({'ERROR'}, "Please select the Object you want to Export")
             return {'CANCELLED'}
 
-        utils.export_selected_to_STL("STL")
+        export.export_selected_to_STL("STL")
 
         
         return {'FINISHED'}
@@ -98,7 +99,7 @@ class TP3D_OT_export_obj(bpy.types.Operator):
             self.report({'ERROR'}, "Please select the Object you want to Export")
             return {'CANCELLED'}
 
-        utils.export_selected_to_STL("OBJ")
+        export.export_selected_to_STL("OBJ")
 
         
         return {'FINISHED'}
@@ -111,7 +112,7 @@ class TP3D_OT_export_three_mf(bpy.types.Operator):
     def execute(self, context):
         tp3d = context.scene.tp3d  # Access stored variables
 
-        installed = utils.is_3mf_extension_installed()
+        installed = export.is_3mf_extension_installed()
 
         if installed:
         
@@ -137,7 +138,7 @@ class TP3D_OT_export_three_mf(bpy.types.Operator):
                 self.report({'ERROR'}, "Please select the Object you want to Export")
                 return {'CANCELLED'}
             
-            utils.export_selected_to_3mf()
+            export.export_selected_to_3mf()
         else:
             print("Addon not Installed")
 
@@ -1684,6 +1685,48 @@ class TP3D_OT_popup_pin(bpy.types.Operator):
 
         return context.window_manager.invoke_props_dialog(self)
 
+def _redraw_all_areas():
+    """Timer callback: keep redrawing until the update check finishes."""
+    import bpy
+    from . import updater
+    try:
+        for window in bpy.context.window_manager.windows:
+            for area in window.screen.areas:
+                area.tag_redraw()
+    except Exception:
+        pass
+    return 0.5 if updater.status == "checking" else None
+
+
+class TP3D_OT_check_update(bpy.types.Operator):
+    bl_idname = "tp3d.check_update"
+    bl_label = "Check for Updates"
+    bl_description = "Check GitHub for the latest version of TrailPrint3D"
+
+    def execute(self, context):
+        from . import updater
+        updater.start_check()
+        bpy.app.timers.register(_redraw_all_areas, first_interval=0.5)
+        return {'FINISHED'}
+
+
+class TP3D_OT_install_update(bpy.types.Operator):
+    bl_idname = "tp3d.install_update"
+    bl_label = "Install Update"
+    bl_description = "Download and install the latest TrailPrint3D version from GitHub. Blender must be restarted afterward"
+
+    def execute(self, context):
+        from . import updater
+        self.report({'INFO'}, "Downloading update, please wait...")
+        success, err = updater.download_and_install()
+        if success:
+            updater.status = "installed"
+            self.report({'INFO'}, "Update installed. Please restart Blender to apply.")
+        else:
+            self.report({'ERROR'}, f"Update failed: {err}")
+        return {'FINISHED'}
+
+
 class TP3D_OT_install_three_mf(bpy.types.Operator):
     bl_idname = "tp3d.install_three_mf"
     bl_label = "Install 3MF Extension"
@@ -1700,7 +1743,7 @@ class TP3D_OT_install_three_mf(bpy.types.Operator):
             print({'ERROR'}, f"Install failed: {e}")
             utils.show_message_box("Install failed: Online access may be disabled. Please enable it in Blender Preferences > System > Network.", "ERROR", "3MF Install Failed")
 
-        inst=  utils.is_3mf_extension_installed()
+        inst=  export.is_3mf_extension_installed()
         print(f"Inst {inst}")        
     
         return {'FINISHED'}

@@ -782,7 +782,7 @@ def intersect_alltrails_with_existing_box(cutobject):
         cube.data.materials.clear()
         cube.data.materials.append(mat)
 
-        from . import writeMetadata  # deferred to avoid circular import at load time
+        from .metadata import writeMetadata  # deferred to avoid circular import at load time
         writeMetadata(cube,"TRAIL")
 
 
@@ -896,7 +896,7 @@ def intersect_trail_with_existing_box(cutobject,trail):
         cube.data.materials.clear()
         cube.data.materials.append(mat)
 
-        from . import writeMetadata  # deferred to avoid circular import at load time
+        from .metadata import writeMetadata  # deferred to avoid circular import at load time
         writeMetadata(cube,"TRAIL")
 
 
