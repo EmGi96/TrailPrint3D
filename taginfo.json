@@ -1,0 +1,306 @@
+{
+  "data_format": 1,
+  "project": {
+    "name": "TrailPrint3D",
+    "description": "Generates 3D-printable terrain maps from OpenStreetMap data, including roads, buildings, waterways, forests, and landuse areas.",
+    "project_url": "https://github.com/EmGi/TrailPrint3D",
+    "contact_name": "EmGi",
+    "contact_email": "emgi3d@gmail.com"
+  },
+  "tags": [
+    {
+      "key": "highway",
+      "value": "motorway",
+      "object_types": ["way"],
+      "description": "Rendered as a large road feature on the 3D map."
+    },
+    {
+      "key": "highway",
+      "value": "motorway_link",
+      "object_types": ["way"],
+      "description": "Rendered as a large road feature on the 3D map."
+    },
+    {
+      "key": "highway",
+      "value": "trunk",
+      "object_types": ["way"],
+      "description": "Rendered as a large road feature on the 3D map."
+    },
+    {
+      "key": "highway",
+      "value": "primary",
+      "object_types": ["way"],
+      "description": "Rendered as a large road feature on the 3D map."
+    },
+    {
+      "key": "highway",
+      "value": "primary_link",
+      "object_types": ["way"],
+      "description": "Rendered as a large road feature on the 3D map."
+    },
+    {
+      "key": "highway",
+      "value": "secondary",
+      "object_types": ["way"],
+      "description": "Rendered as a medium road feature on the 3D map."
+    },
+    {
+      "key": "highway",
+      "value": "secondary_link",
+      "object_types": ["way"],
+      "description": "Rendered as a medium road feature on the 3D map."
+    },
+    {
+      "key": "highway",
+      "value": "tertiary",
+      "object_types": ["way"],
+      "description": "Rendered as a medium road feature on the 3D map."
+    },
+    {
+      "key": "highway",
+      "value": "tertiary_link",
+      "object_types": ["way"],
+      "description": "Rendered as a medium road feature on the 3D map."
+    },
+    {
+      "key": "highway",
+      "value": "unclassified",
+      "object_types": ["way"],
+      "description": "Rendered as a medium road feature on the 3D map."
+    },
+    {
+      "key": "highway",
+      "value": "residential",
+      "object_types": ["way"],
+      "description": "Rendered as a small road feature on the 3D map."
+    },
+    {
+      "key": "highway",
+      "value": "living_street",
+      "object_types": ["way"],
+      "description": "Rendered as a small road feature on the 3D map."
+    },
+    {
+      "key": "highway",
+      "value": "service",
+      "object_types": ["way"],
+      "description": "Rendered as a small road feature on the 3D map."
+    },
+    {
+      "key": "highway",
+      "value": "footway",
+      "object_types": ["way"],
+      "description": "Rendered as a small road/path feature on the 3D map."
+    },
+    {
+      "key": "width",
+      "object_types": ["way"],
+      "description": "Used to set the width (in metres) of road features; overrides the highway-type default."
+    },
+    {
+      "key": "lanes",
+      "object_types": ["way"],
+      "description": "Used as a fallback to estimate road width when an explicit width tag is absent (lanes × 3 m)."
+    },
+    {
+      "key": "building",
+      "object_types": ["way", "relation"],
+      "description": "Building footprints are extruded into 3D geometry on the map."
+    },
+    {
+      "key": "height",
+      "object_types": ["way", "relation"],
+      "description": "Building height in metres, used to extrude the building footprint."
+    },
+    {
+      "key": "building:levels",
+      "object_types": ["way", "relation"],
+      "description": "Number of building floors; converted to height (levels × 2.7 m) when an explicit height tag is absent."
+    },
+    {
+      "key": "natural",
+      "value": "water",
+      "object_types": ["way", "relation"],
+      "description": "Rendered as a water body (lake, pond) on the 3D map."
+    },
+    {
+      "key": "water",
+      "value": "river",
+      "object_types": ["way", "relation"],
+      "description": "Rendered as a water body on the 3D map."
+    },
+    {
+      "key": "water",
+      "value": "lake",
+      "object_types": ["way", "relation"],
+      "description": "Rendered as a water body on the 3D map."
+    },
+    {
+      "key": "water",
+      "value": "stream",
+      "object_types": ["way", "relation"],
+      "description": "Rendered as a water body on the 3D map."
+    },
+    {
+      "key": "water",
+      "value": "canal",
+      "object_types": ["way", "relation"],
+      "description": "Rendered as a water body on the 3D map."
+    },
+    {
+      "key": "waterway",
+      "value": "river",
+      "object_types": ["way"],
+      "description": "Rendered as a waterway line feature on the 3D map."
+    },
+    {
+      "key": "waterway",
+      "value": "stream",
+      "object_types": ["way"],
+      "description": "Rendered as a waterway line feature on the 3D map."
+    },
+    {
+      "key": "waterway",
+      "value": "canal",
+      "object_types": ["way"],
+      "description": "Rendered as a waterway line feature on the 3D map."
+    },
+    {
+      "key": "waterway",
+      "value": "ditch",
+      "object_types": ["way"],
+      "description": "Rendered as a minor waterway line feature on the 3D map."
+    },
+    {
+      "key": "waterway",
+      "value": "drain",
+      "object_types": ["way"],
+      "description": "Rendered as a minor waterway line feature on the 3D map."
+    },
+    {
+      "key": "wikidata",
+      "object_types": ["way"],
+      "description": "Presence of this tag is used to identify major named waterways when filtering for large rivers only."
+    },
+    {
+      "key": "natural",
+      "value": "wood",
+      "object_types": ["way", "relation"],
+      "description": "Rendered as a forest area on the 3D map."
+    },
+    {
+      "key": "landuse",
+      "value": "forest",
+      "object_types": ["way", "relation"],
+      "description": "Rendered as a forest area on the 3D map."
+    },
+    {
+      "key": "natural",
+      "value": "scree",
+      "object_types": ["node", "way", "relation"],
+      "description": "Rendered as a scree/rocky slope area on the 3D map."
+    },
+    {
+      "key": "natural",
+      "value": "stone",
+      "object_types": ["node", "way", "relation"],
+      "description": "Rendered as a rocky terrain area on the 3D map."
+    },
+    {
+      "key": "natural",
+      "value": "boulder",
+      "object_types": ["node", "way", "relation"],
+      "description": "Rendered as a rocky terrain area on the 3D map."
+    },
+    {
+      "key": "natural",
+      "value": "rock",
+      "object_types": ["node", "way", "relation"],
+      "description": "Rendered as a rocky terrain area on the 3D map."
+    },
+    {
+      "key": "natural",
+      "value": "bare_rock",
+      "object_types": ["node", "way", "relation"],
+      "description": "Rendered as a bare rock / exposed terrain area on the 3D map."
+    },
+    {
+      "key": "landuse",
+      "value": "residential",
+      "object_types": ["way", "relation"],
+      "description": "Rendered as an urban/city area on the 3D map."
+    },
+    {
+      "key": "landuse",
+      "value": "commercial",
+      "object_types": ["way", "relation"],
+      "description": "Rendered as an urban/city area on the 3D map."
+    },
+    {
+      "key": "landuse",
+      "value": "industrial",
+      "object_types": ["way", "relation"],
+      "description": "Rendered as an urban/city area on the 3D map."
+    },
+    {
+      "key": "leisure",
+      "value": "park",
+      "object_types": ["way", "relation"],
+      "description": "Rendered as a greenspace area on the 3D map."
+    },
+    {
+      "key": "leisure",
+      "value": "garden",
+      "object_types": ["way", "relation"],
+      "description": "Rendered as a greenspace area on the 3D map."
+    },
+    {
+      "key": "leisure",
+      "value": "recreation_ground",
+      "object_types": ["way", "relation"],
+      "description": "Rendered as a greenspace area on the 3D map."
+    },
+    {
+      "key": "landuse",
+      "value": "grass",
+      "object_types": ["way"],
+      "description": "Rendered as a greenspace area on the 3D map."
+    },
+    {
+      "key": "natural",
+      "value": "grass",
+      "object_types": ["way"],
+      "description": "Rendered as a greenspace area on the 3D map."
+    },
+    {
+      "key": "landuse",
+      "value": "village_green",
+      "object_types": ["way", "relation"],
+      "description": "Rendered as a greenspace area on the 3D map."
+    },
+    {
+      "key": "landuse",
+      "value": "farmland",
+      "object_types": ["way", "relation"],
+      "description": "Rendered as a farmland area on the 3D map."
+    },
+    {
+      "key": "landuse",
+      "value": "farmyard",
+      "object_types": ["way", "relation"],
+      "description": "Rendered as a farmland area on the 3D map."
+    },
+    {
+      "key": "natural",
+      "value": "glacier",
+      "object_types": ["way", "relation"],
+      "description": "Rendered as a glacier area on the 3D map."
+    },
+    {
+      "key": "natural",
+      "value": "coastline",
+      "object_types": ["way"],
+      "description": "Used to determine the ocean boundary; coastline ways define the land/sea edge."
+    }
+  ]
+}
