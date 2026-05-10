@@ -10,11 +10,9 @@ import time
 
 import bmesh # type: ignore
 from mathutils import Quaternion, Vector, bvhtree, Euler
-import requests
 
 from . import constants as const
 from . import utils
-from . import export
 from . import props
 from . import addon_preferences
 
@@ -64,7 +62,7 @@ class TP3D_OT_export_stl(bpy.types.Operator):
             self.report({'ERROR'}, "Please select the Object you want to Export")
             return {'CANCELLED'}
 
-        export.export_selected_to_STL("STL")
+        utils.export_selected_to_STL("STL")
 
         
         return {'FINISHED'}
@@ -99,7 +97,7 @@ class TP3D_OT_export_obj(bpy.types.Operator):
             self.report({'ERROR'}, "Please select the Object you want to Export")
             return {'CANCELLED'}
 
-        export.export_selected_to_STL("OBJ")
+        utils.export_selected_to_STL("OBJ")
 
         
         return {'FINISHED'}
@@ -112,7 +110,7 @@ class TP3D_OT_export_three_mf(bpy.types.Operator):
     def execute(self, context):
         tp3d = context.scene.tp3d  # Access stored variables
 
-        installed = export.is_3mf_extension_installed()
+        installed = utils.is_3mf_extension_installed()
 
         if installed:
         
@@ -138,7 +136,7 @@ class TP3D_OT_export_three_mf(bpy.types.Operator):
                 self.report({'ERROR'}, "Please select the Object you want to Export")
                 return {'CANCELLED'}
             
-            export.export_selected_to_3mf()
+            utils.export_selected_to_3mf()
         else:
             print("Addon not Installed")
 
@@ -301,24 +299,17 @@ class TP3D_OT_clear_cache(bpy.types.Operator):
 
 
     def execute(self, context):
-        """Delete all cached API files for this addon."""
-
-
         if not os.path.exists(const.cache_dir):
             print("Cache directory does not exist, nothing to clear.")
             return {'FINISHED'}
 
-        count = 0
-        for filename in os.listdir(const.cache_dir):
-            file_path = os.path.join(const.cache_dir, filename)
-            if os.path.isfile(file_path) and filename.endswith(".json"):
-                try:
-                    os.remove(file_path)
-                    count += 1
-                except Exception as e:
-                    print(f"Failed to delete {file_path}: {e}")
+        import shutil
+        try:
+            shutil.rmtree(const.cache_dir)
+            print(f"Deleted cache directory: {const.cache_dir}")
+        except Exception as e:
+            print(f"Failed to delete cache directory: {e}")
 
-        print(f"Cleared {count} cached Overpass files from {const.cache_dir}")
         return {'FINISHED'}
 
 
@@ -1246,17 +1237,11 @@ class TP3D_OT_popup_text(bpy.types.Operator):
         obj = context.active_object
 
 
+        bot, top = utils.getHighestLowest(map)
+        print(f"Highest point: {top}")
 
-        if "highestZ" in map.keys() and 1 == 0:
-
-            self.topZ = map["highestZ"] + map["minThickness"] + 0.5 + map.location.z
-            self.bottomZ = map.location.z - 0.5
-        else:
-            bot, top = utils.getHighestLowest(map)
-            print(f"Highest point: {top}")
-
-            self.bottomZ = bot - 0.2
-            self.topZ = top + 0.2
+        self.bottomZ = bot - 0.2
+        self.topZ = top + 0.2
 
         obj.location.z = self.topZ
         
@@ -1685,48 +1670,6 @@ class TP3D_OT_popup_pin(bpy.types.Operator):
 
         return context.window_manager.invoke_props_dialog(self)
 
-def _redraw_all_areas():
-    """Timer callback: keep redrawing until the update check finishes."""
-    import bpy
-    from . import updater
-    try:
-        for window in bpy.context.window_manager.windows:
-            for area in window.screen.areas:
-                area.tag_redraw()
-    except Exception:
-        pass
-    return 0.5 if updater.status == "checking" else None
-
-
-class TP3D_OT_check_update(bpy.types.Operator):
-    bl_idname = "tp3d.check_update"
-    bl_label = "Check for Updates"
-    bl_description = "Check GitHub for the latest version of TrailPrint3D"
-
-    def execute(self, context):
-        from . import updater
-        updater.start_check()
-        bpy.app.timers.register(_redraw_all_areas, first_interval=0.5)
-        return {'FINISHED'}
-
-
-class TP3D_OT_install_update(bpy.types.Operator):
-    bl_idname = "tp3d.install_update"
-    bl_label = "Install Update"
-    bl_description = "Download and install the latest TrailPrint3D version from GitHub. Blender must be restarted afterward"
-
-    def execute(self, context):
-        from . import updater
-        self.report({'INFO'}, "Downloading update, please wait...")
-        success, err = updater.download_and_install()
-        if success:
-            updater.status = "installed"
-            self.report({'INFO'}, "Update installed. Please restart Blender to apply.")
-        else:
-            self.report({'ERROR'}, f"Update failed: {err}")
-        return {'FINISHED'}
-
-
 class TP3D_OT_install_three_mf(bpy.types.Operator):
     bl_idname = "tp3d.install_three_mf"
     bl_label = "Install 3MF Extension"
@@ -1743,7 +1686,7 @@ class TP3D_OT_install_three_mf(bpy.types.Operator):
             print({'ERROR'}, f"Install failed: {e}")
             utils.show_message_box("Install failed: Online access may be disabled. Please enable it in Blender Preferences > System > Network.", "ERROR", "3MF Install Failed")
 
-        inst=  export.is_3mf_extension_installed()
+        inst=  utils.is_3mf_extension_installed()
         print(f"Inst {inst}")        
     
         return {'FINISHED'}
