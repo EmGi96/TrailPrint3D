@@ -165,8 +165,8 @@ def fetch_osm_data(bbox, kind="WATER", max_cache_age_hours=720, return_cache_sta
 
     def _build_streets_query(s, w, n, e, mapsize, big, med, small):
         all_big   = {'primary', 'motorway', 'primary_link', 'motorway_link'}
-        all_med   = {'secondary', 'tertiary', 'secondary_link', 'tertiary_link'}
-        all_small = {'residential', 'living_street', 'unclassified', 'service', 'footway'}
+        all_med   = {'secondary', 'tertiary', 'secondary_link', 'tertiary_link', 'unclassified'}
+        all_small = {'residential', 'living_street', 'service', 'footway'}
 
         # Build user-requested set
         requested = set()
@@ -819,7 +819,7 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
                     obj = bpy.data.objects.new(obj_name, mesh)
                     bpy.context.collection.objects.link(obj)
 
-                    extrude_plane(obj,default_height)
+                    extrude_plane(obj,30)
 
                     # store width metadata
                     obj["width"] = width_m
@@ -916,7 +916,7 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
         selectBottomFacesByZ(roads)
         bpy.ops.mesh.delete(type='VERT')
         bpy.ops.mesh.select_all(action='SELECT')
-        bpy.ops.mesh.extrude_region_move(TRANSFORM_OT_translate={"value": (0, 0, 0.2)})
+        bpy.ops.mesh.extrude_region_move(TRANSFORM_OT_translate={"value": (0, 0, default_height)})
         bpy.ops.object.mode_set(mode='OBJECT')
 
 

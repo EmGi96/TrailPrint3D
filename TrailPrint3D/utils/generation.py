@@ -502,7 +502,7 @@ def _rg_build_terrain_elements(obj, scaleHor, curveObj=None, phase_start=0.83, p
         if map_km <= const.ROADS_MAXSIZE:
             _advance_elem_progress("Roads", "Fetching road data…")
             _ov.set_fetch_progress('roads', 0.0)
-            roads = create_roads(obj, 20, scaleHor, map_km)
+            roads = create_roads(obj, 0.4, scaleHor, map_km)
             if roads is not None:
                 roads = bpy.context.active_object
                 roads.data.materials.clear()
