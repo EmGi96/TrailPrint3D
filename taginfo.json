@@ -3,8 +3,8 @@
   "project": {
     "name": "TrailPrint3D",
     "description": "Generates 3D-printable terrain maps from OpenStreetMap data, including roads, buildings, waterways, forests, and landuse areas.",
-    "project_url": "https://github.com/EmGi/TrailPrint3D",
-    "contact_name": "EmGi",
+    "project_url": "https://github.com/EmGi96/TrailPrint3D",
+    "contact_name": "EmGi96",
     "contact_email": "emgi3d@gmail.com"
   },
   "tags": [
