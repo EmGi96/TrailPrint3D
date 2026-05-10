@@ -1,3 +1,4 @@
+from TrailPrint3D.utils.scene import remove_objects
 import bpy  # type: ignore
 import bmesh  # type: ignore
 import math
@@ -615,10 +616,11 @@ def createOcean(bboxBigger, waterHeight, scaleHor, landpoints, baseplate, tile, 
 
         shape = bpy.context.scene.tp3d.shape
         objSize = bpy.context.scene.tp3d.objSize
+        rHeight = bpy.context.scene.tp3d.rectangleHeight
         if shape == "SQUARE":
-            coastobj = create_rectangle(objSize,objSize)
+            coastobj = create_rectangle(objSize, rHeight)
         else:
-            coastobj = create_rectangle(objSize,objSize)
+            coastobj = create_rectangle(objSize, objSize)
 
         coastobj.name = "Ocean"
         coastobj.location.x = tile.location.x
@@ -627,6 +629,10 @@ def createOcean(bboxBigger, waterHeight, scaleHor, landpoints, baseplate, tile, 
 
         flip_override = bpy.context.scene.tp3d.el_oFlip
         merged_object = cut_coastline(coastcurve, coastobj, land_hints=landpoints, flip_override=flip_override)
+
+        #REMOVE THE CUTTER OBJECT
+        remove_objects(coastcurve)
+        
 
         mat = bpy.data.materials.get("WATER")
         merged_object.data.materials.clear()
@@ -644,6 +650,9 @@ def createOcean(bboxBigger, waterHeight, scaleHor, landpoints, baseplate, tile, 
             return merged_object
         elif elementMode == "SEPARATE":
             projection("separate", tile, merged_object)
+            mat = bpy.data.materials.get("WATER")
+            merged_object.data.materials.clear()
+            merged_object.data.materials.append(mat)
             return merged_object
 
     else:
@@ -660,6 +669,7 @@ def cut_coastline(curve_obj, target_obj, land_hints=None, flip_override=False):
     """
     from .primitives import curve_to_mesh_object  # deferred to avoid circular import at load time
     from .mesh_ops import removeDoubles, extrude_plane  # deferred to avoid circular import at load time
+    from .scene import remove_objects  # deferred to avoid circular import at load time
 
     extrude_depth = -0.5
     solidify = False
@@ -811,6 +821,10 @@ def cut_coastline(curve_obj, target_obj, land_hints=None, flip_override=False):
         except Exception as e:
             print("Warning: boolean modifier apply failed:", e)
             raise RuntimeError("Boolean operation failed: " + str(e))
+
+        #REMOVE THE CUTTER OBJECT
+        remove_objects(cutter_obj)
+
 
         # Remove all vertices from target_obj that are not on Z=0
         bpy.context.view_layer.objects.active = target_obj
