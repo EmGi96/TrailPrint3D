@@ -9,6 +9,7 @@ except ImportError:
     def textIcon(*_):
         return None
 
+from ..export import *
 from .io_gpx import *
 from .mesh_ops import *
 from .text_objects import *

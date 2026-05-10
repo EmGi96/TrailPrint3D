@@ -78,6 +78,7 @@ def export_selected_to_STL(force="STL"):
         zobj.select_set(True)
     bpy.context.view_layer.objects.active = active_obj
 
+    show_message_box(f"{len(selected_objects)} file(s) exported to: {exportPath}", "INFO", "Export Complete")
 
     active_obj = bpy.context.active_object
 
@@ -217,6 +218,7 @@ def export_selected_to_3mf():
         )
         print(f"Successfully exported to: {full_path}")
         _progress.WarningsOverlay.add_warning("Exported as 3mf", "ok")
+        show_message_box(f"Exported to: {full_path}", "INFO", "Export Complete")
     except Exception as e:
         print(f"Export Error: {e}")
         _progress.WarningsOverlay.add_warning("Exporting as 3mf Failed", "error")
