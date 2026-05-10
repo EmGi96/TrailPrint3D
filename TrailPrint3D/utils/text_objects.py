@@ -54,7 +54,7 @@ def create_text(name, text, position, scale_multiplier, rotation=(0, 0, 0), extr
 
 def appendTextIcon(textobject, icon, scaleM= 1):
 
-    addon_dir = os.path.dirname(__file__)
+    addon_dir = os.path.dirname(os.path.dirname(__file__))
     filepath = os.path.join(addon_dir, "assets", "other.blend")
 
     object_name = icon

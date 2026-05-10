@@ -328,9 +328,9 @@ class TP3D_PT_advanced(bpy.types.Panel):
                 col = box.column(align=True)
                 col.prop(props, "specialBlendFile")
                 col.prop(props, "specialCollectionName", text="Collection")
-                box.operator("tp3d.append_collection", text=_("Import + Generate"), icon="IMPORT")
                 if props.specialBlendFile == "puzzles.blend":
-                    box.operator("tp3d.append_collection_blank", text=_("Import Blank"), icon="IMPORT")
+                    box.operator("tp3d.append_collection", text=_("Import + Generate"), icon="IMPORT")
+                box.operator("tp3d.append_collection_blank", text=_("Import Blank"), icon="IMPORT")
         else:
             layout.prop(props, "show_special", icon="LOCKED", emboss=False)
             if props.show_special:

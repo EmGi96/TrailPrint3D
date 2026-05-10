@@ -7,8 +7,24 @@
 '''
 Changelog
 
+Version 3.09
+
+- Added: Info Popup when Exporting manually
+- Added: Automatic Version Updater (Only free version)
+- Added: Minimum Road width setting
+- Changed: Increased road thickness. "Unclassified" roads are now medium roads instead of small
+- Changed: Adjusted scale to Mercator projection
+- Fixed: Ocean cutoff for rectangular shape
+- Fixed: Cache not getting deleted properly
+- Fixed: Single-color Mode where elements are above a certain threshold
+- Fixed: Error when Trail object is empty
+- Fixed: Greenspace in Single-color Mode
+
+
+
 Version 3.08
  
+- Added: HTML based Progress Bar that does not Freeze
 - Changed: Roads and buildings are no longer clipping into the Map
 - Changed: Improved reliability of the Single-color-mode
 - Removed: Rescale Elevation (Conflicting with Single-color-mode, Unnecessary since caching)

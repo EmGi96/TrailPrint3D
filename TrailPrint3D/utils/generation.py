@@ -90,6 +90,10 @@ def _rg_validate_inputs(flags):
         )
         return None
 
+    if singleColorMode and elementMode == "SEPARATE":
+        show_message_box("Single Color Mode and Separate Element Mode cannot be used together. either disable Single-color Mode for the trail or switch to SingleColorMode for elements.")
+        return None
+
     if "gpx_file" in flags:
         if not gpx_file_path or gpx_file_path == "":
             show_message_box("File path is empty! Please select a valid file.")

@@ -13,7 +13,6 @@ from mathutils import Quaternion, Vector, bvhtree, Euler
 
 from . import constants as const
 from . import utils
-from . import props
 from . import addon_preferences
 
 from bpy.props import StringProperty
@@ -469,8 +468,8 @@ class TP3D_OT_magnet_holes(bpy.types.Operator):
             if zobj["MagnetHoles"]:
                 continue
 
-            magnetDiameter = props.magnetDiameter
-            magnetHeight = props.magnetHeight
+            magnetDiameter = tp3d.magnetDiameter
+            magnetHeight = tp3d.magnetHeight
 
             #Flip normals and Get bottom faces
             utils.selectBottomFaces(zobj)
