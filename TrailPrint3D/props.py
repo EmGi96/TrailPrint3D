@@ -29,7 +29,7 @@ def shape_callback(self,context):
 def generation_mode_update(self, context):
     self.use_multi_generation = (self.generation_mode == 'MULTI')
 
-    
+
 # Define a Property Group to store variables
 class TP3D_PG_properties(bpy.types.PropertyGroup):
     file_path: StringProperty(
@@ -54,7 +54,7 @@ class TP3D_PG_properties(bpy.types.PropertyGroup):
         subtype='DIR_PATH'  # Enables folder selection
     )# type: ignore
     trailName: StringProperty(name= _("Name"), default="", description="Leave empty to use the Filename") # type: ignore
-    
+
     shape: EnumProperty(
         name = "Shape",
         items=[
@@ -73,7 +73,7 @@ class TP3D_PG_properties(bpy.types.PropertyGroup):
         default = "HEXAGON",
         #update = shape_callback #calls shape_callback when user selects diffrent shape to register the Shape Panel
     )# type: ignore
-    
+
     api: bpy.props.EnumProperty(
         name = "api",
         items=[
@@ -123,36 +123,36 @@ class TP3D_PG_properties(bpy.types.PropertyGroup):
         ],
         default='FACTOR'
     )# type: ignore
-    pathScale: FloatProperty(name = _("Path Scale"), default = 0.8, min = 0.01, description = _("Scale of Path in Relation to the Mapsize/GlobalScale (depending on scalemode)"))
-    scaleLon1: FloatProperty(name = "Lon1", default = 0, description = _("The Longitude of the first coordinate"))
-    scaleLat1: FloatProperty(name = "Lat1", default = 0, description = _("The Latitude of the first coordinate"))
-    scaleLon2: FloatProperty(name = "Lon2", default = 0, description = _("The Longitude of the second coordinate"))
-    scaleLat2: FloatProperty(name = "Lat2", default = 0, description = _("The Latitude of the second coordinate"))
+    pathScale: FloatProperty(name = _("Path Scale"), default = 0.8, min = 0.01, description = _("Scale of Path in Relation to the Mapsize/GlobalScale (depending on scalemode)")) # type: ignore
+    scaleLon1: FloatProperty(name = "Lon1", default = 0, description = _("The Longitude of the first coordinate")) # type: ignore
+    scaleLat1: FloatProperty(name = "Lat1", default = 0, description = _("The Latitude of the first coordinate")) # type: ignore
+    scaleLon2: FloatProperty(name = "Lon2", default = 0, description = _("The Longitude of the second coordinate")) # type: ignore
+    scaleLat2: FloatProperty(name = "Lat2", default = 0, description = _("The Latitude of the second coordinate")) # type: ignore
 
-    selfHosted: StringProperty(name = _("Self Hosted API"), default="", description= _("Has to be same API format as Opentopodata.org (https://api.opentopodata.org/v1/)"))
+    selfHosted: StringProperty(name = _("Self Hosted API"), default="", description= _("Has to be same API format as Opentopodata.org (https://api.opentopodata.org/v1/)")) # type: ignore
 
-    objSize: IntProperty(name= _("Object Size in mm"), default = 100, min = 5, max = 10000,description = _("Size of the map in mm"))
-    num_subdivisions: IntProperty(name = _("Resolution"), default = 4, min = 1, max = 10, description = _("(max recommended 8) Higher Number = more detailed terrain but slower generation"))
-    scaleElevation: FloatProperty(name = _("Elevation Scale"), default = 1, min = 0, max = 10000, description = _("Multiplier to the Elevation"))
-    pathThickness: FloatProperty(name = _("Path Thickness"), default = 1.2, min = 0.1, max = 5, description = _("Thickness of the path in mm"))
-    shapeRotation: IntProperty(name = _("ShapeRotation"), default = 0, min = -360, max = 360, description = _("Rotation of the shape") )
-    overwritePathElevation: BoolProperty(name= _("Overwrite Path Elevation"), default=True, description = _("Cast each point of the trail onto the Terrain Mesh"))
-    o_verticesPath: StringProperty(name="Path vertices ", default="")
-    o_verticesMap: StringProperty(name="Path Map ", default="")
-    o_mapScale: StringProperty(name="Map Scale", default = "")
-    o_time: StringProperty(name="TimeTook",default="")
-    o_apiCounter_OpenTopoData: StringProperty(name="apiCounter_OpenTopodata", default = "API Limit: ---/1000 daily")
-    o_apiCounter_OpenElevation: StringProperty(name="apiCounter_OpenElevation", default = "API Limit: ---/1000 monthly")
-    o_centerx: FloatProperty(name = _("Center X"), default = 0, description = _("X Center of the Path"))
-    o_centery: FloatProperty(name = _("Center Y"), default = 0, description = _("y Center of the Path"))
+    objSize: IntProperty(name= _("Object Size in mm"), default = 100, min = 5, max = 10000,description = _("Size of the map in mm")) # type: ignore
+    num_subdivisions: IntProperty(name = _("Resolution"), default = 4, min = 1, max = 10, description = _("(max recommended 8) Higher Number = more detailed terrain but slower generation")) # type: ignore
+    scaleElevation: FloatProperty(name = _("Elevation Scale"), default = 1, min = 0, max = 10000, description = _("Multiplier to the Elevation")) # type: ignore
+    pathThickness: FloatProperty(name = _("Path Thickness"), default = 1.2, min = 0.1, max = 5, description = _("Thickness of the path in mm")) # type: ignore
+    shapeRotation: IntProperty(name = _("ShapeRotation"), default = 0, min = -360, max = 360, description = _("Rotation of the shape") ) # type: ignore
+    overwritePathElevation: BoolProperty(name= _("Overwrite Path Elevation"), default=True, description = _("Cast each point of the trail onto the Terrain Mesh")) # type: ignore
+    o_verticesPath: StringProperty(name="Path vertices ", default="") # type: ignore
+    o_verticesMap: StringProperty(name="Path Map ", default="") # type: ignore
+    o_mapScale: StringProperty(name="Map Scale", default = "") # type: ignore
+    o_time: StringProperty(name="TimeTook",default="") # type: ignore
+    o_apiCounter_OpenTopoData: StringProperty(name="apiCounter_OpenTopodata", default = "API Limit: ---/1000 daily") # type: ignore
+    o_apiCounter_OpenElevation: StringProperty(name="apiCounter_OpenElevation", default = "API Limit: ---/1000 monthly") # type: ignore
+    o_centerx: FloatProperty(name = _("Center X"), default = 0, description = _("X Center of the Path")) # type: ignore
+    o_centery: FloatProperty(name = _("Center Y"), default = 0, description = _("y Center of the Path")) # type: ignore
 
-    magnetHeight: FloatProperty(name = _("Magnet Height"), default = 2.5, description = _("Height of the Holes for Magnets"))
-    magnetDiameter: FloatProperty(name = _("Magnet Diameter"), default = 6.3, description = _("Diameter of the Holes for Magnets"))
+    magnetHeight: FloatProperty(name = _("Magnet Height"), default = 2.5, description = _("Height of the Holes for Magnets")) # type: ignore
+    magnetDiameter: FloatProperty(name = _("Magnet Diameter"), default = 6.3, description = _("Diameter of the Holes for Magnets")) # type: ignore
 
-    bottomMarkCutout: BoolProperty(name=_("Bottom Mark Cutout"), default = False, description = _("Creates Bottom mark as a Cutout"))
+    bottomMarkCutout: BoolProperty(name=_("Bottom Mark Cutout"), default = False, description = _("Creates Bottom mark as a Cutout")) # type: ignore
 
-    ellipseRatio: FloatProperty(name = _("Ellipse Aspect Ratio"), default = 0.75, description = _("0.75 means the ellipse height is 0.75 x objSize"))
-    rectangleHeight: IntProperty(name = _("Rectangle Height"), default = 100, description = _("Height of the Rectangle"))
+    ellipseRatio: FloatProperty(name = _("Ellipse Aspect Ratio"), default = 0.75, description = _("0.75 means the ellipse height is 0.75 x objSize")) # type: ignore
+    rectangleHeight: IntProperty(name = _("Rectangle Height"), default = 100, description = _("Height of the Rectangle")) # type: ignore
 
     textFont: StringProperty(
         name= _("Font"),
@@ -231,32 +231,32 @@ class TP3D_PG_properties(bpy.types.PropertyGroup):
     #overwriteTime: StringProperty(name= _("text3"), default = "")
 
 
-    
-
-
-    outerBorderSize: IntProperty(name= _("BorderSize in %"), default = 20, min = 0, max = 1000, description= _("Only for Shapes with Plate"))
-    text_angle_preset: IntProperty(name= _("Text Angle"), description= _("Rotate Text on Shape"), default=0, min = 0, max = 260)
-    plateThickness: FloatProperty(name= _("plateThickness"), default = 5, description= _("Thickness of the Additional Plate"))
-    plateInsertValue: FloatProperty(name= _("plateInsertValue"), default = 0, description= _("Depth of Cutout for the Map in the Plate, 0  to ignore"))
-    plateBevel: FloatProperty(name= _("Plate Bevel"), default = 0.0, min = 0.0, max = 50.0, description= _("Bevel the top and bottom edges of the plate (0 to disable)"))
-
-    tileSpacing: FloatProperty(name= _("tileSpacing"), default = 0, description= _("Distance between Tiles when Extending"))
 
 
 
-    minThickness: FloatProperty(name= _("minThickness"), default = 2, min = 0.5, max = 1000, description= _("Additional Thickness on lowest point"))
-    xTerrainOffset: FloatProperty(name= _("xTerrainOffset"), default = 0, description= _("Gives the map an Offset in X-Direction from the path"))
-    yTerrainOffset: FloatProperty(name= _("yTerrainOffset"), default = 0, description= _("Gives the map an Offset in Y-Direction from the path"))
+    outerBorderSize: IntProperty(name= _("BorderSize in %"), default = 20, min = 0, max = 1000, description= _("Only for Shapes with Plate")) # type: ignore
+    text_angle_preset: IntProperty(name= _("Text Angle"), description= _("Rotate Text on Shape"), default=0, min = 0, max = 260) # type: ignore
+    plateThickness: FloatProperty(name= _("plateThickness"), default = 5, description= _("Thickness of the Additional Plate")) # type: ignore
+    plateInsertValue: FloatProperty(name= _("plateInsertValue"), default = 0, description= _("Depth of Cutout for the Map in the Plate, 0  to ignore")) # type: ignore
+    plateBevel: FloatProperty(name= _("Plate Bevel"), default = 0.0, min = 0.0, max = 50.0, description= _("Bevel the top and bottom edges of the plate (0 to disable)")) # type: ignore
 
-    rescaleMultiplier: FloatProperty(name = _("scale"), default = 1, min = 0, max = 10000)
-    thickenValue: FloatProperty(name= _("thickenValue"), default = 1, description = _("Makes your Map 1mm thicker"))
-    fixedElevationScale: BoolProperty(name= _("FixedElevationScale(10mm)"), default=False, description = _("Force the elevation to be 10mm High from highest to lowest point (ElevationScale still applies after that)"))
-    singleColorMode: BoolProperty(name= _("SingleColorMode Trail"), default = False, description = _("Enable this if you don't have a Multicolor printer"))
-    tolerance: FloatProperty(name= _("SingleColorMode Tolerance"), default = 0.2, description="Tolerance of the Trail for the SingleColorMode")
-    toleranceElements: FloatProperty(name= _("ToleranceElements"), default = 0.4, description= _("Tolerance of the Elements (Water, Forest) for the SingleColorMode"))
-    disableCache: BoolProperty(name= _("disableCache"), default = False, description = _("Disable cache if you encounter random holes in your mesh"))
-    ccacheSize: IntProperty(name = _("Cache Size"), default = 50000, min = 0)
-    indipendendTiles : BoolProperty(name= _("IndipendendTiles"), default = False, description = _("Tile minThickness is independent from other tiles"))
+    tileSpacing: FloatProperty(name= _("tileSpacing"), default = 0, description= _("Distance between Tiles when Extending")) # type: ignore
+
+
+
+    minThickness: FloatProperty(name= _("minThickness"), default = 2, min = 0.5, max = 1000, description= _("Additional Thickness on lowest point")) # type: ignore
+    xTerrainOffset: FloatProperty(name= _("xTerrainOffset"), default = 0, description= _("Gives the map an Offset in X-Direction from the path")) # type: ignore
+    yTerrainOffset: FloatProperty(name= _("yTerrainOffset"), default = 0, description= _("Gives the map an Offset in Y-Direction from the path")) # type: ignore
+
+    rescaleMultiplier: FloatProperty(name = _("scale"), default = 1, min = 0, max = 10000) # type: ignore
+    thickenValue: FloatProperty(name= _("thickenValue"), default = 1, description = _("Makes your Map 1mm thicker")) # type: ignore
+    fixedElevationScale: BoolProperty(name= _("FixedElevationScale(10mm)"), default=False, description = _("Force the elevation to be 10mm High from highest to lowest point (ElevationScale still applies after that)")) # type: ignore
+    singleColorMode: BoolProperty(name= _("SingleColorMode Trail"), default = False, description = _("Enable this if you don't have a Multicolor printer")) # type: ignore
+    tolerance: FloatProperty(name= _("SingleColorMode Tolerance"), default = 0.2, description="Tolerance of the Trail for the SingleColorMode") # type: ignore
+    toleranceElements: FloatProperty(name= _("ToleranceElements"), default = 0.4, description= _("Tolerance of the Elements (Water, Forest) for the SingleColorMode")) # type: ignore
+    disableCache: BoolProperty(name= _("disableCache"), default = False, description = _("Disable cache if you encounter random holes in your mesh")) # type: ignore
+    ccacheSize: IntProperty(name = _("Cache Size"), default = 50000, min = 0) # type: ignore
+    indipendendTiles : BoolProperty(name= _("IndipendendTiles"), default = False, description = _("Tile minThickness is independent from other tiles")) # type: ignore
 
     elementMode: EnumProperty(
         name="Element handling",
@@ -271,41 +271,41 @@ class TP3D_PG_properties(bpy.types.PropertyGroup):
     elementModeInset: FloatProperty(name=_("Clip Inset"), default=2.0, min=0.0, description=_("Thickness of solid frame for SCM-elements"))# type: ignore
 
 
-    col_wArea: FloatProperty(name= _("Water Threshold"), default = 1, description = _("Lakes smaller than the threshold won't be included"))
-    col_wStreamWidth: FloatProperty(name= _("River Width"), default = 1.0, min=0.1, max=10.0, description = _("Adjusts the thickness of rivers and streams"))
-    col_wPondsActive: BoolProperty(name= _("Ponds & Lakes"), default=False, description = _("Include ponds and lakes (natural=water)"))
-    col_wSmallRiversActive: BoolProperty(name= _("Small Rivers"), default=False, description = _("Streams, canals, ditches and other minor waterways"))
-    col_wBigRiversActive: BoolProperty(name= _("Big Rivers"), default=False, description = _("Major named rivers (waterway with wikidata tag)"))
-    col_fActive: BoolProperty(name= _("Include Forests"), default=False, description = _("For Maps < 50Km Recommended"))
-    col_fArea: FloatProperty(name= _("Threshold"), default = 10, description = _("Forests smaller than the threshold won't be included"))
-    col_scrActive: BoolProperty(name= _("Include Scree"), default=False, description = _("Rocky/stony terrain. For Maps < 1000Km Recommended"))
-    col_scrArea: FloatProperty(name= _("Threshold"), default = 1, description = _("Scree patches smaller than the threshold won't be included"))
-    col_cActive: BoolProperty(name= _("Include City Boundaries"), default=False, description = _("For Maps < 100Km Recommended"))
-    col_cArea: FloatProperty(name= _("Threshold"), default = 1, description = _("Cities smaller than the threshold won't be included"))
-    col_grActive: BoolProperty(name= _("Include Greenspaces"), default=False, description = _("Parks, gardens, grass and other urban green areas. For Maps < 100Km Recommended"))
-    col_grArea: FloatProperty(name= _("Threshold"), default = 1, description = _("Greenspaces smaller than the threshold won't be included"))
-    col_faActive: BoolProperty(name= _("Include Farmland"), default=False, description = _("Fetches landuse=farmland and landuse=farmyard. For Maps < 1000Km Recommended"))
-    col_faArea: FloatProperty(name= _("Threshold"), default = 1, description = _("Farmland patches smaller than the threshold won't be included"))
-    col_glActive: BoolProperty(name= _("Include Glaciers"), default=False, description = _("For Maps < 1000Km Recommended"))
-    col_glArea: FloatProperty(name= _("Threshold"), default = 1, description = _("Glaciers smaller than the threshold won't be included"))
-    col_KeepManifold: BoolProperty(name= _("Keep Non-Manifold Objects"), default=False, description = _("Keep Broken/Non-Manifold objects"))
-    el_bActive: BoolProperty(name= _("Include Buildings"), default=False, description = _("For Maps < 5Km Reccomended"))
-    el_bHeightMultiplier: FloatProperty(name= _("Height Multiplier"), default=1.0, min=0.01, soft_max=10.0, description=_("Multiplies building height"))
+    col_wArea: FloatProperty(name= _("Water Threshold"), default = 1, description = _("Lakes smaller than the threshold won't be included")) # type: ignore
+    col_wStreamWidth: FloatProperty(name= _("River Width"), default = 1.0, min=0.1, max=10.0, description = _("Adjusts the thickness of rivers and streams")) # type: ignore
+    col_wPondsActive: BoolProperty(name= _("Ponds & Lakes"), default=False, description = _("Include ponds and lakes (natural=water)")) # type: ignore
+    col_wSmallRiversActive: BoolProperty(name= _("Small Rivers"), default=False, description = _("Streams, canals, ditches and other minor waterways")) # type: ignore
+    col_wBigRiversActive: BoolProperty(name= _("Big Rivers"), default=False, description = _("Major named rivers (waterway with wikidata tag)")) # type: ignore
+    col_fActive: BoolProperty(name= _("Include Forests"), default=False, description = _("For Maps < 50Km Recommended")) # type: ignore
+    col_fArea: FloatProperty(name= _("Threshold"), default = 10, description = _("Forests smaller than the threshold won't be included")) # type: ignore
+    col_scrActive: BoolProperty(name= _("Include Scree"), default=False, description = _("Rocky/stony terrain. For Maps < 1000Km Recommended")) # type: ignore
+    col_scrArea: FloatProperty(name= _("Threshold"), default = 1, description = _("Scree patches smaller than the threshold won't be included")) # type: ignore
+    col_cActive: BoolProperty(name= _("Include City Boundaries"), default=False, description = _("For Maps < 100Km Recommended")) # type: ignore
+    col_cArea: FloatProperty(name= _("Threshold"), default = 1, description = _("Cities smaller than the threshold won't be included")) # type: ignore
+    col_grActive: BoolProperty(name= _("Include Greenspaces"), default=False, description = _("Parks, gardens, grass and other urban green areas. For Maps < 100Km Recommended")) # type: ignore
+    col_grArea: FloatProperty(name= _("Threshold"), default = 1, description = _("Greenspaces smaller than the threshold won't be included")) # type: ignore
+    col_faActive: BoolProperty(name= _("Include Farmland"), default=False, description = _("Fetches landuse=farmland and landuse=farmyard. For Maps < 1000Km Recommended")) # type: ignore
+    col_faArea: FloatProperty(name= _("Threshold"), default = 1, description = _("Farmland patches smaller than the threshold won't be included")) # type: ignore
+    col_glActive: BoolProperty(name= _("Include Glaciers"), default=False, description = _("For Maps < 1000Km Recommended")) # type: ignore
+    col_glArea: FloatProperty(name= _("Threshold"), default = 1, description = _("Glaciers smaller than the threshold won't be included")) # type: ignore
+    col_KeepManifold: BoolProperty(name= _("Keep Non-Manifold Objects"), default=False, description = _("Keep Broken/Non-Manifold objects")) # type: ignore
+    el_bActive: BoolProperty(name= _("Include Buildings"), default=False, description = _("For Maps < 5Km Reccomended")) # type: ignore
+    el_bHeightMultiplier: FloatProperty(name= _("Height Multiplier"), default=1.0, min=0.01, soft_max=10.0, description=_("Multiplies building height")) # type: ignore
 
-    el_sMultiplier: FloatProperty(name= _("Street Width Multiplier"), default = 1, description = _("To make Streets thicker or thinner"))
+    el_sMultiplier: FloatProperty(name= _("Street Width Multiplier"), default = 1, description = _("To make Streets thicker or thinner")) # type: ignore
 
-    show_water: BoolProperty(name= _("Water & Ocean"), default=False)
-    show_roads: BoolProperty(name= _("Roads"), default=False)
-    el_sBigActive: BoolProperty(name= _("Big Streets"), default=False, description = f"primary, motorway, primary_link, motorway_link — limited to motorway only on maps < {const.ROADS_MAXSIZE}km")
-    el_sMedActive: BoolProperty(name= _("Medium Streets"), default=False, description = f"secondary, tertiary, secondary_link, tertiary_link — ignored on maps < {const.STREETS_MAJOR_ONLY_THRESHOLD}km")
-    el_sSmallActive: BoolProperty(name= _("Small Streets"), default=False, description = f"residential, living_street, unclassified, service, footway — ignored on maps < {const.STREETS_PRIMARY_THRESHOLD}km")
-    el_oActive: BoolProperty(name=_("Include Ocean"), default=False, description=_("Generate ocean surface cut along the coastline. Experimental"))
-    el_oFlip: BoolProperty(name=_("Flip Ocean Side"), default=False, description=_("Flip the cutter normals if the ocean appears on the wrong side"))
+    show_water: BoolProperty(name= _("Water & Ocean"), default=False) # type: ignore
+    show_roads: BoolProperty(name= _("Roads"), default=False) # type: ignore
+    el_sBigActive: BoolProperty(name= _("Big Streets"), default=False, description = f"primary, motorway, primary_link, motorway_link — limited to motorway only on maps < {const.ROADS_MAXSIZE}km") # type: ignore
+    el_sMedActive: BoolProperty(name= _("Medium Streets"), default=False, description = f"secondary, tertiary, secondary_link, tertiary_link — ignored on maps < {const.STREETS_MAJOR_ONLY_THRESHOLD}km") # type: ignore
+    el_sSmallActive: BoolProperty(name= _("Small Streets"), default=False, description = f"residential, living_street, unclassified, service, footway — ignored on maps < {const.STREETS_PRIMARY_THRESHOLD}km") # type: ignore
+    el_oActive: BoolProperty(name=_("Include Ocean"), default=False, description=_("Generate ocean surface cut along the coastline. Experimental")) # type: ignore
+    el_oFlip: BoolProperty(name=_("Flip Ocean Side"), default=False, description=_("Flip the cutter normals if the ocean appears on the wrong side")) # type: ignore
 
-    mountain_treshold:IntProperty(name= _("Mountain Threshold"), default = 60, min = 0, max = 100,subtype='PERCENTAGE', description= _("Height Threshold to Color Mountains"))
-    cl_thickness: FloatProperty(name= _("Contour Line Thickness"), default = 0.2, description = _("Thickness of the Contour Line"))
-    cl_distance: FloatProperty(name= _("Contour Line distance"), default = 2, description = _("Distance between Contour lines"))
-    cl_offset: FloatProperty(name= _("Contour Line offset"), default = 0.0, description = _("Offset of the Contour lines"))
+    mountain_treshold:IntProperty(name= _("Mountain Threshold"), default = 60, min = 0, max = 100,subtype='PERCENTAGE', description= _("Height Threshold to Color Mountains")) # type: ignore
+    cl_thickness: FloatProperty(name= _("Contour Line Thickness"), default = 0.2, description = _("Thickness of the Contour Line")) # type: ignore
+    cl_distance: FloatProperty(name= _("Contour Line distance"), default = 2, description = _("Distance between Contour lines")) # type: ignore
+    cl_offset: FloatProperty(name= _("Contour Line offset"), default = 0.0, description = _("Offset of the Contour lines")) # type: ignore
 
     generation_mode: EnumProperty(
         name="Generation Mode",
@@ -318,27 +318,27 @@ class TP3D_PG_properties(bpy.types.PropertyGroup):
         update=generation_mode_update
     )# type: ignore
 
-    show_create_settings: BoolProperty(name=_("General Settings"), default=True)
+    show_create_settings: BoolProperty(name=_("General Settings"), default=True) # type: ignore
 
-    show_export: BoolProperty(name=_("Export"), default=True)
-    disable_auto_export: BoolProperty(name=_("Disable Auto Export"), default=False, description=_("Don't automatically export files after generation"))
-    disable_3mf_export: BoolProperty(name=_("Disable 3MF Export"), default=False, description=_("Don't use 3MF format even if the addon is installed"))
+    show_export: BoolProperty(name=_("Export"), default=True) # type: ignore
+    disable_auto_export: BoolProperty(name=_("Disable Auto Export"), default=False, description=_("Don't automatically export files after generation")) # type: ignore
+    disable_3mf_export: BoolProperty(name=_("Disable 3MF Export"), default=False, description=_("Don't use 3MF format even if the addon is installed")) # type: ignore
 
-    show_stats: BoolProperty(name= _("Additional Info"), default=False)
-    show_coloring: BoolProperty(name= _("Elements"), default=False)
-    show_chain: BoolProperty(name= _("Multi Generation"), default=False)
-    use_multi_generation: BoolProperty(name= _("Multi Generation"), default=False)
-    show_map: BoolProperty(name= _("Map"),default=False)
-    show_pin: BoolProperty(name= _("Pin"),default=False)
-    show_special: BoolProperty(name= _("Special"),default=False)
-    show_postProcess: BoolProperty(name= _("Post Process"), default = False)
-    show_api: BoolProperty(name= _("API"), default=False)
-    show_attribution: BoolProperty(name= _("Attribution"), default = False)
-    show_preset: BoolProperty(name= _("Preset"), default=False)
+    show_stats: BoolProperty(name= _("Additional Info"), default=False) # type: ignore
+    show_coloring: BoolProperty(name= _("Elements"), default=False) # type: ignore
+    show_chain: BoolProperty(name= _("Multi Generation"), default=False) # type: ignore
+    use_multi_generation: BoolProperty(name= _("Multi Generation"), default=False) # type: ignore
+    show_map: BoolProperty(name= _("Map"),default=False) # type: ignore
+    show_pin: BoolProperty(name= _("Pin"),default=False) # type: ignore
+    show_special: BoolProperty(name= _("Special"),default=False) # type: ignore
+    show_postProcess: BoolProperty(name= _("Post Process"), default = False) # type: ignore
+    show_api: BoolProperty(name= _("API"), default=False) # type: ignore
+    show_attribution: BoolProperty(name= _("Attribution"), default = False) # type: ignore
+    show_preset: BoolProperty(name= _("Preset"), default=False) # type: ignore
 
-    cityname: StringProperty(name= _("Cityname"), default="Berlin", description = _("Get coordinates of a City"))
-    pinLat: FloatProperty(name= _("Latitude"), default = 48.00)
-    pinLon: FloatProperty(name= _("Longitude"), default = 8.00)
+    cityname: StringProperty(name= _("Cityname"), default="Berlin", description = _("Get coordinates of a City")) # type: ignore
+    pinLat: FloatProperty(name= _("Latitude"), default = 48.00) # type: ignore
+    pinLon: FloatProperty(name= _("Longitude"), default = 8.00) # type: ignore
 
     mapmode: EnumProperty(
         name="mapmode",
@@ -350,16 +350,16 @@ class TP3D_PG_properties(bpy.types.PropertyGroup):
         default='FROMPLANE'
     )# type: ignore
 
-    jMapLat: FloatProperty(name="Latitude", default = 49.00)
-    jMapLon: FloatProperty(name="Longitude", default = 9.00)
-    jMapRadius: FloatProperty(name="Radius im Km", default = 200)
+    jMapLat: FloatProperty(name="Latitude", default = 49.00) # type: ignore
+    jMapLon: FloatProperty(name="Longitude", default = 9.00) # type: ignore
+    jMapRadius: FloatProperty(name="Radius im Km", default = 200) # type: ignore
 
-    jMapLat1: FloatProperty(name="Latitude1", default = 48.00)
-    jMapLat2: FloatProperty(name="Latitude2", default = 49.00)
-    jMapLon1: FloatProperty(name="Longitude1", default = 8.00)
-    jMapLon2: FloatProperty(name="Longitude2", default = 9.00)
+    jMapLat1: FloatProperty(name="Latitude1", default = 48.00) # type: ignore
+    jMapLat2: FloatProperty(name="Latitude2", default = 49.00) # type: ignore
+    jMapLon1: FloatProperty(name="Longitude1", default = 8.00) # type: ignore
+    jMapLon2: FloatProperty(name="Longitude2", default = 9.00) # type: ignore
 
-    
+
     specialBlendFile: EnumProperty(
         name="Category",
         description= _("Choose what you want to import"),
@@ -370,7 +370,7 @@ class TP3D_PG_properties(bpy.types.PropertyGroup):
         ],
         default = "puzzles.blend",
         update = utils.loadCollections
-        
+
     )# type: ignore
 
     # Custom property to store selection
@@ -384,30 +384,30 @@ class TP3D_PG_properties(bpy.types.PropertyGroup):
 
 
     #OTHER VARIABLES
-    sRunDuration: IntProperty(name="runDuration", default = 0, description = "how long the script was running")
-    sAdditionalExtrusion: FloatProperty(name="sAdditionalExtrusion",default = 0)
-    sAutoScale: FloatProperty(name="sAutoScale",default = 1)
-    sScaleHor: FloatProperty(name="sScaleHor",default = 1, description = "Scale of the Map")
-    sMapInKm: FloatProperty(name = "Map Length", default = 0, description = "How much Km are the equivalent of the Map Size")
-    sTime_str: StringProperty(name="time_str", default="")
-    modelname: StringProperty(name="modelname",default="")
-    total_length: FloatProperty(name="total_length",default = 0)
-    total_elevation: FloatProperty(name="total_elevation",default = 0)
-    total_time: FloatProperty(name="total_time",default = 0)
-    average_speed: FloatProperty(name="average_speed",default = 0)
-    trail_date: StringProperty(name="trail_date",default = "")
+    sRunDuration: IntProperty(name="runDuration", default = 0, description = "how long the script was running") # type: ignore
+    sAdditionalExtrusion: FloatProperty(name="sAdditionalExtrusion",default = 0) # type: ignore
+    sAutoScale: FloatProperty(name="sAutoScale",default = 1) # type: ignore
+    sScaleHor: FloatProperty(name="sScaleHor",default = 1, description = "Scale of the Map") # type: ignore
+    sMapInKm: FloatProperty(name = "Map Length", default = 0, description = "How much Km are the equivalent of the Map Size") # type: ignore
+    sTime_str: StringProperty(name="time_str", default="") # type: ignore
+    modelname: StringProperty(name="modelname",default="") # type: ignore
+    total_length: FloatProperty(name="total_length",default = 0) # type: ignore
+    total_elevation: FloatProperty(name="total_elevation",default = 0) # type: ignore
+    total_time: FloatProperty(name="total_time",default = 0) # type: ignore
+    average_speed: FloatProperty(name="average_speed",default = 0) # type: ignore
+    trail_date: StringProperty(name="trail_date",default = "") # type: ignore
 
-    lowestZ: FloatProperty(name="lowestZ",default = 0)
-    highestZ: FloatProperty(name="highestZ",default = 0)
-    buggyDataset: BoolProperty(name="buggyDataset",default = 0)
-    
-    minLat: FloatProperty(name="minLat",default = 0)
-    maxLat: FloatProperty(name="maxLat",default = 0)
-    minLon: FloatProperty(name="minLon",default = 0)
-    maxLon: FloatProperty(name="maxLon",default = 0)
+    lowestZ: FloatProperty(name="lowestZ",default = 0) # type: ignore
+    highestZ: FloatProperty(name="highestZ",default = 0) # type: ignore
+    buggyDataset: BoolProperty(name="buggyDataset",default = 0) # type: ignore
 
-    exportformat: StringProperty(name="exportformat",default = "STL")
-    opentopoAdress: StringProperty(name="opentopoAdress", default = "https://api.opentopodata.org/v1/")
+    minLat: FloatProperty(name="minLat",default = 0) # type: ignore
+    maxLat: FloatProperty(name="maxLat",default = 0) # type: ignore
+    minLon: FloatProperty(name="minLon",default = 0) # type: ignore
+    maxLon: FloatProperty(name="maxLon",default = 0) # type: ignore
 
-    currentMap: PointerProperty(name = "Map object", type = bpy.types.Object)
-    currentTrail: PointerProperty(name="Trail object", type = bpy.types.Object)
+    exportformat: StringProperty(name="exportformat",default = "STL") # type: ignore
+    opentopoAdress: StringProperty(name="opentopoAdress", default = "https://api.opentopodata.org/v1/") # type: ignore
+
+    currentMap: PointerProperty(name = "Map object", type = bpy.types.Object) # type: ignore
+    currentTrail: PointerProperty(name="Trail object", type = bpy.types.Object) # type: ignore
