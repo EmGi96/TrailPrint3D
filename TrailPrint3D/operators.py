@@ -1689,3 +1689,47 @@ class TP3D_OT_install_three_mf(bpy.types.Operator):
         print(f"Inst {inst}")        
     
         return {'FINISHED'}
+
+def _redraw_all_areas():
+    """Timer callback: keep redrawing until the update check finishes."""
+    import bpy
+    from . import updater
+    try:
+        for window in bpy.context.window_manager.windows:
+            for area in window.screen.areas:
+                area.tag_redraw()
+    except Exception:
+        pass
+    return 0.5 if updater.status == "checking" else None
+
+
+class TP3D_OT_check_update(bpy.types.Operator):
+    bl_idname = "tp3d.check_update"
+    bl_label = "Check for Updates"
+    bl_description = "Check GitHub for the latest version of TrailPrint3D"
+
+    def execute(self, context):
+        from . import temp
+        if temp.PREMIUMVERSION:
+            return {'CANCELLED'}
+        from . import updater
+        updater.start_check()
+        bpy.app.timers.register(_redraw_all_areas, first_interval=0.5)
+        return {'FINISHED'}
+
+
+class TP3D_OT_install_update(bpy.types.Operator):
+    bl_idname = "tp3d.install_update"
+    bl_label = "Install Update"
+    bl_description = "Download and install the latest TrailPrint3D version from GitHub. Blender must be restarted afterward"
+
+    def execute(self, context):
+        from . import updater
+        self.report({'INFO'}, "Downloading update, please wait...")
+        success, err = updater.download_and_install()
+        if success:
+            updater.status = "installed"
+            self.report({'INFO'}, "Update installed. Please restart Blender to apply.")
+        else:
+            self.report({'ERROR'}, f"Update failed: {err}")
+        return {'FINISHED'}
