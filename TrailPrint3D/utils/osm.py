@@ -165,7 +165,7 @@ def fetch_osm_data(bbox, kind="WATER", max_cache_age_hours=720, return_cache_sta
 
     def _build_streets_query(s, w, n, e, mapsize, big, med, small):
         all_big   = {'primary', 'motorway', 'primary_link', 'motorway_link'}
-        all_med   = {'secondary', 'tertiary', 'secondary_link', 'tertiary_link', 'unclassified'}
+        all_med   = {'secondary', 'tertiary', 'secondary_link', 'tertiary_link', 'unclassified', 'trunk', 'trunk_link'}
         all_small = {'residential', 'living_street', 'service', 'footway'}
 
         # Build user-requested set
