@@ -870,7 +870,7 @@ def runGeneration(type, locked_scale=None):
     scalecoords = coordinates
     if props['scalemode'] == "COORDINATES" and "gpx_scale" in flags:
         scalecoords = ((props['scaleLon1'], props['scaleLat1']), (props['scaleLon2'], props['scaleLat2']))
-    scaleHor = locked_scale if locked_scale is not None else calculate_scale(props['size'], scalecoords, type)
+    scaleHor = locked_scale if locked_scale is not None else calculate_scale(props['size'], scalecoords, type, diagonal=True)
     bpy.context.scene.tp3d["sScaleHor"] = scaleHor
 
     # --- Phase 6: Convert to Blender coordinates and find map center ---

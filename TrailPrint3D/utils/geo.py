@@ -3,7 +3,7 @@ import math
 from .. import constants as const
 
 
-def calculate_scale(mapSize, coordinates, gen_type):
+def calculate_scale(mapSize, coordinates, gen_type, diagonal=False):
 
     scalemode = bpy.context.scene.tp3d.scalemode
     pathScale = bpy.context.scene.tp3d.pathScale
@@ -46,8 +46,7 @@ def calculate_scale(mapSize, coordinates, gen_type):
         distance = 0
 
 
-    #maxer = max(width,height, distance)
-    maxer = max(width,height)
+    maxer = max(width, height, distance) if diagonal else max(width, height)
     scale = 1
     if scalemode == "COORDINATES" or gen_type == 2 or gen_type == 3:
         print("scalemode1")
