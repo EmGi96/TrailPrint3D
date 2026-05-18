@@ -4,6 +4,7 @@ import time
 import os
 import platform
 import random
+import numpy as np
 from mathutils import Vector  # type: ignore
 from bpy.app.translations import pgettext as _
 from .. import progress as _progress
@@ -811,7 +812,7 @@ def build_fetch_items(map_km=None):
 def runGeneration(type, locked_scale=None):
 
     """Orchestrate the full 3D map generation pipeline."""
-    from .geo import calculate_scale, convert_to_blender_coordinates, convert_to_geo, haversine, separate_duplicate_xy, midpoint_spherical  # deferred to avoid circular import at load time
+    from .geo import calculate_scale, convert_to_blender_coordinates_batch, haversine, separate_duplicate_xy  # deferred to avoid circular import at load time
     from .primitives import simplify_curve, create_curve_from_coordinates  # deferred to avoid circular import at load time
     from .elevation import get_tile_elevation  # deferred to avoid circular import at load time
     from .scene import zoom_camera_to_selected, show_message_box, transform_MapObject, set_origin_to_3d_cursor, remove_objects  # deferred to avoid circular import at load time
@@ -852,18 +853,17 @@ def runGeneration(type, locked_scale=None):
     # --- Phase 4: Interpolate path to at least 300 points for a smooth curve ---
     overlay.update(0.16, "Path Interpolation", "Smoothing trail curve…")
     while len(coordinates) < 300 and len(coordinates) > 1 and "trail" in flags:
-        i = 0
-        while i < len(coordinates) - 1:
-            p1 = coordinates[i]
-            p2 = coordinates[i + 1]
-            midpoint = (
-                (p1[0] + p2[0]) / 2,
-                (p1[1] + p2[1]) / 2,
-                (p1[2] + p2[2]) / 2,
-                p1[3],
-            )
-            coordinates.insert(i + 1, midpoint)
-            i += 2
+        n = len(coordinates)
+        xyz = np.array([(c[0], c[1], c[2]) for c in coordinates], dtype=np.float64)
+        mids = (xyz[:-1] + xyz[1:]) / 2.0
+        # Interleave originals and midpoints: [orig0, mid0, orig1, mid1, ..., origN]
+        out = [None] * (2 * n - 1)
+        out[0::2] = coordinates
+        out[1::2] = [
+            (mids[i, 0], mids[i, 1], mids[i, 2], coordinates[i][3])
+            for i in range(n - 1)
+        ]
+        coordinates = out
 
     # --- Phase 5: Calculate horizontal scale factor ---
     overlay.update(0.20, "Scale Calculation", "Computing horizontal scale…")
@@ -875,21 +875,17 @@ def runGeneration(type, locked_scale=None):
 
     # --- Phase 6: Convert to Blender coordinates and find map center ---
     overlay.update(0.24, "Coordinate Conversion", "Converting to Blender space…")
-    blender_coords = [
-        convert_to_blender_coordinates(lat, lon, ele, timestamp)
-        for lat, lon, ele, timestamp in coordinates
-    ]
+    blender_coords = convert_to_blender_coordinates_batch(coordinates)
     blender_coords_separate = []
     if "separate_paths" in flags or len(separate_paths) > 1:
         blender_coords_separate = [
-            [convert_to_blender_coordinates(lat, lon, ele, timestamp) for lat, lon, ele, timestamp in path]
+            convert_to_blender_coordinates_batch(path)
             for path in separate_paths
         ]
     blender_coords_by_file = []
     if separate_paths_by_file:
         blender_coords_by_file = [
-            [[convert_to_blender_coordinates(lat, lon, ele, timestamp) for lat, lon, ele, timestamp in seg]
-             for seg in file_segs]
+            [convert_to_blender_coordinates_batch(seg) for seg in file_segs]
             for file_segs in separate_paths_by_file
         ]
     min_x = min(p[0] for p in blender_coords)
@@ -983,33 +979,30 @@ def runGeneration(type, locked_scale=None):
             _progress.WarningsOverlay.add_warning("Terrain seems to be really flat. If not intended, increase Elevation scale", icon="warn")
 
     # Recalculate blender coords with elevation applied, simplify, deduplicate
-    blender_coords = [
-        convert_to_blender_coordinates(lat, lon, ele, timestamp)
-        for lat, lon, ele, timestamp in coordinates
-    ]
-    _g_slopes = []
-    _all_segs = blender_coords_separate if blender_coords_separate else [blender_coords]
-    for _seg in _all_segs:
-        for _i in range(len(_seg) - 1):
-            x1, y1, z1 = _seg[_i]
-            x2, y2, z2 = _seg[_i+1]
-            _h = math.sqrt((x2-x1)**2 + (y2-y1)**2)
-            if _h > 0:
-                _g_slopes.append(abs(z2 - z1) / _h)
-    if _g_slopes:
-        _avg_g = sum(_g_slopes) / len(_g_slopes)
-        print(f"[DEBUG] GPX avg slope:     {_avg_g:.4f}  ({math.degrees(math.atan(_avg_g)):.2f}°)")
+    blender_coords = convert_to_blender_coordinates_batch(coordinates)
+    if bpy.app.debug:
+        _g_slopes = []
+        _all_segs = blender_coords_separate if blender_coords_separate else [blender_coords]
+        for _seg in _all_segs:
+            for _i in range(len(_seg) - 1):
+                x1, y1, z1 = _seg[_i]
+                x2, y2, z2 = _seg[_i+1]
+                _h = math.sqrt((x2-x1)**2 + (y2-y1)**2)
+                if _h > 0:
+                    _g_slopes.append(abs(z2 - z1) / _h)
+        if _g_slopes:
+            _avg_g = sum(_g_slopes) / len(_g_slopes)
+            print(f"[DEBUG] GPX avg slope:     {_avg_g:.4f}  ({math.degrees(math.atan(_avg_g)):.2f}°)")
     blender_coords = simplify_curve(blender_coords, .12)
     blender_coords = separate_duplicate_xy(blender_coords, 0.05)
     if ("separate_paths" in flags or len(separate_paths) > 1) and "trail_map" not in flags:
         blender_coords_separate = [
-            [convert_to_blender_coordinates(lat, lon, ele, timestamp) for lat, lon, ele, timestamp in path]
+            convert_to_blender_coordinates_batch(path)
             for path in separate_paths
         ]
     if separate_paths_by_file and "trail_map" not in flags:
         blender_coords_by_file = [
-            [[convert_to_blender_coordinates(lat, lon, ele, timestamp) for lat, lon, ele, timestamp in seg]
-             for seg in file_segs]
+            [convert_to_blender_coordinates_batch(seg) for seg in file_segs]
             for file_segs in separate_paths_by_file
         ]
 
@@ -1067,20 +1060,33 @@ def runGeneration(type, locked_scale=None):
     # --- Phase 11: Apply terrain elevation to mesh vertices ---
     overlay.update(0.75, "Applying Terrain", "Displacing mesh vertices…")
     mesh = MapObject.data
-    lowestZ  = 1000
-    highestZ = 0
     _total_verts = len(mesh.vertices)
-    _obj_matrix = MapObject.matrix_world
-    for i, vert in enumerate(mesh.vertices):
-        _world_co = _obj_matrix @ vert.co
-        _vert_lat, _unused_var = convert_to_geo(_world_co.x, _world_co.y)
-        _merc = 1 / math.cos(math.radians(_vert_lat))
-        vert.co.z = tileVerts[i] / 1000 * props['scaleElevation'] * autoScale * _merc
-        lowestZ  = min(lowestZ,  vert.co.z)
-        highestZ = max(highestZ, vert.co.z)
-        if i % 5000 == 0:
-            overlay.update(i / _total_verts, "Displacing vertices…")
-    overlay.update(_total_verts / _total_verts, "Displacing vertices…")
+
+    # Bulk-read vertex coords into numpy array
+    co_flat = np.empty(_total_verts * 3, dtype=np.float64)
+    mesh.vertices.foreach_get("co", co_flat)
+    co = co_flat.reshape((_total_verts, 3))
+
+    # Transform local coords to world space and extract world Y for Mercator correction
+    m = np.array(MapObject.matrix_world, dtype=np.float64)
+    co_h = np.hstack([co, np.ones((_total_verts, 1), dtype=np.float64)])
+    world_y = (m @ co_h.T).T[:, 1]
+
+    # Mercator latitude correction: stay in radians — skip the degrees roundtrip
+    # convert_to_geo: lat_deg = degrees(2*atan(exp(y/(R*scaleHor))) - pi/2)
+    # We need cos(radians(lat_deg)) = cos(lat_rad), so compute lat_rad directly
+    lat_rad = 2.0 * np.arctan(np.exp(world_y / (const.R * scaleHor))) - (np.pi / 2.0)
+    merc = 1.0 / np.cos(lat_rad)
+
+    # Compute new Z for all vertices at once and write back
+    new_z = np.array(tileVerts, dtype=np.float64) / 1000.0 * props['scaleElevation'] * autoScale * merc
+    co[:, 2] = new_z
+    mesh.vertices.foreach_set("co", co.ravel())
+    mesh.update()
+
+    lowestZ  = float(new_z.min())
+    highestZ = float(new_z.max())
+    overlay.update(1.0, "Displacing vertices…")
     overlay.sub_percent = None
     additionalExtrusion = lowestZ
     bpy.context.scene.tp3d.sAdditionalExtrusion = additionalExtrusion
@@ -1090,16 +1096,17 @@ def runGeneration(type, locked_scale=None):
     print(f"additionalExtrusion: {additionalExtrusion}")
     print(f"Lowest z: {lowestZ}")
     print(f"Highest z: {highestZ}")
-    _t_slopes = []
-    for edge in mesh.edges:
-        v1 = mesh.vertices[edge.vertices[0]].co
-        v2 = mesh.vertices[edge.vertices[1]].co
-        _h = math.sqrt((v2.x-v1.x)**2 + (v2.y-v1.y)**2)
-        if _h > 0:
-            _t_slopes.append(abs(v2.z - v1.z) / _h)
-    if _t_slopes:
-        _avg_t = sum(_t_slopes) / len(_t_slopes)
-        print(f"[DEBUG] Terrain avg slope: {_avg_t:.4f}  ({math.degrees(math.atan(_avg_t)):.2f}°)")
+    if bpy.app.debug:
+        _t_slopes = []
+        for edge in mesh.edges:
+            v1 = mesh.vertices[edge.vertices[0]].co
+            v2 = mesh.vertices[edge.vertices[1]].co
+            _h = math.sqrt((v2.x-v1.x)**2 + (v2.y-v1.y)**2)
+            if _h > 0:
+                _t_slopes.append(abs(v2.z - v1.z) / _h)
+        if _t_slopes:
+            _avg_t = sum(_t_slopes) / len(_t_slopes)
+            print(f"[DEBUG] Terrain avg slope: {_avg_t:.4f}  ({math.degrees(math.atan(_avg_t)):.2f}°)")
 
 
     # Snap trail curves onto terrain surface

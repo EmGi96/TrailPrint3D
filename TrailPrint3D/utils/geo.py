@@ -1,5 +1,6 @@
 import bpy  # type: ignore
 import math
+import numpy as np
 from .. import constants as const
 
 
@@ -76,6 +77,33 @@ def convert_to_blender_coordinates(lat, lon, elevation,timestamp):
 
     return (x, y, z)
 
+def convert_to_blender_coordinates_batch(coords):
+    """Vectorized batch version of convert_to_blender_coordinates.
+
+    coords: iterable of (lat, lon, elevation, timestamp)
+    Returns a list of (x, y, z) tuples — same interface as repeated scalar calls,
+    but reads scene properties once and does all math in numpy.
+    """
+    scaleHor = bpy.context.scene.tp3d.sScaleHor
+    autoScale = bpy.context.scene.tp3d.sAutoScale
+    scaleElevation = bpy.context.scene.tp3d.scaleElevation
+    R = const.R
+
+    arr = np.array([(c[0], c[1], c[2]) for c in coords], dtype=np.float64)
+    if len(arr) == 0:
+        return []
+
+    lats = arr[:, 0]
+    lons = arr[:, 1]
+    elevs = arr[:, 2]
+
+    x = R * np.radians(lons) * scaleHor
+    y = R * np.log(np.tan(np.pi / 4.0 + np.radians(lats) / 2.0)) * scaleHor
+    z = elevs / 1000.0 * scaleElevation * autoScale
+
+    return list(zip(x.tolist(), y.tolist(), z.tolist()))
+
+
 def convert_to_neutral_coordinates(lat, lon, elevation,timestamp):
 
     autoScale = bpy.context.scene.tp3d.sAutoScale
@@ -116,22 +144,25 @@ def haversine(lat1, lon1, lat2, lon2):
 
 def calculate_total_length(points):
     #Calculates the total path length in kilometers.
-    total_distance = 0.0
-    for i in range(1, len(points)):
-        lon1, lat1, _, _ = points[i - 1]
-        lon2, lat2, _, _ = points[i]
-        total_distance += haversine(lon1, lat1, lon2, lat2)
-    return total_distance
+    if len(points) < 2:
+        return 0.0
+    # Vectorised haversine — same column order as the scalar loop above
+    arr = np.array([(p[0], p[1]) for p in points], dtype=np.float64)
+    phi1 = np.radians(arr[:-1, 0])
+    phi2 = np.radians(arr[1:,  0])
+    dphi = np.radians(arr[1:,  0] - arr[:-1, 0])
+    dlam = np.radians(arr[1:,  1] - arr[:-1, 1])
+    a = np.sin(dphi / 2) ** 2 + np.cos(phi1) * np.cos(phi2) * np.sin(dlam / 2) ** 2
+    c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1.0 - a))
+    return float(np.sum(const.R * c))
 
 def calculate_total_elevation(points):
     #Calculates the total elevation gain in meters.
-    total_elevation = 0.0
-    for i in range(1, len(points)):
-        _, _, elev1, _ = points[i - 1]
-        _, _, elev2, _ = points[i]
-        if elev2 > elev1:
-            total_elevation += elev2 - elev1
-    return total_elevation
+    if len(points) < 2:
+        return 0.0
+    elevs = np.array([p[2] for p in points], dtype=np.float64)
+    diffs = np.diff(elevs)
+    return float(np.sum(diffs[diffs > 0]))
 
 def calculate_total_time(points):
     hrs = 0

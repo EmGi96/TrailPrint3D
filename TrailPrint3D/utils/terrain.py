@@ -1,4 +1,4 @@
-from TrailPrint3D.utils.scene import remove_objects
+from .scene import remove_objects
 import bpy  # type: ignore
 import bmesh  # type: ignore
 import math
