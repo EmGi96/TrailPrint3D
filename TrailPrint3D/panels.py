@@ -110,7 +110,8 @@ class TP3D_PT_generate(bpy.types.Panel):
                     col.operator("tp3d.terrain_dummy", text=_("Create Blank"), icon="LOCKED")
                 col.separator(factor=1.0)
                 if temp.PREMIUMVERSION:
-                    col.operator("tp3d.map_picker", text=_("Pick Area on Map"), icon='WORLD')
+                    pass
+                    #col.operator("tp3d.map_picker", text=_("Pick Area on Map"), icon='WORLD')
                 else:
                     col.operator("tp3d.terrain_dummy", text=_("Pick Area on Map"), icon='WORLD')
             else:

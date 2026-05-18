@@ -1,4 +1,5 @@
 from .scene import remove_objects
+from .mesh_ops import extrude_plane, recalculateNormals
 import bpy  # type: ignore
 import bmesh  # type: ignore
 import math
@@ -888,23 +889,23 @@ def createOcean(bboxBigger, waterHeight, scaleHor, landpoints, baseplate, tile, 
         merged_object.data.materials.clear()
         merged_object.data.materials.append(mat)
 
+        #raise Exception("debug stop")
+
+        #merged_object.location.z = tile["lowestZ"] - 0.5
+        #return merged_object
+
         elementMode = bpy.context.scene.tp3d.elementMode
-        if elementMode == "PAINT":
-            _t_proj = time.time()
-            projection("paint", tile, merged_object)
-            print(f"  [ocean] projection (paint): {time.time()-_t_proj:.3f}s")
-            print(f"  [ocean] total: {time.time()-_t_ocean:.3f}s")
-            return None
-        elif elementMode == "SINGLECOLORMODE" or elementMode == "SINGLECOLORMODE_REMESH":
-            _t_proj = time.time()
-            projection("singleColorMode", tile, merged_object)
-            print(f"  [ocean] projection (singleColorMode): {time.time()-_t_proj:.3f}s")
-            mat = bpy.data.materials.get("WATER")
-            merged_object.data.materials.clear()
-            merged_object.data.materials.append(mat)
-            print(f"  [ocean] total: {time.time()-_t_ocean:.3f}s")
-            return merged_object
-        elif elementMode == "SEPARATE":
+        #
+        #if elementMode == "PAINT":
+        #    projection("paint", tile, merged_object)
+        #    return None
+        #elif elementMode == "SINGLECOLORMODE" or elementMode == "SINGLECOLORMODE_REMESH":
+        #    projection("singleColorMode", tile, merged_object)
+        #    mat = bpy.data.materials.get("WATER")
+        #    merged_object.data.materials.clear()
+        #    merged_object.data.materials.append(mat)
+        #    return merged_object
+        if elementMode == "SEPARATE" or 1 == 1:
             _t_proj = time.time()
             projection("separate", tile, merged_object)
             print(f"  [ocean] projection (separate): {time.time()-_t_proj:.3f}s")
