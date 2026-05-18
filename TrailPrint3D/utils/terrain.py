@@ -1,4 +1,5 @@
 from .scene import remove_objects
+from .mesh_ops import extrude_plane, recalculateNormals
 import bpy  # type: ignore
 import bmesh  # type: ignore
 import math
@@ -632,27 +633,35 @@ def createOcean(bboxBigger, waterHeight, scaleHor, landpoints, baseplate, tile, 
 
         #REMOVE THE CUTTER OBJECT
         remove_objects(coastcurve)
+
+
         
 
         mat = bpy.data.materials.get("WATER")
         merged_object.data.materials.clear()
         merged_object.data.materials.append(mat)
 
+        #raise Exception("debug stop")
+
+        #merged_object.location.z = tile["lowestZ"] - 0.5
+        #return merged_object
+
         elementMode = bpy.context.scene.tp3d.elementMode
-        if elementMode == "PAINT":
-            projection("paint", tile, merged_object)
-            return None
-        elif elementMode == "SINGLECOLORMODE" or elementMode == "SINGLECOLORMODE_REMESH":
-            projection("singleColorMode", tile, merged_object)
-            mat = bpy.data.materials.get("WATER")
-            merged_object.data.materials.clear()
-            merged_object.data.materials.append(mat)
-            return merged_object
-        elif elementMode == "SEPARATE":
+        #
+        #if elementMode == "PAINT":
+        #    projection("paint", tile, merged_object)
+        #    return None
+        #elif elementMode == "SINGLECOLORMODE" or elementMode == "SINGLECOLORMODE_REMESH":
+        #    projection("singleColorMode", tile, merged_object)
+        #    mat = bpy.data.materials.get("WATER")
+        #    merged_object.data.materials.clear()
+        #    merged_object.data.materials.append(mat)
+        #    return merged_object
+        if elementMode == "SEPARATE" or 1 == 1:
             projection("separate", tile, merged_object)
             mat = bpy.data.materials.get("WATER")
             merged_object.data.materials.clear()
-            merged_object.data.materials.append(mat)
+            merged_object.data.materials.append(mat) 
             return merged_object
 
     else:
