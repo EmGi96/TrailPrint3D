@@ -183,8 +183,6 @@ def calculate_date(points):
     if len(points) < 2:
         return ""
     st = points[0][3]
-    print(st)
-    print(type(st))
 
     if st:
         dt = str(st.date())

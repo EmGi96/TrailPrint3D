@@ -309,6 +309,14 @@ class TP3D_OT_clear_cache(bpy.types.Operator):
         except Exception as e:
             print(f"Failed to delete cache directory: {e}")
 
+        # Clear the in-memory elevation cache so the load guard doesn't
+        # serve stale data after the files have been deleted.
+        const._elevation_cache.clear()
+
+        # Recreate the directory tree so save_elevation_cache() doesn't
+        # silently fail trying to write into a path that no longer exists.
+        const._ensure_dirs()
+
         return {'FINISHED'}
 
 

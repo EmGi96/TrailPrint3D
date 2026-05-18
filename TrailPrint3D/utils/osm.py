@@ -12,6 +12,66 @@ from .. import constants as const
 from .. import progress as _progress
 
 
+def _overpass_request(query, overpass_url, method='POST', timeout=60, max_retries=3,
+                      log_callback=None):
+    """Make one Overpass API request with retry/backoff.
+
+    Parameters
+    ----------
+    query        : Overpass QL string
+    overpass_url : endpoint URL
+    method       : 'POST' (default) or 'GET'
+    timeout      : per-request timeout in seconds
+    max_retries  : total attempts before giving up
+    log_callback : optional callable(str) for progress messages — called from
+                   whatever thread this runs on, so keep it thread-safe.
+
+    Returns the parsed JSON dict on success, or None on failure.
+    """
+    for attempt in range(max_retries):
+        try:
+            if method == 'POST':
+                response = requests.post(
+                    overpass_url,
+                    data={"data": query},
+                    headers={'User-Agent': 'TrailPrint3D_3.00', 'Accept': '*/*'},
+                    timeout=timeout,
+                )
+            else:
+                response = requests.get(
+                    overpass_url,
+                    params={'data': query},
+                    headers={'User-Agent': 'TrailPrint3D_3.00', 'Accept': '*/*'},
+                    timeout=timeout,
+                )
+
+            if response.status_code == 200:
+                try:
+                    return response.json()
+                except ValueError:
+                    print(f"Attempt {attempt + 1}: Invalid JSON response")
+                    # fall through to retry
+            else:
+                retry_num = attempt + 2
+                print(f"Status ({response.status_code}), retrying... {retry_num}/{max_retries}")
+                if log_callback:
+                    log_callback(f"Overpass error {response.status_code} — retrying {retry_num}/{max_retries}")
+                time.sleep(5 + attempt)
+
+        except requests.exceptions.Timeout:
+            retry_num = attempt + 2
+            print(f"Request timed out (attempt {attempt + 1}/{max_retries})")
+            if log_callback:
+                log_callback(f"Timed out — retrying {retry_num}/{max_retries}")
+            time.sleep(5)
+        except requests.RequestException as e:
+            print(f"Request failed: {e}")
+            time.sleep(5)
+
+    print("Overpass request failed after retries")
+    return None
+
+
 def fetch_osm_data(bbox, kind="WATER", max_cache_age_hours=720, return_cache_status=False):
     #print("FETCH OSM:", kind)
 
@@ -200,49 +260,25 @@ def fetch_osm_data(bbox, kind="WATER", max_cache_age_hours=720, return_cache_sta
     # --------------------------------------------------
     # Request with retries
     # --------------------------------------------------
-    for attempt in range(apiRetries):
-        try:
-            response = requests.post(
-                overpass_url,
-                data={"data": query},
-                headers={'User-Agent': 'TrailPrint3D_3.00', 'Accept': '*/*'},
-                timeout=60
-            )
-            print(query)
+    def _log(msg):
+        _ov = _progress.ProgressOverlay.get()
+        if _ov.active:
+            _ov.update(message=msg)
 
-            if response.status_code == 200:
-                data = response.json()
+    print(query)
+    data = _overpass_request(
+        query, overpass_url,
+        method='POST', timeout=60, max_retries=apiRetries,
+        log_callback=_log,
+    )
+    if data is None:
+        _progress.WarningsOverlay.add_warning(f"failed to fetch {kind} elements from Overpass API", "error")
+        return None
 
-                # --------------------------------------------------
-                # Write cache
-                # --------------------------------------------------
-                with open(cache_path, "w", encoding="utf-8") as f:
-                    json.dump(data, f)
+    with open(cache_path, "w", encoding="utf-8") as f:
+        json.dump(data, f)
 
-                return (data, False) if return_cache_status else data
-
-            elif response.status_code != 200:
-                retry_num = attempt + 2
-                print(f"Status ({response.status_code}), retrying... {retry_num}/{apiRetries}")
-                _ov = _progress.ProgressOverlay.get()
-                if _ov.active:
-                    _ov.update(message=f"Overpass error — retrying {retry_num}/{apiRetries}")
-                time.sleep(5 + attempt)
-
-        except requests.exceptions.Timeout:
-            retry_num = attempt + 2
-            print(f"Request timed out (attempt {attempt + 1}/{apiRetries})")
-            _ov = _progress.ProgressOverlay.get()
-            if _ov.active:
-                _ov.update(message=f"Timed out — retrying {retry_num}/{apiRetries}")
-            time.sleep(5)
-        except Exception as e:
-            print("Request failed:", e)
-            time.sleep(5)
-
-    print("Overpass request failed after retries")
-    _progress.WarningsOverlay.add_warning(f"failed to fetch {kind} elements from Overpass API", "error")
-    return None
+    return (data, False) if return_cache_status else data
 
 
 def extract_multipolygon_bodies(elements, nodes):
@@ -370,34 +406,13 @@ def get_building_data(bbox, max_retries=5, timeout=90):
     out skel qt;
     """
 
-    for attempt in range(1, max_retries + 1):
-        try:
-            response = requests.get(overpass_url, params={'data': query}, headers={'User-Agent': 'TrailPrint3D_3.00', 'Accept': '*/*'}, timeout=timeout)
-
-
-            if response.status_code != 200:
-
-                print(f"Status ({response.status_code}), retrying... {attempt + 1}/{apiRetries}")
-            else:
-                # Try to parse JSON
-                try:
-                    data = response.json()
-                    return data  # Success
-                except ValueError:
-                    print(f"Attempt {attempt}: Invalid JSON response")
-
-        except requests.RequestException as e:
-            print(f"Attempt {attempt}: Request error: {e}")
-
-        # If not successful, wait before retrying
-        if attempt < max_retries:
-            wait_time = 2 + 1 * attempt  # exponential-ish backoff
-            print(f"Retrying in {wait_time} seconds...")
-            time.sleep(wait_time)
-
-    # If we reach here, all retries failed
-    print("Failed to fetch data from Overpass API after multiple attempts.")
-    return None
+    data = _overpass_request(
+        query, overpass_url,
+        method='GET', timeout=timeout, max_retries=max_retries,
+    )
+    if data is None:
+        print("Failed to fetch building data from Overpass API after multiple attempts.")
+    return data
 
 def create_buildings(map, default_height=10, scaleHor=1.0):
     from .geo import convert_to_blender_coordinates  # deferred to avoid circular import at load time

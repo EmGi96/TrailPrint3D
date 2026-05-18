@@ -4,6 +4,7 @@ import time
 import os
 import platform
 import random
+import threading
 import numpy as np
 from mathutils import Vector  # type: ignore
 from bpy.app.translations import pgettext as _
@@ -300,6 +301,8 @@ def _rg_create_map_object(flags, props, modelname, centerx, centery):
     yTerrainOffset = props['yTerrainOffset']
 
     if "append_collection" not in flags and "use_active_object" not in flags:
+        print(f"[map_object] creating '{shape}' N={num_subdivisions} size={size:.1f}…")
+        _t_shape = time.time()
         if shape == "SQUARE":
             rHeight = bpy.context.scene.tp3d.rectangleHeight
             MapObject = create_rectangle(size, rHeight, num_subdivisions, modelname)
@@ -316,6 +319,7 @@ def _rg_create_map_object(flags, props, modelname, centerx, centery):
             MapObject = create_ellipse(size / 2, num_subdivisions, modelname, ratio)
         else:
             MapObject = create_hexagon(size / 2, num_subdivisions, modelname)
+        print(f"[map_object] shape created in {time.time()-_t_shape:.3f}s")
     if "append_collection" in flags:
         appendCollection()
         MapObject = bpy.context.view_layer.objects.active
@@ -348,7 +352,7 @@ def _rg_build_terrain_elements(obj, scaleHor, curveObj=None, phase_start=0.83, p
     Returns a dict keyed by element name; values may be None if disabled.
     phase_start/phase_end control the overlay progress range for multi-tile callers.
     """
-    from .terrain import coloring_main, createOcean, _COLORING_EMPTY, _COLORING_PAINTED  # deferred to avoid circular import at load time
+    from .terrain import coloring_main, createOcean, _COLORING_EMPTY, _COLORING_PAINTED, _fetch_all_kinds_parallel  # deferred to avoid circular import at load time
     from .osm import create_buildings, create_roads  # deferred to avoid circular import at load time
     from .scene import set_origin_to_3d_cursor, get_random_world_vertices  # deferred to avoid circular import at load time
     from .mesh_ops import intersectWithTile  # deferred to avoid circular import at load time
@@ -399,6 +403,37 @@ def _rg_build_terrain_elements(obj, scaleHor, curveObj=None, phase_start=0.83, p
     _ocean_active = tp3d.el_oActive == 1
     _water_ocean_combined = _water_feat_active and _ocean_active
 
+    # --------------------------------------------------
+    # Pre-compute tile bboxes (shared across all active coloring kinds).
+    # These are fetched in parallel before mesh-building to hide network latency.
+    # --------------------------------------------------
+    _lat_step = min(2.0, tp3d.maxLat - tp3d.minLat)
+    _lon_step = min(2.0, tp3d.maxLon - tp3d.minLon)
+    _tile_lats = math.ceil((tp3d.maxLat - tp3d.minLat) / _lat_step)
+    _tile_lons = math.ceil((tp3d.maxLon - tp3d.minLon) / _lon_step)
+    _tile_tasks = [
+        (tp3d.minLat + k * _lat_step,
+         tp3d.minLon + l * _lon_step,
+         tp3d.minLat + k * _lat_step + _lat_step,
+         tp3d.minLon + l * _lon_step + _lon_step)
+        for k in range(_tile_lats)
+        for l in range(_tile_lons)
+    ]
+    _overpass_semaphore = threading.Semaphore(2)  # max 2 concurrent live Overpass requests
+
+    # --------------------------------------------------
+    # Pre-fetch ALL active kinds × all tiles simultaneously.
+    # All HTTP round-trips overlap; the semaphore caps live requests to 2 at
+    # a time.  Processing (bpy.*) still runs sequentially on the main thread.
+    # --------------------------------------------------
+    _active_kind_tasks = [
+        (key.upper(), _tile_tasks)
+        for key, flag_attr, max_size, _, _ in COLORING_ELEMENTS
+        if (flag_attr(tp3d) if callable(flag_attr) else getattr(tp3d, flag_attr) == 1)
+        and map_km <= max_size
+    ]
+    _all_prefetched = _fetch_all_kinds_parallel(_active_kind_tasks, _overpass_semaphore)
+
     terrain = {}
     for key, flag_attr, max_size, phase, msg in COLORING_ELEMENTS:
         terrain[key] = None
@@ -406,7 +441,7 @@ def _rg_build_terrain_elements(obj, scaleHor, curveObj=None, phase_start=0.83, p
             if map_km <= max_size:
                 _advance_elem_progress(phase, msg)
                 _ov.set_fetch_progress(key, 0.0)
-                _result = coloring_main(obj, key.upper())
+                _result = coloring_main(obj, key.upper(), prefetched_tiles=_all_prefetched.get(key.upper(), {}))
                 if _result is _COLORING_EMPTY:
                     terrain[key] = None
                     _ov.set_fetch_empty(key)
@@ -1169,7 +1204,6 @@ def runGeneration(type, locked_scale=None):
     bpy.ops.object.select_all(action='DESELECT')
 
     if "append_collection" not in flags:
-        print("Chicken")
         if shape == "HEXAGON INNER TEXT":
             textobj = HexagonInnerText(MapObject)
         elif shape == "HEXAGON OUTER TEXT":

@@ -195,13 +195,16 @@ def merge_objects(objects, name="MergedObject"):
     Simple UI-style merge: select objects, make the first one active, and call join.
     This is fast but requires changing selection/context.
     """
-
-    print("This one")
     # filter only mesh objects
     #mesh_objs = [o for o in objects if o.type == 'MESH']
     mesh_objs = objects
     if not mesh_objs:
         return None
+    if len(mesh_objs) == 1:
+        bpy.ops.object.select_all(action='DESELECT')
+        mesh_objs[0].select_set(True)
+        bpy.context.view_layer.objects.active = mesh_objs[0]
+        return mesh_objs[0]
 
 
     # ensure in same collection / visible
