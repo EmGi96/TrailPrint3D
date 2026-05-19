@@ -12,6 +12,11 @@ from .. import progress as _progress
 _COLORING_EMPTY = object()
 _COLORING_PAINTED = object()
 
+# Material name override for kinds whose material name differs from the kind string.
+KIND_MATERIAL_OVERRIDE = {
+    "SCREE": "MOUNTAIN",
+}
+
 
 def _fetch_tiles_parallel(tasks, kind, semaphore, settings=None, max_workers=4):
     """Fetch a list of OSM tiles concurrently, honouring Overpass rate limits.
@@ -638,10 +643,6 @@ def coloring_main(map, kind="WATER", prefetched_tiles=None):
             print(f"  [coloring_main] PAINT total ({kind}): {time.time()-_t_paint:.3f}s")
             return _COLORING_PAINTED
             # ── end PAINT-mode fast path ──────────────────────────────────────
-
-        KIND_MATERIAL_OVERRIDE = {
-            "SCREE": "MOUNTAIN",
-        }
 
         # Per-object extrude + MANIFOLD boolean — no recalculateNormals (avoids mode-switch cost).
         _t_proc_loop = time.time()

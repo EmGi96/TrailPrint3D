@@ -345,12 +345,90 @@ def _rg_create_map_object(flags, props, modelname, centerx, centery):
     return MapObject
 
 
-def _rg_build_terrain_elements(obj, scaleHor, curveObj=None, phase_start=0.83, phase_end=0.95):
+# ---------------------------------------------------------------------------
+# Coloring-element definitions — used by both the OSM prefetch helper and the
+# main terrain-element builder.  Tuple layout:
+#   (result_key, active_flag_attr, max_size_const, phase_label, fetch_message)
+# ---------------------------------------------------------------------------
+COLORING_ELEMENTS = [
+    ('forest',  'col_fActive',   const.FOREST_MAXSIZE,  "Forest",  "Fetching forest data\u2026"),
+    ('water',   lambda t: t.col_wPondsActive or t.col_wSmallRiversActive or t.col_wBigRiversActive, const.WATER_MAXSIZE, "Water", "Fetching water data\u2026"),
+    ('scree',   'col_scrActive', const.SCREE_MAXSIZE,   "Scree",   "Fetching scree data\u2026"),
+    ('city',       'col_cActive',   const.CITY_MAXSIZE,       "City",       "Fetching city data\u2026"),
+    ('greenspace', 'col_grActive', const.GREENSPACE_MAXSIZE, "Greenspace", "Fetching greenspace data\u2026"),
+    ('farmland',   'col_faActive', const.FARMLAND_MAXSIZE,   "Farmland",   "Fetching farmland data\u2026"),
+    ('glacier',  'col_glActive',  const.GLACIER_MAXSIZE,  "Glacier",  "Fetching glacier data\u2026"),
+]
+
+
+def _rg_start_osm_prefetch(tp3d, map_km):
+    """Snapshot all bpy values on the main thread and launch a daemon thread
+    that pre-fetches every active OSM coloring kind before mesh-building begins.
+
+    The caller must call thread.join() before consuming the result dict.
+    Returns (None, {}) immediately if no coloring elements are active.
+    """
+    from .terrain import _fetch_all_kinds_parallel  # deferred to avoid circular import at load time
+    from .osm import OsmFetchSettings               # deferred to avoid circular import at load time
+
+    _lat_step  = min(2.0, tp3d.maxLat - tp3d.minLat)
+    _lon_step  = min(2.0, tp3d.maxLon - tp3d.minLon)
+    _tile_lats = math.ceil((tp3d.maxLat - tp3d.minLat) / _lat_step)
+    _tile_lons = math.ceil((tp3d.maxLon - tp3d.minLon) / _lon_step)
+    _tile_tasks = [
+        (tp3d.minLat + k * _lat_step,
+         tp3d.minLon + l * _lon_step,
+         tp3d.minLat + k * _lat_step + _lat_step,
+         tp3d.minLon + l * _lon_step + _lon_step)
+        for k in range(_tile_lats)
+        for l in range(_tile_lons)
+    ]
+    _semaphore = threading.Semaphore(2)  # max 2 concurrent live Overpass requests
+    _fetch_settings = OsmFetchSettings(
+        disable_cache       = tp3d.disableCache,
+        api_retries         = tp3d.apiRetries,
+        mapsize             = tp3d.sMapInKm,
+        road_big            = bool(tp3d.el_sBigActive),
+        road_med            = bool(tp3d.el_sMedActive),
+        road_small          = bool(tp3d.el_sSmallActive),
+        water_ponds         = bool(tp3d.col_wPondsActive),
+        water_small_rivers  = bool(tp3d.col_wSmallRiversActive),
+        water_big_rivers    = bool(tp3d.col_wBigRiversActive),
+    )
+    _active_kind_tasks = [
+        (key.upper(), _tile_tasks)
+        for key, flag_attr, max_size, _, _ in COLORING_ELEMENTS
+        if (flag_attr(tp3d) if callable(flag_attr) else getattr(tp3d, flag_attr) == 1)
+        and map_km <= max_size
+    ]
+    if tp3d.el_bActive == 1 and map_km <= const.BUILDINGS_MAXSIZE:
+        _active_kind_tasks.append(("BUILDINGS", _tile_tasks))
+    if any([tp3d.el_sBigActive, tp3d.el_sMedActive, tp3d.el_sSmallActive]) and map_km <= const.ROADS_MAXSIZE:
+        _active_kind_tasks.append(("STREETS", _tile_tasks))
+    if not _active_kind_tasks:
+        return None, {}
+
+    result = {}
+
+    def _run():
+        fetched = _fetch_all_kinds_parallel(_active_kind_tasks, _semaphore,
+                                            settings=_fetch_settings)
+        result.update(fetched)
+
+    t = threading.Thread(target=_run, daemon=True, name="osm-prefetch")
+    t.start()
+    return t, result
+
+
+def _rg_build_terrain_elements(obj, scaleHor, curveObj=None, phase_start=0.83, phase_end=0.95,
+                               prefetched_osm=None):
     """Create water, forest, city, glacier, building and road overlay meshes.
 
     Reads all flags directly from bpy.context.scene.tp3d.
     Returns a dict keyed by element name; values may be None if disabled.
     phase_start/phase_end control the overlay progress range for multi-tile callers.
+    prefetched_osm: result dict from _rg_start_osm_prefetch; if provided the
+    per-kind OSM fetch is skipped (data was already downloaded in the background).
     """
     from .terrain import coloring_main, createOcean, _COLORING_EMPTY, _COLORING_PAINTED, _fetch_all_kinds_parallel  # deferred to avoid circular import at load time
     from .osm import OsmFetchSettings  # deferred to avoid circular import at load time
@@ -405,51 +483,44 @@ def _rg_build_terrain_elements(obj, scaleHor, curveObj=None, phase_start=0.83, p
     _water_ocean_combined = _water_feat_active and _ocean_active
 
     # --------------------------------------------------
-    # Pre-compute tile bboxes (shared across all active coloring kinds).
-    # These are fetched in parallel before mesh-building to hide network latency.
+    # Fetch all active OSM kinds unless already done by the background thread
+    # started before elevation (prefetched_osm != None means data is ready).
     # --------------------------------------------------
-    _lat_step = min(2.0, tp3d.maxLat - tp3d.minLat)
-    _lon_step = min(2.0, tp3d.maxLon - tp3d.minLon)
-    _tile_lats = math.ceil((tp3d.maxLat - tp3d.minLat) / _lat_step)
-    _tile_lons = math.ceil((tp3d.maxLon - tp3d.minLon) / _lon_step)
-    _tile_tasks = [
-        (tp3d.minLat + k * _lat_step,
-         tp3d.minLon + l * _lon_step,
-         tp3d.minLat + k * _lat_step + _lat_step,
-         tp3d.minLon + l * _lon_step + _lon_step)
-        for k in range(_tile_lats)
-        for l in range(_tile_lons)
-    ]
-    _overpass_semaphore = threading.Semaphore(2)  # max 2 concurrent live Overpass requests
-
-    # Snapshot all bpy.context values needed by fetch_osm_data on the main
-    # thread NOW, before any worker threads are spawned.  Workers receive this
-    # plain namedtuple so they never touch bpy.context.
-    _fetch_settings = OsmFetchSettings(
-        disable_cache       = tp3d.disableCache,
-        api_retries         = tp3d.apiRetries,
-        mapsize             = tp3d.sMapInKm,
-        road_big            = bool(tp3d.el_sBigActive),
-        road_med            = bool(tp3d.el_sMedActive),
-        road_small          = bool(tp3d.el_sSmallActive),
-        water_ponds         = bool(tp3d.col_wPondsActive),
-        water_small_rivers  = bool(tp3d.col_wSmallRiversActive),
-        water_big_rivers    = bool(tp3d.col_wBigRiversActive),
-    )
-
-    # --------------------------------------------------
-    # Pre-fetch ALL active kinds × all tiles simultaneously.
-    # All HTTP round-trips overlap; the semaphore caps live requests to 2 at
-    # a time.  Processing (bpy.*) still runs sequentially on the main thread.
-    # --------------------------------------------------
-    _active_kind_tasks = [
-        (key.upper(), _tile_tasks)
-        for key, flag_attr, max_size, _, _ in COLORING_ELEMENTS
-        if (flag_attr(tp3d) if callable(flag_attr) else getattr(tp3d, flag_attr) == 1)
-        and map_km <= max_size
-    ]
-    _all_prefetched = _fetch_all_kinds_parallel(_active_kind_tasks, _overpass_semaphore,
-                                                settings=_fetch_settings)
+    if prefetched_osm is None:
+        _lat_step = min(2.0, tp3d.maxLat - tp3d.minLat)
+        _lon_step = min(2.0, tp3d.maxLon - tp3d.minLon)
+        _tile_lats = math.ceil((tp3d.maxLat - tp3d.minLat) / _lat_step)
+        _tile_lons = math.ceil((tp3d.maxLon - tp3d.minLon) / _lon_step)
+        _tile_tasks = [
+            (tp3d.minLat + k * _lat_step,
+             tp3d.minLon + l * _lon_step,
+             tp3d.minLat + k * _lat_step + _lat_step,
+             tp3d.minLon + l * _lon_step + _lon_step)
+            for k in range(_tile_lats)
+            for l in range(_tile_lons)
+        ]
+        _overpass_semaphore = threading.Semaphore(2)  # max 2 concurrent live Overpass requests
+        _fetch_settings = OsmFetchSettings(
+            disable_cache       = tp3d.disableCache,
+            api_retries         = tp3d.apiRetries,
+            mapsize             = tp3d.sMapInKm,
+            road_big            = bool(tp3d.el_sBigActive),
+            road_med            = bool(tp3d.el_sMedActive),
+            road_small          = bool(tp3d.el_sSmallActive),
+            water_ponds         = bool(tp3d.col_wPondsActive),
+            water_small_rivers  = bool(tp3d.col_wSmallRiversActive),
+            water_big_rivers    = bool(tp3d.col_wBigRiversActive),
+        )
+        _active_kind_tasks = [
+            (key.upper(), _tile_tasks)
+            for key, flag_attr, max_size, _, _ in COLORING_ELEMENTS
+            if (flag_attr(tp3d) if callable(flag_attr) else getattr(tp3d, flag_attr) == 1)
+            and map_km <= max_size
+        ]
+        _all_prefetched = _fetch_all_kinds_parallel(_active_kind_tasks, _overpass_semaphore,
+                                                    settings=_fetch_settings)
+    else:
+        _all_prefetched = prefetched_osm
 
     terrain = {}
     for key, flag_attr, max_size, phase, msg in COLORING_ELEMENTS:
@@ -991,6 +1062,12 @@ def runGeneration(type, locked_scale=None):
     # Build the fetch-item strip
     overlay.set_fetch_items(build_fetch_items(_map_km))
 
+    # --- OSM background prefetch: start now so Overpass requests overlap with elevation download ---
+    _tp3d_snap = bpy.context.scene.tp3d
+    _osm_prefetch_thread, _osm_prefetched = _rg_start_osm_prefetch(_tp3d_snap, _map_km)
+    if _osm_prefetch_thread is not None:
+        print("OSM prefetch started (overlapping elevation download)")
+
     # --- Phase 9: Fetch terrain elevation data ---
     overlay.update(0.38, "Fetching Elevation Data", "Querying API — this may take a moment…")
     print("------------------------------------------------")
@@ -1272,7 +1349,10 @@ def runGeneration(type, locked_scale=None):
 
     # --- Phase 14: Create terrain overlay elements ---
     overlay.update(0.83, "Terrain Elements", "Adding elements…")
-    elements = _rg_build_terrain_elements(obj, scaleHor, curveObj=curveObjs[0] if curveObjs else None)
+    if _osm_prefetch_thread is not None:
+        _osm_prefetch_thread.join()
+    elements = _rg_build_terrain_elements(obj, scaleHor, curveObj=curveObjs[0] if curveObjs else None,
+                                          prefetched_osm=_osm_prefetched)
 
     # --- Phase 15: Single color mode processing ---
     overlay.update(0.95, "Coloring", "Applying single-color mode…")
