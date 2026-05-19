@@ -171,7 +171,7 @@ def test_fetch_tiles_parallel_all_tiles_fetched():
     tasks = [(0.0, 0.0, 2.0, 2.0), (2.0, 0.0, 4.0, 2.0), (4.0, 0.0, 6.0, 2.0)]
     captured = []
 
-    def _mock_fetch(bbox, kind, return_cache_status=False):
+    def _mock_fetch(bbox, kind, return_cache_status=False, settings=None):
         captured.append(bbox)
         return ({"elements": []}, True)
 
@@ -192,7 +192,7 @@ def test_fetch_tiles_parallel_failed_tile_excluded():
     good = (0.0, 0.0, 2.0, 2.0)
     bad  = (2.0, 0.0, 4.0, 2.0)
 
-    def _mock_fetch(bbox, kind, return_cache_status=False):
+    def _mock_fetch(bbox, kind, return_cache_status=False, settings=None):
         if bbox == good:
             return ({"elements": []}, False)
         return None  # simulate failure
@@ -212,7 +212,7 @@ def test_fetch_tiles_parallel_result_carries_cache_flag():
 
     bbox = (0.0, 0.0, 2.0, 2.0)
 
-    def _mock_fetch(b, kind, return_cache_status=False):
+    def _mock_fetch(b, kind, return_cache_status=False, settings=None):
         return ({"elements": []}, True)   # from_cache = True
 
     with patch("TrailPrint3D.utils.osm.fetch_osm_data", _mock_fetch):
@@ -230,7 +230,7 @@ def test_fetch_tiles_parallel_respects_semaphore():
 
     tasks = [(float(i), 0.0, float(i + 2), 2.0) for i in range(6)]
 
-    def _mock_fetch(bbox, kind, return_cache_status=False):
+    def _mock_fetch(bbox, kind, return_cache_status=False, settings=None):
         return ({"elements": []}, False)
 
     with patch("TrailPrint3D.utils.osm.fetch_osm_data", _mock_fetch):
@@ -259,7 +259,7 @@ def test_fetch_tiles_parallel_actually_concurrent():
     barrier = threading.Barrier(CONCURRENCY_TARGET, timeout=5)
     tasks = [(float(i), 0.0, float(i + 2), 2.0) for i in range(6)]
 
-    def _mock_fetch(bbox, kind, return_cache_status=False):
+    def _mock_fetch(bbox, kind, return_cache_status=False, settings=None):
         barrier.wait()   # blocks until CONCURRENCY_TARGET threads are all here
         return ({"elements": []}, False)
 
@@ -291,7 +291,7 @@ def test_fetch_tiles_parallel_semaphore_caps_concurrency():
 
     tasks = [(float(i), 0.0, float(i + 2), 2.0) for i in range(6)]
 
-    def _mock_fetch(bbox, kind, return_cache_status=False):
+    def _mock_fetch(bbox, kind, return_cache_status=False, settings=None):
         with lock:
             active[0] += 1
             peak[0] = max(peak[0], active[0])
@@ -546,7 +546,7 @@ def test_fetch_all_kinds_fetches_every_kind():
     kinds = ["WATER", "FOREST", "SCREE"]
     kind_task_pairs = [(k, tasks) for k in kinds]
 
-    def _mock(bbox, kind, return_cache_status=False):
+    def _mock(bbox, kind, return_cache_status=False, settings=None):
         return ({"elements": []}, True)
 
     with patch("TrailPrint3D.utils.osm.fetch_osm_data", _mock):
@@ -565,7 +565,7 @@ def test_fetch_all_kinds_failed_kind_excluded():
 
     tasks = [(0.0, 0.0, 2.0, 2.0)]
 
-    def _mock(bbox, kind, return_cache_status=False):
+    def _mock(bbox, kind, return_cache_status=False, settings=None):
         if kind == "WATER":
             return ({"elements": []}, False)
         return None  # FOREST fails
@@ -591,7 +591,7 @@ def test_fetch_all_kinds_actually_concurrent():
     tasks   = [(0.0, 0.0, 2.0, 2.0)]
     kind_task_pairs = [(f"KIND{i}", tasks) for i in range(N_KINDS)]
 
-    def _mock(bbox, kind, return_cache_status=False):
+    def _mock(bbox, kind, return_cache_status=False, settings=None):
         barrier.wait()   # all N_KINDS threads must be here simultaneously
         return ({"elements": []}, False)
 
@@ -621,7 +621,7 @@ def test_fetch_all_kinds_semaphore_caps_concurrency():
     # 6 kinds × 1 tile = 6 total tasks, semaphore(2) should cap to ≤ 2
     kind_task_pairs = [(f"KIND{i}", tasks) for i in range(6)]
 
-    def _mock(bbox, kind, return_cache_status=False):
+    def _mock(bbox, kind, return_cache_status=False, settings=None):
         with lock:
             active[0] += 1
             peak[0] = max(peak[0], active[0])
