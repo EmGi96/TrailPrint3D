@@ -924,7 +924,6 @@ class TP3D_OT_popup_merge(bpy.types.Operator):
         items=[
             ("paint", "Paint on Surface", ""),
             ("separate", "Separate Object", ""),
-            ("singleColorMode","Single-Color-Mode (Wireframe)",""),
             ("singleColorMode_remesh","Single-Color-Mode (Remesh)",""),
             ("negative","Negative",""),
         ],
@@ -965,6 +964,7 @@ class TP3D_OT_popup_merge(bpy.types.Operator):
 
         # Convert to Mesh and Extrude
         bpy.ops.object.convert(target='MESH')
+        bpy.ops.object.origin_set(type='ORIGIN_CURSOR', center='MEDIAN')
         bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
         
         #bpy.ops.object.mode_set(mode='EDIT')
@@ -1002,7 +1002,11 @@ class TP3D_OT_popup_merge(bpy.types.Operator):
         # Create the object
 
         obj = bpy.context.view_layer.objects.active
-        context.scene.cursor.location = obj.location.copy()
+
+        if "type" not in obj:
+            obj["type"] = "OTHER"
+        #context.scene.cursor.location = obj.location.copy()
+
 
 
 
@@ -1095,7 +1099,6 @@ class TP3D_OT_popup_text(bpy.types.Operator):
         items=[
             ("paint", "Paint on Surface", ""),
             ("separate", "Separate Object", ""),
-            ("singleColorMode","Single-Color-Mode (Wireframe)",""),
             ("singleColorMode_remesh","Single-Color-Mode (Remesh)",""),
             ("negative","Negative",""),
         ],
@@ -1166,6 +1169,7 @@ class TP3D_OT_popup_text(bpy.types.Operator):
         if self.textFont:
             context.scene.tp3d.textFont = self.textFont
 
+
         # Convert to Mesh and Extrude
         bpy.ops.object.convert(target='MESH')
         bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
@@ -1179,7 +1183,6 @@ class TP3D_OT_popup_text(bpy.types.Operator):
         # Your custom projection logic
         Mapobject = context.scene.tp3d.currentMap
 
-        
 
         if not self.bottomSide:
             obj.location.z = -1
@@ -1242,6 +1245,9 @@ class TP3D_OT_popup_text(bpy.types.Operator):
 
         bpy.ops.object.text_add(location=context.scene.cursor.location)
         obj = context.active_object
+
+        if "type" not in obj:
+            obj["type"] = "OTHER"
 
 
         bot, top = utils.getHighestLowest(map)
@@ -1324,7 +1330,6 @@ class TP3D_OT_popup_svg(bpy.types.Operator):
         items=[
             ("paint", "Paint on Surface", "Paints the SVG onto the surface"),
             ("separate", "Separate Object", "SVG as Separate Object"),
-            ("singleColorMode","Single-Color-Mode (Wireframe)","Creates the SVG as a object you can print separately"),
             ("singleColorMode_remesh","Single-Color-Mode (Remesh)","Creates the SVG as a separate object using the remesh-based algorithm"),
             ("negative","Negative","Adds the SVG as a negative space"),
         ],
@@ -1397,7 +1402,10 @@ class TP3D_OT_popup_svg(bpy.types.Operator):
         Mapobject = context.scene.tp3d.currentMap
         obj = bpy.context.view_layer.objects.active
 
-        obj.scale.z = 20
+        if "type" not in obj:
+            obj["type"] = "OTHER"
+
+        obj.scale.z = 200
 
 
         utils.recalculateNormals(Mapobject)
@@ -1405,7 +1413,10 @@ class TP3D_OT_popup_svg(bpy.types.Operator):
 
 
         if not self.bottomSide:
+            bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
+            bpy.ops.object.origin_set(type='ORIGIN_CURSOR', center='MEDIAN')
             obj.location.z = -1
+            #raise Exception("Stop")
             utils.projection(self.operation, Mapobject, obj)
         else:
 
