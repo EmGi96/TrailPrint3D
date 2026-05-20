@@ -626,28 +626,19 @@ def _elevation_results_key(minLat, maxLat, minLon, maxLon, api, num_subdivisions
     return os.path.join(const.elevation_results_dir, f"{h}.elev")
 
 
-def get_tile_elevation(obj, progress_cb=None):
+def compute_and_store_tile_bounds(obj):
+    """Compute geographic bounds from obj's mesh and write them to tp3d.
 
-    mesh = obj.data
-    api = bpy.context.scene.tp3d.api
-
+    Returns (world_verts, num_subdivisions, disable_cache, minLat, maxLat, minLon, maxLon).
+    """
     from .geo import convert_to_geo, haversine  # deferred to avoid circular import at load time
 
-    # Set chunk size based on API
-    if api == "OPENTOPODATA" or api == "OPEN-ELEVATION":
-        chunk_size = 100000
-    elif api == "TERRAIN-TILES" or api == "OPENTOPOGRAPHY":
-        chunk_size = 50000000   # single request for all verts
-    else:
-        chunk_size = 100000  # fallback
-
+    mesh = obj.data
     vertices = list(mesh.vertices)
     obj_matrix = obj.matrix_world
 
-    # Convert all vertex positions to world space
     world_verts = [obj_matrix @ v.co for v in vertices]
 
-    # Get min/max bounds in world space
     min_x = min(v.x for v in world_verts)
     max_x = max(v.x for v in world_verts)
     min_y = min(v.y for v in world_verts)
@@ -664,14 +655,34 @@ def get_tile_elevation(obj, progress_cb=None):
     num_subdivisions = bpy.context.scene.tp3d.num_subdivisions
     disable_cache = bpy.context.scene.tp3d.disableCache
 
-    realdist1 = haversine(minLat,minLon,maxLat,maxLon)*1
-    realdist2 = haversine(minLat,minLon,maxLat,maxLon)*1
+    realdist1 = haversine(minLat, minLon, maxLat, maxLon)
+    realdist2 = haversine(minLat, minLon, maxLat, maxLon)
 
-    bpy.context.scene.tp3d["sMapInKm"] = max(realdist1,realdist2)
-    bpy.context.scene.tp3d["minLat"] = minLat
+    bpy.context.scene.tp3d["sMapInKm"] = max(realdist1, realdist2)
+    bpy.context.scene.tp3d.minLat = minLat
     bpy.context.scene.tp3d.maxLat = maxLat
     bpy.context.scene.tp3d.minLon = minLon
     bpy.context.scene.tp3d.maxLon = maxLon
+
+    return world_verts, num_subdivisions, disable_cache, minLat, maxLat, minLon, maxLon
+
+
+def get_tile_elevation(obj, progress_cb=None):
+
+    mesh = obj.data
+    api = bpy.context.scene.tp3d.api
+
+    from .geo import convert_to_geo  # deferred to avoid circular import at load time
+
+    # Set chunk size based on API
+    if api == "OPENTOPODATA" or api == "OPEN-ELEVATION":
+        chunk_size = 100000
+    elif api == "TERRAIN-TILES" or api == "OPENTOPOGRAPHY":
+        chunk_size = 50000000   # single request for all verts
+    else:
+        chunk_size = 100000  # fallback
+
+    world_verts, num_subdivisions, disable_cache, minLat, maxLat, minLon, maxLon = compute_and_store_tile_bounds(obj)
 
     # ── Elevation results cache ───────────────────────────────────────────────
     # Key on geographic bounds + API + subdivision count so the same map on
@@ -706,13 +717,13 @@ def get_tile_elevation(obj, progress_cb=None):
 
         coords = [convert_to_geo(v.x, v.y) for v in chunk]
         if api == "OPENTOPODATA":
-            chunk_elevations = get_elevation_openTopoData(coords, len(vertices), i, progress_cb=progress_cb)
+            chunk_elevations = get_elevation_openTopoData(coords, len(world_verts), i, progress_cb=progress_cb)
         elif api == "OPEN-ELEVATION":
-            chunk_elevations = get_elevation_openElevation(coords, len(vertices), i, progress_cb=progress_cb)
+            chunk_elevations = get_elevation_openElevation(coords, len(world_verts), i, progress_cb=progress_cb)
         elif api == "TERRAIN-TILES":
-            chunk_elevations = get_elevation_TerrainTiles(coords, len(vertices), i, progress_cb=progress_cb)
+            chunk_elevations = get_elevation_TerrainTiles(coords, len(world_verts), i, progress_cb=progress_cb)
         elif api == "OPENTOPOGRAPHY":
-            chunk_elevations = get_elevation_openTopography(coords, len(vertices), i, progress_cb=progress_cb)
+            chunk_elevations = get_elevation_openTopography(coords, len(world_verts), i, progress_cb=progress_cb)
         else:
             chunk_elevations = [0.0] * len(chunk)  # fallback
 

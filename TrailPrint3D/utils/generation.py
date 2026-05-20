@@ -11,6 +11,7 @@ from bpy.app.translations import pgettext as _
 from .. import progress as _progress
 from .. import addon_preferences
 from .. import constants as const
+from .elevation import compute_and_store_tile_bounds
 
 
 # ---------------------------------------------------------------------------
@@ -1055,6 +1056,8 @@ def runGeneration(type, locked_scale=None):
     # Swap in trail_map GPX coordinates after the shape is positioned
     if "trail_map" in flags:
         coordinates = coordinates2
+
+    compute_and_store_tile_bounds(MapObject)
 
     _map_km = round(bpy.context.scene.tp3d.get("sMapInKm", 0), 1)
     overlay.add_completed_step(f"Map shape created  ({props['shape'].capitalize()}, {_map_km} km)")
