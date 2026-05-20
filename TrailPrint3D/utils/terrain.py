@@ -500,12 +500,13 @@ def color_map_faces_by_terrain(map_obj, terrain_obj, up_threshold=0.05):
 
     recalculateNormals(map_obj)
 
-    terrain_obj.location.z = 10
+    terrain_obj.location.z += 10
     bpy.context.view_layer.update()
 
     # Ensure both have mesh data
     map_mesh = map_obj.data
     terrain_mesh = terrain_obj.data
+ 
 
     # Build bmesh for Map
     bm = bmesh.new()
@@ -530,12 +531,13 @@ def color_map_faces_by_terrain(map_obj, terrain_obj, up_threshold=0.05):
         terrain_obj.data.materials.append(mat)
 
     # Make sure Map has material slots
-    if mat.name not in [m.name for m in map_mesh.materials]:
+    if mat.name not in [m.name for m in map_mesh.materials if m is not None]:
         map_mesh.materials.append(mat)
     mat_index = map_mesh.materials.find(mat.name)
 
     up = Vector((0, 0, 1))
     colored_count = 0
+    notColored_count = 0
 
     i = 0
     for i, f in enumerate(bm.faces):
@@ -545,18 +547,21 @@ def color_map_faces_by_terrain(map_obj, terrain_obj, up_threshold=0.05):
         if dot > up_threshold:
             center = f.calc_center_median()
             center.z -= 5
-            loc, norm, idx, dist = bvh.ray_cast(center, up,100)
+            loc, norm, idx, dist = bvh.ray_cast(center, up,200)
 
             if loc is not None:
                 # Assign terrain material to this face
                 f.material_index = mat_index
                 colored_count += 1
+            else:
+                notColored_count += 1
 
     bm.to_mesh(map_mesh)
     bm.free()
     bm2.free()
     eval_obj.to_mesh_clear()
     print(f"Colored {colored_count} faces on {map_obj.name} based on {terrain_obj.name}")
+    print(f"Not colored {notColored_count} faces on {map_obj.name} based on {terrain_obj.name}")
 
 
 def plateInsert(plate, map):
@@ -641,7 +646,6 @@ def createOcean(bboxBigger, waterHeight, scaleHor, landpoints, baseplate, tile, 
         merged_object.data.materials.clear()
         merged_object.data.materials.append(mat)
 
-        #raise Exception("debug stop")
 
         #merged_object.location.z = tile["lowestZ"] - 0.5
         #return merged_object

@@ -1126,7 +1126,6 @@ def single_color_mode_mesh_wireframe(original, map, tolerance = None):
     bmesh.update_edit_mesh(obj.data)
     bpy.ops.mesh.delete(type='VERT')
 
-    #raise Exception("debug stop")
 
 
 
@@ -1294,6 +1293,7 @@ def remeshClearing(obj, voxelSize2, tolerance):
 def single_color_mode_mesh_remesh(original, map, tolerance = None):
 
     #Original = Element usually
+
     if tolerance == None:
         tolerance = bpy.context.scene.tp3d.toleranceElements
 
@@ -1333,6 +1333,7 @@ def single_color_mode_mesh_remesh(original, map, tolerance = None):
     remesh.voxel_size = voxelSize
     remesh.use_smooth_shade = True
     applyModifier(original, remesh)
+
 
     return obj
 
@@ -1481,13 +1482,14 @@ def projection(operation, Mapobject, obj):
             raise ValueError(f"projection: '{label}' refers to a removed Blender object")
         if name not in bpy.data.objects:
             raise ValueError(f"projection: '{label}' ('{name}') is not in the current scene")
-        if o.type != 'MESH' or o.data is None:
+        if o.type not in ('MESH', 'FONT') or o.data is None:
             raise ValueError(f"projection: '{label}' ('{name}') is not a valid mesh object (type={o.type!r})")
 
     if operation == "paint":
         merge_with_map(Mapobject, obj)
 
-        obj.location.z += 1
+        #obj.location.z += 1
+
 
         bpy.ops.object.origin_set(type='ORIGIN_CURSOR', center='MEDIAN')
         color_map_faces_by_terrain(Mapobject, obj)
@@ -1516,7 +1518,9 @@ def projection(operation, Mapobject, obj):
 
         obj.data.materials.clear()
 
-        single_color_mode_mesh_remesh(obj, Mapobject)
+        thicker = single_color_mode_mesh_remesh(obj, Mapobject)
+
+        remove_objects(thicker)
 
     if operation == "negative":
         merge_with_map(Mapobject, obj, True)
