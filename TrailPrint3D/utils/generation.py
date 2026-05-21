@@ -1246,7 +1246,12 @@ def runGeneration(type, locked_scale=None):
     # Script duration
     end_time = time.time()
     duration = end_time - start_time
+    bpy.context.scene.tp3d.sRunDuration = round(duration)
     bpy.context.scene.tp3d["o_time"] = _("Script ran for {} seconds").format(round(duration))
+
+    if obj:
+        obj["GenerationTime"] = round(duration)
+
 
     print(f"Finished. Generating Map took {duration:.0f} seconds")
     print("----------------------------------------------------------------")
