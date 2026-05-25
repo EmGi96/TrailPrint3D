@@ -401,8 +401,9 @@ def get_building_data(bbox, max_retries=5, timeout=90):
 
 def create_buildings(map, default_height=10, scaleHor=1.0):
     from .geo import convert_to_blender_coordinates  # deferred to avoid circular import at load time
-    from .mesh_ops import recalculateNormals, RaycastPointToMeshZ  # deferred to avoid circular import at load time
+    from .mesh_ops import recalculateNormals  # deferred to avoid circular import at load time
     from .scene import remove_objects  # deferred to avoid circular import at load time
+    from mathutils.bvhtree import BVHTree  # type: ignore
 
     # Copy map and extrude vertical faces outward
     wall_obj = map.copy()
@@ -421,6 +422,15 @@ def create_buildings(map, default_height=10, scaleHor=1.0):
     bpy.ops.mesh.extrude_region_shrink_fatten(TRANSFORM_OT_shrink_fatten={"value": 20.0})
     bpy.ops.object.mode_set(mode='OBJECT')
 
+    # Build BVH once from wall_obj so per-vertex terrain raycasts are cheap
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    eval_wall = wall_obj.evaluated_get(depsgraph)
+    bm_bvh = bmesh.new()
+    bm_bvh.from_mesh(eval_wall.to_mesh())
+    bm_bvh.transform(wall_obj.matrix_world)
+    terrain_bvh = BVHTree.FromBMesh(bm_bvh)
+    bm_bvh.free()
+    _ray_down = Vector((0, 0, -1))
 
     minThickness = bpy.context.scene.tp3d.minThickness
     minLat = bpy.context.scene.tp3d.minLat
@@ -536,27 +546,26 @@ def create_buildings(map, default_height=10, scaleHor=1.0):
                     levels = safe_float_height(tags.get("building:levels", 0))
                     if levels != 0:
                         height = levels * 2.7
-                    base_elevation = 0
 
-
-                    zTerrainOffset = RaycastPointToMeshZ((x,y,100),wall_obj)
-                    if zTerrainOffset == None:
-                        zTerrainOffset = minThickness
-
-                    # convert base_elevation to Blender z once per building (avoid reconverting lat/lon for each node)
                     z_offset = height * 0.002 * scaleHor * bpy.context.scene.tp3d.el_bHeightMultiplier
 
+                    # Raycast each vertex individually against the pre-built BVH
                     n = len(footprint)
-                    # Add bottom verts
+                    vertex_coords = []
                     for (x, y, nlat, nlon) in footprint:
-                        # Convert node to Blender coords once (with base elevation)
-                        xb, yb, zb = convert_to_blender_coordinates(nlat, nlon, 0, scaleHor)
-                        verts.append((xb, yb, base_elevation + zTerrainOffset))
-                    # Add top verts (same XY, Z + height)
-                    for (x, y, nlat, nlon) in footprint:
+                        xb, yb, _ = convert_to_blender_coordinates(nlat, nlon, 0, scaleHor)
+                        hit, _, _, _ = terrain_bvh.ray_cast(Vector((xb, yb, 1000)), _ray_down)
+                        z_base = hit.z if hit is not None else minThickness
+                        vertex_coords.append((xb, yb, z_base))
 
-                        xb, yb, zb = convert_to_blender_coordinates(nlat, nlon, 0, scaleHor)
-                        verts.append((xb, yb, base_elevation + z_offset + zTerrainOffset))
+                    z_min = min(z for _, _, z in vertex_coords)
+                    z_max = max(z for _, _, z in vertex_coords)
+
+                    # Flat floor at lowest terrain point, flat roof at highest terrain point + height
+                    for (xb, yb, _) in vertex_coords:
+                        verts.append((xb, yb, z_min))
+                    for (xb, yb, _) in vertex_coords:
+                        verts.append((xb, yb, z_max + z_offset))
 
                     # Indices for bottom and top
                     base = vert_count
