@@ -211,6 +211,7 @@ def fetch_osm_data(bbox, kind="WATER", max_cache_age_hours=720, return_cache_sta
             print(query)
 
             if response.status_code == 200:
+                print(f"Status ({response.status_code}), fetched {kind}")
                 data = response.json()
 
                 # --------------------------------------------------
@@ -223,7 +224,7 @@ def fetch_osm_data(bbox, kind="WATER", max_cache_age_hours=720, return_cache_sta
 
             elif response.status_code != 200:
                 retry_num = attempt + 2
-                print(f"Status ({response.status_code}), retrying... {retry_num}/{apiRetries}")
+                print(f"Status ({response.status_code}), retrying {kind}... {retry_num}/{apiRetries}")
                 _ov = _progress.ProgressOverlay.get()
                 if _ov.active:
                     _ov.update(message=f"Overpass error — retrying {retry_num}/{apiRetries}")

@@ -63,6 +63,8 @@ class TP3D_OT_export_stl(bpy.types.Operator):
 
         utils.export_selected_to_STL("STL")
 
+        utils.show_message_box(f"{len(context.selected_objects)} file(s) exported to: {exportPath}", "INFO", "Export Complete")
+
         
         return {'FINISHED'}
     
@@ -97,6 +99,8 @@ class TP3D_OT_export_obj(bpy.types.Operator):
             return {'CANCELLED'}
 
         utils.export_selected_to_STL("OBJ")
+
+        utils.show_message_box(f"{len(context.selected_objects)} file(s) exported to: {exportPath}", "INFO", "Export Complete")
 
         
         return {'FINISHED'}
@@ -136,6 +140,8 @@ class TP3D_OT_export_three_mf(bpy.types.Operator):
                 return {'CANCELLED'}
             
             utils.export_selected_to_3mf()
+
+            utils.show_message_box(f"Exported to: {exportPath}", "INFO", "Export Complete")
         else:
             print("Addon not Installed")
 

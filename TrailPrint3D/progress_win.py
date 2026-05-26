@@ -218,14 +218,16 @@ function renderFetchItems(items) {
     if (status === 'fetching') { bc = '#2d78cc'; }
     if (status === 'done')    { bc = '#2a9940'; }
     if (status === 'failed')  { bc = '#aa2222'; }
-    if (status === 'empty')   { bc = '#2a2a2a'; bdr = '1.5px solid #484848'; }
-    if (status === 'pending') { bc = 'transparent'; bdr = '1.5px solid #555'; }
+    if (status === 'empty')    { bc = '#2a2a2a'; bdr = '1.5px solid #484848'; }
+    if (status === 'filtered') { bc = '#2a9940'; }
+    if (status === 'pending')  { bc = 'transparent'; bdr = '1.5px solid #555'; }
     var pct = Math.round((item.percent || 0) * 100);
     var stTxt, stCls;
-    if      (status === 'done')    { stTxt = '&#x2713;'; stCls = 'ok'; }
-    else if (status === 'failed')  { stTxt = '&#x2717;'; stCls = 'fail'; }
-    else if (status === 'empty')   { stTxt = '0';         stCls = ''; }
-    else if (status === 'pending') { stTxt = '&ndash;';   stCls = ''; }
+    if      (status === 'done')     { stTxt = '&#x2713;'; stCls = 'ok'; }
+    else if (status === 'failed')   { stTxt = '&#x2717;'; stCls = 'fail'; }
+    else if (status === 'empty')    { stTxt = '0';         stCls = ''; }
+    else if (status === 'filtered') { stTxt = '0';         stCls = 'ok'; }
+    else if (status === 'pending')  { stTxt = '&ndash;';   stCls = ''; }
     else                           { stTxt = pct + '%';   stCls = 'act'; }
     var badgeContent = (ICONS && ICONS[item.key]) ? ICONS[item.key] : esc(item.icon || '?');
     var chip = document.createElement('span');

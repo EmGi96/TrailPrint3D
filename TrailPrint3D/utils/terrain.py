@@ -9,6 +9,7 @@ from .. import progress as _progress
 
 _COLORING_EMPTY = object()
 _COLORING_PAINTED = object()
+_COLORING_FILTERED = object()
 
 
 def coloring_main(map, kind = "WATER"):
@@ -407,8 +408,9 @@ def coloring_main(map, kind = "WATER"):
         print("finished subtracting")
 
         if biggestArea == 0:
-            print("No Water Found on Tile")
-            return
+            print(f"No {kind} Found on Tile")
+            _progress.WarningsOverlay.add_warning(f"All {kind.capitalize()} objects were filtered out due to their size", "warn")
+            return _COLORING_FILTERED
 
         print(f"{kind} objects to merge: {len(created_objects_booleaned)}")
         merged_object = merge_objects(created_objects_booleaned)

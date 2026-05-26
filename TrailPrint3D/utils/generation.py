@@ -348,7 +348,7 @@ def _rg_build_terrain_elements(obj, scaleHor, curveObj=None, phase_start=0.83, p
     Returns a dict keyed by element name; values may be None if disabled.
     phase_start/phase_end control the overlay progress range for multi-tile callers.
     """
-    from .terrain import coloring_main, createOcean, _COLORING_EMPTY, _COLORING_PAINTED  # deferred to avoid circular import at load time
+    from .terrain import coloring_main, createOcean, _COLORING_EMPTY, _COLORING_PAINTED, _COLORING_FILTERED  # deferred to avoid circular import at load time
     from .osm import create_buildings, create_roads  # deferred to avoid circular import at load time
     from .scene import set_origin_to_3d_cursor, get_random_world_vertices  # deferred to avoid circular import at load time
     from .mesh_ops import intersectWithTile  # deferred to avoid circular import at load time
@@ -410,6 +410,9 @@ def _rg_build_terrain_elements(obj, scaleHor, curveObj=None, phase_start=0.83, p
                 if _result is _COLORING_EMPTY:
                     terrain[key] = None
                     _ov.set_fetch_empty(key)
+                elif _result is _COLORING_FILTERED:
+                    terrain[key] = None
+                    _ov.set_fetch_filtered(key)
                 elif _result is _COLORING_PAINTED:
                     terrain[key] = None          # object was deleted after painting
                     _ov.set_fetch_done(key, success=True)

@@ -262,6 +262,16 @@ class ProgressOverlay:
         self._sync_subprocess()
         _force_redraw()
 
+    def set_fetch_filtered(self, key):
+        """Mark an item as filtered-out: green badge with '0' (data found but all objects removed by size)."""
+        for item in self.fetch_items:
+            if item['key'] == key:
+                item['status'] = 'filtered'
+                item['percent'] = 1.0
+                break
+        self._sync_subprocess()
+        _force_redraw()
+
     def _sync_subprocess(self):
         SubprocessProgress.get().update(
             self.percent, self.phase, self.message,
@@ -413,6 +423,10 @@ class ProgressOverlay:
                 elif status == 'empty':
                     badge_col  = self.COL_FETCH_IDLE
                     status_col = self.COL_MUTED
+                    status_txt = '0'
+                elif status == 'filtered':
+                    badge_col  = self.COL_FETCH_DONE
+                    status_col = self.COL_FETCH_DONE
                     status_txt = '0'
                 elif status == 'pending':
                     badge_col  = self.COL_FETCH_IDLE
