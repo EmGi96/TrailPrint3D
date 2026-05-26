@@ -194,7 +194,7 @@ class TP3D_PT_advanced(bpy.types.Panel):
             row.operator("tp3d.export_obj", text="OBJ")
             row.operator("tp3d.export_stl", text="STL")
             if not temp.has3mf:
-                box.operator("tp3d.install_three_mf", text=_("Install 3MF Addon"), icon='IMPORT')
+                box.operator("tp3d.install_three_mf", text=_("Install 3MF Addon (by Clonephaze)"), icon='IMPORT')
             box.prop(props, "disable_auto_export")
             if temp.has3mf:
                 box.prop(props, "disable_3mf_export")
