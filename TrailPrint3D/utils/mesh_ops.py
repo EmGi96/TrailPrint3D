@@ -1266,19 +1266,19 @@ def remeshClearing(obj, voxelSize2, tolerance):
     for v in bm2.verts:
         v.select = abs(v.co.z - top_z) > 0.001
     bmesh.update_edit_mesh(obj.data)
+    # Drop the stale reference BEFORE the operator modifies the mesh.
+    # Keeping bm2 alive past mesh.delete causes a dangling C pointer:
+    # on the second generation Blender reuses that freed memory and
+    # python313.dll crashes when mode_set later finalises the edit mesh.
+    del bm2
     bpy.ops.mesh.delete(type='VERT')
-    #bpy.ops.object.mode_set(mode='OBJECT')
-    #----------------
-    #bpy.ops.mesh.delete(type='VERT')
-
 
     # Flatten remaining verts to exactly z bottom_z
     bm = bmesh.from_edit_mesh(obj.data)
     for v in bm.verts:
         v.co.z = bottom_z
     bmesh.update_edit_mesh(obj.data)
-
-
+    del bm  # discard before exiting edit mode to avoid the same issue
 
     # Extrude upward by 30
     bpy.ops.mesh.select_mode(type='FACE')

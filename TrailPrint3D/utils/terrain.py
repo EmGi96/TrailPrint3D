@@ -70,60 +70,70 @@ def _fetch_tiles_parallel(tasks, kind, semaphore, settings=None, max_workers=4):
     return results
 
 
-def _fetch_all_kinds_parallel(kind_task_pairs, semaphore, settings=None, max_workers=8):
+def _fetch_all_kinds_parallel(kind_task_pairs, semaphore, settings=None, max_workers=4):
     """Fetch all active OSM kinds × all tiles in one parallel batch.
 
-    Unlike calling _fetch_tiles_parallel per kind inside a sequential loop,
-    this function submits every (kind, tile) pair into a single thread pool so
-    all network round-trips overlap.  The shared *semaphore* still caps the
-    number of concurrent live Overpass requests (callers use Semaphore(2)).
+    Each unique tile bbox is fetched with a **single** Overpass union request
+    that covers every active kind for that tile.  This replaces the previous
+    N-kinds × T-tiles individual request strategy and drastically reduces the
+    number of concurrent Overpass connections, avoiding rate-limit errors.
+
+    The shared *semaphore* still caps the number of live Overpass requests
+    (callers use Semaphore(2)); because each tile now maps to exactly one
+    request, the semaphore is acquired only during the actual network call.
 
     Parameters
     ----------
     kind_task_pairs : list of (kind_str, tasks_list) — one entry per active kind
-    semaphore       : threading.Semaphore shared across all kinds
+    semaphore       : threading.Semaphore shared across all tile workers
     settings        : OsmFetchSettings snapshot read on the main thread.  Passed
-                      through to fetch_osm_data so worker threads never touch
-                      bpy.context.
-    max_workers     : total pool size (default 8)
+                      through so worker threads never touch bpy.context.
+    max_workers     : thread-pool size (default 4; one request per tile now)
 
     Returns
     -------
     dict[kind_str -> dict[bbox -> (data_dict, from_cache_bool)]]
     Kinds with no successful tiles are present as empty dicts.
     """
-    from .osm import fetch_osm_data  # deferred to avoid circular import
+    from .osm import fetch_osm_combined  # deferred to avoid circular import
+
+    # ── Regroup: (kind, [bboxes]) → {bbox: [kinds]} ──────────────────────
+    tile_kinds: dict = {}
+    for kind, bboxes in kind_task_pairs:
+        for bbox in bboxes:
+            tile_kinds.setdefault(bbox, []).append(kind)
 
     results = {kind: {} for kind, _ in kind_task_pairs}
     lock = threading.Lock()
 
-    all_tasks = [
-        (kind, bbox)
-        for kind, bboxes in kind_task_pairs
-        for bbox in bboxes
-    ]
-
-    def _fetch_one(kind, bbox):
-        with semaphore:
-            try:
-                result = fetch_osm_data(bbox, kind, return_cache_status=True,
-                                        settings=settings)
-            except Exception as e:
-                print(f"[_fetch_all_kinds_parallel] {kind} {bbox} failed: {e}")
-                return
-        if result:
-            resp, from_cache = result
-            if resp:
-                with lock:
-                    results[kind][bbox] = (resp, from_cache)
+    def _fetch_tile(bbox, kinds):
+        # Acquire the shared semaphore before the network call (mirrors the
+        # original _fetch_one pattern so the semaphore correctly caps the
+        # number of concurrent live Overpass requests).
+        if semaphore is not None:
+            semaphore.acquire()
+        try:
+            tile_result = fetch_osm_combined(bbox, kinds, settings=settings)
+        except Exception as e:
+            print(f"[_fetch_all_kinds_parallel] tile {bbox} failed: {e}")
+            return
+        finally:
+            if semaphore is not None:
+                semaphore.release()
+        with lock:
+            for kind, (data, from_cache) in tile_result.items():
+                if data:
+                    results[kind][bbox] = (data, from_cache)
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        futures = {pool.submit(_fetch_one, kind, bbox): (kind, bbox) for kind, bbox in all_tasks}
+        futures = {
+            pool.submit(_fetch_tile, bbox, kinds): bbox
+            for bbox, kinds in tile_kinds.items()
+        }
         for fut in as_completed(futures):
             exc = fut.exception()
             if exc:
-                kind, bbox = futures[fut]
-                print(f"[_fetch_all_kinds_parallel] worker exception for {kind}: {exc}")
+                print(f"[_fetch_all_kinds_parallel] worker exception: {exc}")
 
     return results
 
@@ -208,7 +218,6 @@ def coloring_main(map, kind="WATER", prefetched_tiles=None):
 
                 bbox = (south, west, north, east)
                 data = []
-                print("Fetching OSM")
                 try:
                     if prefetched_tiles is not None:
                         tile_result = prefetched_tiles.get(bbox)
@@ -217,6 +226,8 @@ def coloring_main(map, kind="WATER", prefetched_tiles=None):
                         resp, from_cache = tile_result
                         if not resp:
                             continue
+                        src = "cache" if from_cache else "Overpass"
+                        print(f"OSM tile ({kind}): loaded from {src} (prefetched)")
                     else:
                         result = fetch_osm_data(bbox, kind, return_cache_status=True)
                         if not result:
@@ -224,6 +235,8 @@ def coloring_main(map, kind="WATER", prefetched_tiles=None):
                         resp, from_cache = result
                         if not resp:
                             continue
+                        src = "cache" if from_cache else "Overpass"
+                        print(f"OSM tile ({kind}): loaded from {src} (on-demand)")
 
                 except Exception as e:
                     show_message_box(f"Something went wrong with fetching OSM data: {e}")

@@ -372,10 +372,14 @@ def _rg_start_osm_prefetch(tp3d, map_km):
     from .terrain import _fetch_all_kinds_parallel  # deferred to avoid circular import at load time
     from .osm import OsmFetchSettings               # deferred to avoid circular import at load time
 
-    _lat_step  = min(2.0, tp3d.maxLat - tp3d.minLat)
-    _lon_step  = min(2.0, tp3d.maxLon - tp3d.minLon)
-    _tile_lats = math.ceil((tp3d.maxLat - tp3d.minLat) / _lat_step)
-    _tile_lons = math.ceil((tp3d.maxLon - tp3d.minLon) / _lon_step)
+    _lat_span  = tp3d.maxLat - tp3d.minLat
+    _lon_span  = tp3d.maxLon - tp3d.minLon
+    if _lat_span <= 0 or _lon_span <= 0:
+        return None, {}
+    _lat_step  = min(2.0, _lat_span)
+    _lon_step  = min(2.0, _lon_span)
+    _tile_lats = math.ceil(_lat_span / _lat_step)
+    _tile_lons = math.ceil(_lon_span / _lon_step)
     _tile_tasks = [
         (tp3d.minLat + k * _lat_step,
          tp3d.minLon + l * _lon_step,

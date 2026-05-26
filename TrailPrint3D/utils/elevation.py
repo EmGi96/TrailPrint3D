@@ -181,7 +181,10 @@ def get_elevation_openTopoData(coords, lenv = 0, pointsDone = 0, progress_cb=Non
             elevation = result.get('elevation', None)  # Safe get, default to None if key is missing
             if elevation is None:
                 elevation = 0  # Replace None (null in JSON) with 0
-            cache_elevation(batch[o][0], batch[o][1], elevation)
+            else:
+                # Only cache real values — null responses (stored as 0) would poison the cache
+                # and cause silent all-zero terrain on subsequent runs.
+                cache_elevation(batch[o][0], batch[o][1], elevation)
             ind = coords_indices[i+o]
             elevations[ind] = elevation
 
