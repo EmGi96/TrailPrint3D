@@ -410,6 +410,22 @@ def _rg_start_osm_prefetch(tp3d, map_km):
         _active_kind_tasks.append(("BUILDINGS", _tile_tasks))
     if any([tp3d.el_sBigActive, tp3d.el_sMedActive, tp3d.el_sSmallActive]) and map_km <= const.ROADS_MAXSIZE:
         _active_kind_tasks.append(("STREETS", _tile_tasks))
+    # Ocean/coastline uses a padded bbox (+10%) to ensure coastline curves extend
+    # past the map edges for correct boolean clipping.  Pre-fetch it now with that
+    # same bbox so fetch_osm_data hits the cache when createOcean runs later.
+    if tp3d.el_oActive == 1:
+        _ocean_pad_lat = (tp3d.maxLat - tp3d.minLat) * 0.10
+        _ocean_lon_span = tp3d.maxLon - tp3d.minLon
+        if _ocean_lon_span < 0:
+            _ocean_lon_span += 360
+        _ocean_pad_lon = _ocean_lon_span * 0.10
+        _ocean_bbox = (
+            tp3d.minLat - _ocean_pad_lat,
+            max(-180.0, tp3d.minLon - _ocean_pad_lon),
+            tp3d.maxLat + _ocean_pad_lat,
+            min(180.0,  tp3d.maxLon + _ocean_pad_lon),
+        )
+        _active_kind_tasks.append(("COASTLINE", [_ocean_bbox]))
     if not _active_kind_tasks:
         return None, {}
 
