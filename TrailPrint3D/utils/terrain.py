@@ -657,16 +657,16 @@ def createOcean(bboxBigger, waterHeight, scaleHor, landpoints, baseplate, tile, 
 
         elementMode = bpy.context.scene.tp3d.elementMode
         #
-        #if elementMode == "PAINT":
-        #    projection("paint", tile, merged_object)
-        #    return None
-        #elif elementMode == "SINGLECOLORMODE" or elementMode == "SINGLECOLORMODE_REMESH":
-        #    projection("singleColorMode", tile, merged_object)
-        #    mat = bpy.data.materials.get("WATER")
-        #    merged_object.data.materials.clear()
-        #    merged_object.data.materials.append(mat)
-        #    return merged_object
-        if elementMode == "SEPARATE" or 1 == 1:
+        if elementMode == "PAINT":
+            projection("paint", tile, merged_object)
+            return None
+        elif elementMode == "SINGLECOLORMODE" or elementMode == "SINGLECOLORMODE_REMESH":
+            projection("singleColorMode", tile, merged_object)
+            mat = bpy.data.materials.get("WATER")
+            merged_object.data.materials.clear()
+            merged_object.data.materials.append(mat)
+            return merged_object
+        if elementMode == "SEPARATE":
             projection("separate", tile, merged_object)
             mat = bpy.data.materials.get("WATER")
             merged_object.data.materials.clear()
