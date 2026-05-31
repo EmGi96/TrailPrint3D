@@ -856,6 +856,7 @@ def intersect_trail_with_existing_box(cutobject,trail):
         else:
             print("No Vertices for Trail Found")
             bpy.data.objects.remove(trail_mesh, do_unlink=True)
+            trail_mesh = None
 
 
     if done == False:
@@ -916,6 +917,7 @@ def single_color_mode_curve(crv, map, keepTolTrail = False, cutDepth = 2, projec
 
     trailCutDepth = min(cutDepth, minThickness/2) # How deep the trail will be placed into the map
                                             # Either 2mm or for flatter maps half of the minThickness
+    
 
     if crv.type == "CURVE":
 
@@ -954,12 +956,12 @@ def single_color_mode_curve(crv, map, keepTolTrail = False, cutDepth = 2, projec
 
         # back to Object Mode if you like
         bpy.ops.object.mode_set(mode='OBJECT')
-
         #Create a duplicate object of the curve that will be slightly thicker
         crv_thick = crv.copy()
         crv_thick.data = crv.data.copy()
         crv_thick.data.bevel_depth = pathThickness/2 + tol  # Set the thickness of the curve
         bpy.context.collection.objects.link(crv_thick)
+        
     elif crv.type == "MESH":
 
         depsgraph = bpy.context.evaluated_depsgraph_get()

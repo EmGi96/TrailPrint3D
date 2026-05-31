@@ -191,25 +191,28 @@ def calculate_date(points):
 
     return dt
 
-def separate_duplicate_xy(coordinates, offset=0.05):
-    seen_xy = set()
+def separate_duplicate_xy(coordinates, offset=0.05, threshold=0.01):
+    accepted = []
 
     for i, point in enumerate(coordinates):
-        # Convert tuple to list if needed
         if isinstance(point, tuple):
             point = list(point)
-            coordinates[i] = point  # Update the original array with the list version
+            coordinates[i] = point
 
         x, y, z = point[0], point[1], point[2]
-        xy_key = (x, y,z)
 
-        if xy_key in seen_xy:
-            point[2] += offset
-            point[1] += offset
-        else:
-            seen_xy.add(xy_key)
+        for prev in accepted:
+            dx = x - prev[0]
+            dy = y - prev[1]
+            dz = z - prev[2]
+            if math.sqrt(dx*dx + dy*dy + dz*dz) < threshold:
+                point[1] += offset
+                point[2] += offset
+                break
 
-    return(coordinates)
+        accepted.append((point[0], point[1], point[2]))
+
+    return coordinates
 
 def midpoint_spherical(lat1, lon1, lat2, lon2):
     # Convert degrees to radians

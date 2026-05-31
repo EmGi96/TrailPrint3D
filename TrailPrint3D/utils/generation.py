@@ -711,7 +711,6 @@ def _rg_apply_single_color_mode(obj, curveObjs, terrain, props):
                 thickerCurves[i].scale = (1.01, 1.01, 1.01)
                 boolean_operation(curveObjs[i + 1], thickerCurves[i])
 
-
     if props['elementMode'] == "SEPARATE":
         for i, key in enumerate(TERRAIN_PRIORITY_ORDER):
 
@@ -1149,15 +1148,16 @@ def runGeneration(type, locked_scale=None):
             _avg_g = sum(_g_slopes) / len(_g_slopes)
             print(f"[DEBUG] GPX avg slope:     {_avg_g:.4f}  ({math.degrees(math.atan(_avg_g)):.2f}°)")
     blender_coords = simplify_curve(blender_coords, .12)
+    print("Removing duplicates")
     blender_coords = separate_duplicate_xy(blender_coords, 0.05)
     if ("separate_paths" in flags or len(separate_paths) > 1) and "trail_map" not in flags:
         blender_coords_separate = [
-            convert_to_blender_coordinates_batch(path)
+            separate_duplicate_xy(convert_to_blender_coordinates_batch(path), 0.05)
             for path in separate_paths
         ]
     if separate_paths_by_file and "trail_map" not in flags:
         blender_coords_by_file = [
-            [convert_to_blender_coordinates_batch(seg) for seg in file_segs]
+            [separate_duplicate_xy(convert_to_blender_coordinates_batch(seg), 0.05) for seg in file_segs]
             for file_segs in separate_paths_by_file
         ]
 

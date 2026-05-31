@@ -273,9 +273,9 @@ class TP3D_PG_properties(bpy.types.PropertyGroup):
 
     col_wArea: FloatProperty(name= _("Water Threshold"), default = 1, description = _("Lakes smaller than the threshold won't be included")) # type: ignore
     col_wStreamWidth: FloatProperty(name= _("River Width"), default = 1.0, min=0.1, max=10.0, description = _("Adjusts the thickness of rivers and streams")) # type: ignore
-    col_wPondsActive: BoolProperty(name= _("Ponds & Lakes"), default=False, description = _("Include ponds and lakes (natural=water)")) # type: ignore
-    col_wSmallRiversActive: BoolProperty(name= _("Small Rivers"), default=False, description = _("Streams, canals, ditches and other minor waterways")) # type: ignore
-    col_wBigRiversActive: BoolProperty(name= _("Big Rivers"), default=False, description = _("Major named rivers (waterway with wikidata tag)")) # type: ignore
+    col_wPondsActive: BoolProperty(name= _("Water"), default=False, description = _("Include ponds and lakes (natural=water)")) # type: ignore
+    col_wSmallRiversActive: BoolProperty(name= _("Small Rivers"), default=False, description = _("smaller Streams, canals, ditches and other minor waterways are not included in default water setting")) # type: ignore
+    col_wBigRiversActive: BoolProperty(name= _("Big Rivers"), default=False, description = _("Major named rivers (waterway with wikidata tag. Usually already part of water setting)")) # type: ignore
     col_fActive: BoolProperty(name= _("Include Forests"), default=False, description = _("For Maps < 50Km Recommended")) # type: ignore
     col_fArea: FloatProperty(name= _("Threshold"), default = 10, description = _("Forests smaller than the threshold won't be included")) # type: ignore
     col_scrActive: BoolProperty(name= _("Include Scree"), default=False, description = _("Rocky/stony terrain. For Maps < 1000Km Recommended")) # type: ignore
