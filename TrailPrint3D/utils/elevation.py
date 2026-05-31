@@ -254,8 +254,9 @@ def lonlat_to_pixelxy(lon, lat, zoom):
 
 def fetch_terrarium_tile_raw(zoom, xtile, ytile):
     """Fetch the raw PNG binary data for a tile, either from cache or online."""
+    disableCache = bpy.context.scene.tp3d.disableCache
     tile_path = os.path.join(const.terrarium_cache_dir, f"{zoom}_{xtile}_{ytile}.png")
-    if not os.path.exists(tile_path):
+    if not os.path.exists(tile_path) or disableCache:
         url = f"https://elevation-tiles-prod.s3.amazonaws.com/terrarium/{zoom}/{xtile}/{ytile}.png"
         response = requests.get(url)
         response.raise_for_status()

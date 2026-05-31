@@ -1172,7 +1172,6 @@ def runGeneration(type, locked_scale=None):
     bpy.ops.object.select_all(action='DESELECT')
 
     if "append_collection" not in flags:
-        print("Chicken")
         if shape == "HEXAGON INNER TEXT":
             textobj = HexagonInnerText(MapObject)
         elif shape == "HEXAGON OUTER TEXT":

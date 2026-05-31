@@ -305,7 +305,7 @@ class TP3D_OT_clear_cache(bpy.types.Operator):
 
     def execute(self, context):
         if not os.path.exists(const.cache_dir):
-            print("Cache directory does not exist, nothing to clear.")
+            const._ensure_dirs()
             return {'FINISHED'}
 
         import shutil
@@ -314,6 +314,9 @@ class TP3D_OT_clear_cache(bpy.types.Operator):
             print(f"Deleted cache directory: {const.cache_dir}")
         except Exception as e:
             print(f"Failed to delete cache directory: {e}")
+
+        const._ensure_dirs()
+        const._elevation_cache = {}
 
         return {'FINISHED'}
 

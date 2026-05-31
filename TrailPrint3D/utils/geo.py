@@ -208,7 +208,6 @@ def separate_duplicate_xy(coordinates, offset=0.05, threshold=0.01):
             dy = y - prev[1]
             dz = z - prev[2]
             if math.sqrt(dx*dx + dy*dy + dz*dz) < threshold:
-                print(f"[TrailPrint3D] Near-duplicate trail point at ({x:.6f}, {y:.6f}, {z:.6f}), shifting by {offset}")
                 point[1] += offset
                 point[2] += offset
                 break
