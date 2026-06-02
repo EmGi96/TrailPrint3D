@@ -267,7 +267,7 @@ def coloring_main(map, kind="WATER", prefetched_tiles=None):
                 for i, coords in enumerate(bodies):
                     blender_coords = [convert_to_blender_coordinates(lat, lon, ele, 0) for lat, lon, ele in coords]
                     calcArea = calculate_polygon_area_2d(blender_coords)
-                    if calcArea > col_Area or 1 == 1:
+                    if calcArea > col_Area:
                         tobj = col_create_face_mesh(f"Relation_{i}", blender_coords)
                         created_objects.append(tobj)
                         waterCreated += 1
