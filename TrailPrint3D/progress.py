@@ -242,6 +242,16 @@ class ProgressOverlay:
                 break
         self._sync_subprocess()
 
+    def set_fetch_ready(self, key):
+        """Mark an item as downloaded but awaiting mesh processing (↓)."""
+        for item in self.fetch_items:
+            if item['key'] == key:
+                item['status'] = 'ready'
+                item['percent'] = 1.0
+                break
+        self._sync_subprocess()
+        _force_redraw()
+
     def set_fetch_done(self, key, success=True):
         """Mark an item as done (✓) or failed (✗) and force a redraw."""
         for item in self.fetch_items:
@@ -432,6 +442,10 @@ class ProgressOverlay:
                     badge_col  = self.COL_FETCH_IDLE
                     status_col = self.COL_MUTED
                     status_txt = '0%'
+                elif status == 'ready':
+                    badge_col  = (0.18, 0.47, 0.80, 1.00)
+                    status_col = self.COL_TEXT
+                    status_txt = '↓'
                 else:  # fetching
                     badge_col  = self.FETCH_COLORS.get(item['key'], self.COL_ACCENT)
                     status_col = self.COL_TEXT

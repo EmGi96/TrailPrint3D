@@ -210,8 +210,11 @@ def coloring_main(map, kind="WATER", prefetched_tiles=None):
                 print(f"{kind} loop: {((k) * lons + l + 1)}/{maxcntr}")
                 _ov = _progress.ProgressOverlay.get()
                 if _ov.active:
-                    _ov.update(message=f"{kind.capitalize()}: tile {cntr}/{maxcntr} — fetching…")
-                    _ov.set_fetch_progress(kind.lower(), cntr / maxcntr)
+                    if prefetched_tiles is not None:
+                        _ov.update(message=f"{kind.capitalize()}: tile {cntr}/{maxcntr} — processing…")
+                    else:
+                        _ov.update(message=f"{kind.capitalize()}: tile {cntr}/{maxcntr} — fetching…")
+                        _ov.set_fetch_progress(kind.lower(), cntr / maxcntr)
                 south = minLat + k * lat_step
                 north = south + lat_step
                 west = minLon + l * lon_step
@@ -1019,7 +1022,7 @@ def createOcean(bboxBigger, waterHeight, scaleHor, landpoints, baseplate, tile, 
         #return merged_object
 
         elementMode = bpy.context.scene.tp3d.elementMode
-        #
+        
         if elementMode == "PAINT":
             projection("paint", tile, merged_object)
             return None

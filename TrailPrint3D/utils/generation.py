@@ -543,13 +543,22 @@ def _rg_build_terrain_elements(obj, scaleHor, curveObj=None, phase_start=0.83, p
     else:
         _all_prefetched = prefetched_osm
 
+    # After batch download completes, show 100% for all fetched kinds so the
+    # strip indicates the download is done while mesh building is still pending.
+    # The final set_fetch_done/empty/filtered below flips each badge to ✓ once
+    # the mesh operations for that kind are complete.
+    if _ov.active:
+        for key, flag_attr, max_size, _, _ in COLORING_ELEMENTS:
+            if (flag_attr(tp3d) if callable(flag_attr) else getattr(tp3d, flag_attr) == 1) and map_km <= max_size:
+                if _all_prefetched.get(key.upper()):
+                    _ov.set_fetch_ready(key)
+
     terrain = {}
     for key, flag_attr, max_size, phase, msg in COLORING_ELEMENTS:
         terrain[key] = None
         if (flag_attr(tp3d) if callable(flag_attr) else getattr(tp3d, flag_attr) == 1):
             if map_km <= max_size:
                 _advance_elem_progress(phase, msg)
-                _ov.set_fetch_progress(key, 0.0)
                 _result = coloring_main(obj, key.upper(), prefetched_tiles=_all_prefetched.get(key.upper(), {}))
                 if _result is _COLORING_EMPTY:
                     terrain[key] = None

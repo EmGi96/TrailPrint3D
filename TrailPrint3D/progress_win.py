@@ -221,6 +221,7 @@ function renderFetchItems(items) {
     if (status === 'empty')    { bc = '#2a2a2a'; bdr = '1.5px solid #484848'; }
     if (status === 'filtered') { bc = '#2a9940'; }
     if (status === 'pending')  { bc = 'transparent'; bdr = '1.5px solid #555'; }
+    if (status === 'ready')    { bc = '#2f7acc'; }
     var pct = Math.round((item.percent || 0) * 100);
     var stTxt, stCls;
     if      (status === 'done')     { stTxt = '&#x2713;'; stCls = 'ok'; }
@@ -228,6 +229,7 @@ function renderFetchItems(items) {
     else if (status === 'empty')    { stTxt = '0';         stCls = ''; }
     else if (status === 'filtered') { stTxt = '0';         stCls = 'ok'; }
     else if (status === 'pending')  { stTxt = '&ndash;';   stCls = ''; }
+    else if (status === 'ready')    { stTxt = '&#x2193;';  stCls = 'act'; }
     else                           { stTxt = pct + '%';   stCls = 'act'; }
     var badgeContent = (ICONS && ICONS[item.key]) ? ICONS[item.key] : esc(item.icon || '?');
     var chip = document.createElement('span');
