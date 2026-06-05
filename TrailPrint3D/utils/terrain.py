@@ -1256,7 +1256,20 @@ def _close_chain_with_bbox(chain, bbox_bl):
     return polygon
 
 
-def _punch_island_holes(outer_poly, island_loops):
+def _polygon_area(pts):
+    """Signed area of a 2-D polygon via the shoelace formula (always positive)."""
+    n = len(pts)
+    if n < 3:
+        return 0.0
+    s = 0.0
+    for i in range(n):
+        x1, y1 = pts[i]
+        x2, y2 = pts[(i + 1) % n]
+        s += x1 * y2 - x2 * y1
+    return abs(s) * 0.5
+
+
+def _punch_island_holes(outer_poly, island_loops, min_area=0.0):
     """Connect island loops into outer_poly via bridge edges (zero-width slits).
 
     Converts a polygon-with-holes into a single simply-connected polygon
@@ -1266,12 +1279,17 @@ def _punch_island_holes(outer_poly, island_loops):
       3. Insert the island loop at that connection, creating a slit that
          goes: outer→bridge→island loop→bridge back→outer continues.
 
+    Islands whose area is below *min_area* (Blender units²) are skipped —
+    they are too small to be worth a colour change on a 3D print.
+
     The result is a flat list of (x,y) that col_create_face_mesh can
     create as a single face — Blender sees one face with an interior hole
     traced as a boundary re-entrant path.
     """
     result = list(outer_poly)
     for island in island_loops:
+        if min_area > 0 and _polygon_area(island) < min_area:
+            continue
         if len(island) < 3:
             continue
         # Centroid of island → nearest outer point (O(N+M) approximation)
@@ -1471,8 +1489,16 @@ def _build_ocean_mesh(open_chains, closed_loops, bbox_bl, tile):
                         if len(s) >= 3
                     ]
                     if simplified_islands:
-                        poly = _punch_island_holes(poly, simplified_islands)
-                        print(f"    [ocean mesh] punched {len(simplified_islands)} island holes into polygon")
+                        # min_island_area: islands smaller than this (map units²) are
+                        # skipped. R is in km so map units are km×scaleHor; at a
+                        # 100mm map / scaleHor≈6.47, 1 unit ≈ 1mm on the print,
+                        # so default 2.0 ≈ a ~1.4×1.4mm patch.
+                        tp3d_ctx = bpy.context.scene.tp3d
+                        min_area = getattr(tp3d_ctx, 'el_oMinIslandArea', 4.0)
+                        before = len(simplified_islands)
+                        poly = _punch_island_holes(poly, simplified_islands, min_area=min_area)
+                        skipped = sum(1 for s in simplified_islands if _polygon_area(s) < min_area)
+                        print(f"    [ocean mesh] punched {before - skipped}/{before} island holes (skipped {skipped} below {min_area} units²)")
                 pts3d = [(x, y, 0.0) for x, y in poly]
                 face_obj = col_create_face_mesh("_OceanFace", pts3d)
                 if face_obj and len(face_obj.data.vertices) > 0:

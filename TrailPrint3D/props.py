@@ -299,6 +299,7 @@ class TP3D_PG_properties(bpy.types.PropertyGroup):
     el_sMedActive: BoolProperty(name= _("Medium Streets"), default=False, description = f"secondary, tertiary, secondary_link, tertiary_link — ignored on maps < {const.STREETS_MAJOR_ONLY_THRESHOLD}km") # type: ignore
     el_sSmallActive: BoolProperty(name= _("Small Streets"), default=False, description = f"residential, living_street, unclassified, service, footway — ignored on maps < {const.STREETS_PRIMARY_THRESHOLD}km") # type: ignore
     el_oActive: BoolProperty(name=_("Include Ocean"), default=False, description=_("Generate ocean surface cut along the coastline. Experimental")) # type: ignore
+    el_oMinIslandArea: FloatProperty(name=_("Min Island Area"), default=2.0, min=0.0, soft_max=100.0, description=_("Islands smaller than this area (in map units²) are not punched out of the ocean. At a 100mm map size, 1 map unit ≈ 1mm on the print, so the default 2.0 ≈ a ~1.4×1.4mm patch. Set to 0 to punch all islands.")) # type: ignore
 
     mountain_treshold:IntProperty(name= _("Mountain Threshold"), default = 60, min = 0, max = 100,subtype='PERCENTAGE', description= _("Height Threshold to Color Mountains")) # type: ignore
     cl_thickness: FloatProperty(name= _("Contour Line Thickness"), default = 0.2, description = _("Thickness of the Contour Line")) # type: ignore
