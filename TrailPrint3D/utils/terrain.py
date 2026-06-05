@@ -1256,6 +1256,38 @@ def _close_chain_with_bbox(chain, bbox_bl):
     return polygon
 
 
+def _punch_island_holes(outer_poly, island_loops):
+    """Connect island loops into outer_poly via bridge edges (zero-width slits).
+
+    Converts a polygon-with-holes into a single simply-connected polygon
+    without any boolean operations.  For each island we:
+      1. Find the outer poly vertex closest to the island centroid.
+      2. Find the island vertex closest to that outer vertex.
+      3. Insert the island loop at that connection, creating a slit that
+         goes: outer→bridge→island loop→bridge back→outer continues.
+
+    The result is a flat list of (x,y) that col_create_face_mesh can
+    create as a single face — Blender sees one face with an interior hole
+    traced as a boundary re-entrant path.
+    """
+    result = list(outer_poly)
+    for island in island_loops:
+        if len(island) < 3:
+            continue
+        # Centroid of island → nearest outer point (O(N+M) approximation)
+        cx = sum(p[0] for p in island) / len(island)
+        cy = sum(p[1] for p in island) / len(island)
+        best_oi = min(range(len(result)),
+                      key=lambda i: (result[i][0] - cx) ** 2 + (result[i][1] - cy) ** 2)
+        ox, oy = result[best_oi]
+        best_ii = min(range(len(island)),
+                      key=lambda i: (island[i][0] - ox) ** 2 + (island[i][1] - oy) ** 2)
+        island_rot = island[best_ii:] + island[:best_ii]
+        # Bridge: outer[0..best_oi] → island_rot → island_rot[0] → outer[best_oi..]
+        result = result[:best_oi + 1] + island_rot + [island_rot[0]] + result[best_oi:]
+    return result
+
+
 def _close_chains_with_bbox(chains, bbox_bl):
     """Build a single ocean polygon from ALL clipped+simplified open chains.
 
@@ -1390,7 +1422,7 @@ def _build_ocean_mesh(open_chains, closed_loops, bbox_bl, tile):
             if clipped is None or len(clipped) < 2:
                 print(f"    [ocean mesh] chain {len(chain)} pts â†’ clipped to nothing, skip")
                 continue
-            simplified = _rdp_simplify(clipped, epsilon=0.5)
+            simplified = _rdp_simplify(clipped, epsilon=0.1)
             if len(simplified) < 3:
                 print(f"    [ocean mesh] chain {len(chain)} pts â†’ clipped {len(clipped)} â†’ RDP {len(simplified)}, skip (degenerate)")
                 continue
@@ -1398,8 +1430,49 @@ def _build_ocean_mesh(open_chains, closed_loops, bbox_bl, tile):
             good_chains.append(simplified)
 
         if good_chains:
+            # Filter out chains whose endpoints are so close together on the bbox
+            # perimeter that they form a degenerate sliver (e.g. a tiny inlet that
+            # clips to just a notch on one edge).  Minimum CCW span = 0.05 (5% of
+            # one edge length).
+            min_x, min_y, max_x, max_y = bbox_bl
+            W = max(max_x - min_x, 1e-9)
+            H = max(max_y - min_y, 1e-9)
+            def _ccw_param(pt):
+                x = max(min_x, min(max_x, pt[0]))
+                y = max(min_y, min(max_y, pt[1]))
+                ds = [abs(y - min_y), abs(x - max_x), abs(y - max_y), abs(x - min_x)]
+                e = ds.index(min(ds))
+                if e == 0: return (x - min_x) / W
+                if e == 1: return 1.0 + (y - min_y) / H
+                if e == 2: return 2.0 + (max_x - x) / W
+                return       3.0 + (max_y - y) / H
+            filtered = []
+            for ch in good_chains:
+                sp = _ccw_param(ch[0])
+                ep = _ccw_param(ch[-1])
+                span = (ep - sp) % 4.0   # CCW span from start to end
+                if span < 0.05 or span > 3.95:
+                    print(f"    [ocean mesh] skipping sliver chain ({len(ch)} pts, CCW span={span:.3f})")
+                    continue
+                filtered.append(ch)
+            good_chains = filtered
             poly = _close_chains_with_bbox(good_chains, bbox_bl)
             if poly and len(poly) >= 3:
+                # Punch island holes directly into the polygon using bridge edges.
+                # This is done in Python geometry (no booleans) so it works on a
+                # flat non-manifold face and survives the projection pipeline intact.
+                if closed_loops:
+                    simplified_islands = [
+                        s for s in (
+                            _rdp_simplify(loop, epsilon=0.1)
+                            for loop in closed_loops
+                            if len(loop) >= 3
+                        )
+                        if len(s) >= 3
+                    ]
+                    if simplified_islands:
+                        poly = _punch_island_holes(poly, simplified_islands)
+                        print(f"    [ocean mesh] punched {len(simplified_islands)} island holes into polygon")
                 pts3d = [(x, y, 0.0) for x, y in poly]
                 face_obj = col_create_face_mesh("_OceanFace", pts3d)
                 if face_obj and len(face_obj.data.vertices) > 0:
