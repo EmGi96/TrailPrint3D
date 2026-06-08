@@ -120,7 +120,9 @@ class TP3D_PT_generate(bpy.types.Panel):
                 box.label(text=_("Files"), icon='FILE_FOLDER')
                 col = box.column(align=True)
                 if props.generation_mode == 'GENERATION':
-                    col.prop(props, "file_path")
+                    row = col.row(align=True)
+                    row.prop(props, "file_path", text=_("GPX File"))
+                    row.operator("tp3d.pick_gpx_file", text="", icon='FILEBROWSER')
                 elif temp.PREMIUMVERSION:
                     col.prop(props, "chain_path")
                 else:

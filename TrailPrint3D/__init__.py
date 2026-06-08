@@ -161,6 +161,7 @@ classes = [
     operators.TP3D_OT_popup_pin,
     operators.TP3D_OT_popup_merge,
     operators.TP3D_OT_install_three_mf,
+    operators.TP3D_OT_pick_gpx_file,
     operators.TP3D_OT_check_update,
     operators.TP3D_OT_install_update,
 ]
