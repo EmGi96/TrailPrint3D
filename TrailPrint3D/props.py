@@ -34,10 +34,9 @@ def generation_mode_update(self, context):
 class TP3D_PG_properties(bpy.types.PropertyGroup):
     file_path: StringProperty(
         name= _("File Path"),
-        description= _("Select a file"),
+        description= _("Select a GPX file"),
         default="",
         maxlen=1024,
-        subtype='FILE_PATH'  # Enables file selection
     )# type: ignore
     export_path: StringProperty(
         name= _("Export Path"),

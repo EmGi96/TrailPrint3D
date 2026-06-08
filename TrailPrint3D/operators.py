@@ -1735,6 +1735,23 @@ def _redraw_all_areas():
     return 0.5 if updater.status == "checking" else None
 
 
+class TP3D_OT_pick_gpx_file(bpy.types.Operator):
+    bl_idname = "tp3d.pick_gpx_file"
+    bl_label = "Use GPX File"
+    bl_description = "Use the selected GPX file"
+
+    filepath: StringProperty(subtype='FILE_PATH')  # type: ignore
+    filter_glob: StringProperty(default="*.gpx", options={'HIDDEN'})  # type: ignore
+
+    def execute(self, context):
+        context.scene.tp3d.file_path = self.filepath
+        return {'FINISHED'}
+
+    def invoke(self, context, event):
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
+
+
 class TP3D_OT_check_update(bpy.types.Operator):
     bl_idname = "tp3d.check_update"
     bl_label = "Check for Updates"
