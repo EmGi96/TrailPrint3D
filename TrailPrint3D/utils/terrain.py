@@ -1034,7 +1034,6 @@ def createOcean(bboxBigger, waterHeight, scaleHor, landpoints, baseplate, tile, 
             return merged_object
         if elementMode == "SEPARATE":
             projection("separate", tile, merged_object)
-            print(f"  [ocean] projection (separate): {time.time()-_t_proj:.3f}s")
             mat = bpy.data.materials.get("WATER")
             merged_object.data.materials.clear()
             merged_object.data.materials.append(mat)
