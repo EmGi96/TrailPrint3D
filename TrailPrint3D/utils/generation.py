@@ -1406,10 +1406,8 @@ def runGeneration(type, locked_scale=None):
                                           prefetched_osm=_osm_prefetched)
 
     # --- Phase 15: Single color mode processing ---
-    overlay.update(0.95, "Coloring", "Applying single-color mode…")
-    if curveObjs:
-        print("Applying single-color mode to curve objects")    
-        _rg_apply_single_color_mode(obj, curveObjs, elements, props)
+    overlay.update(0.95, "Coloring", "Applying single-color mode…") 
+    _rg_apply_single_color_mode(obj, curveObjs, elements, props)
 
     _lo = bpy.context.scene.tp3d.lowestZ
     _hi = bpy.context.scene.tp3d.highestZ
