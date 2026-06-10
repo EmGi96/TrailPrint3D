@@ -1,4 +1,4 @@
-﻿import bpy  # type: ignore
+import bpy  # type: ignore
 import bmesh  # type: ignore
 import math
 import time
@@ -96,7 +96,7 @@ def _fetch_all_kinds_parallel(kind_task_pairs, semaphore, settings=None, max_wor
     """
     from .osm import fetch_osm_combined  # deferred to avoid circular import
 
-    # â”€â”€ Regroup: (kind, [bboxes]) â†’ {bbox: [kinds]} â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # â"€â"€ Regroup: (kind, [bboxes]) â†' {bbox: [kinds]} â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
     tile_kinds: dict = {}
     for kind, bboxes in kind_task_pairs:
         for bbox in bboxes:
@@ -579,7 +579,7 @@ def coloring_main(map, kind="WATER", prefetched_tiles=None):
         tol = 0.1
 
         if elementMode == "PAINT":
-            # â”€â”€ PAINT-mode fast path â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            # â"€â"€ PAINT-mode fast path â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
             # Skip per-object MANIFOLD boolean against terrain.
             # color_map_faces_by_terrain builds its BVH from the cutter's LOCAL
             # mesh (world transform is not applied). OSM polygons sit at Z=0 in
@@ -658,7 +658,7 @@ def coloring_main(map, kind="WATER", prefetched_tiles=None):
             bpy.data.meshes.remove(mesh_data)
             print(f"  [coloring_main] PAINT total ({kind}): {time.time()-_t_paint:.3f}s")
             return _COLORING_PAINTED
-            # â”€â”€ end PAINT-mode fast path â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            # â"€â"€ end PAINT-mode fast path â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
         # Per-object extrude + MANIFOLD boolean â€” no recalculateNormals (avoids mode-switch cost).
         _t_proc_loop = time.time()
@@ -1011,19 +1011,14 @@ def _rdp_simplify(points, epsilon):
 def _clip_chain_to_bbox(chain, bbox_bl):
     """Clip a coastline chain to the tile bbox using Liang-Barsky per segment.
 
-    OSM way coordinates extend beyond the query tile, so raw chain endpoints
-    are often outside the bbox.  This function returns the first contiguous
-    run of the polyline that lies inside (or on the boundary of) the bbox,
-    with precise floating-point intersection points at each crossing.
-
-    Returns the clipped list of (x, y), or None if the chain never enters the
-    bbox at all.
+    A chain may enter and exit the bbox more than once (e.g. a wiggly coastline
+    that dips outside and comes back).  Returns a list of contiguous inside
+    segments, each a list of (x, y).  Returns an empty list if the chain never
+    enters the bbox.
     """
     min_x, min_y, max_x, max_y = bbox_bl
 
     def _lb_clip(x1, y1, x2, y2):
-        """Liang-Barsky: (t_enter, t_exit) for the segment inside the bbox.
-        Returns None if entirely outside."""
         dx, dy = x2 - x1, y2 - y1
         t0, t1 = 0.0, 1.0
         for p, q in (
@@ -1047,29 +1042,35 @@ def _clip_chain_to_bbox(chain, bbox_bl):
     def _eq(a, b):
         return abs(a[0] - b[0]) < 1e-6 and abs(a[1] - b[1]) < 1e-6
 
-    result = []
+    segments = []
+    current = []
     for i in range(len(chain) - 1):
         p1, p2 = chain[i], chain[i + 1]
         clip = _lb_clip(p1[0], p1[1], p2[0], p2[1])
         if clip is None:
-            # Segment entirely outside â€” if we already have points, we're done
-            if result:
-                break
+            # Segment outside — close the current inside run if any
+            if current:
+                segments.append(current)
+                current = []
             continue
         t0, t1 = clip
         enter = _lerp(p1, p2, t0) if t0 > 0 else p1
         exit_ = _lerp(p1, p2, t1) if t1 < 1 else p2
-        if not result or not _eq(result[-1], enter):
-            if result:
-                # Discontiguous gap â€” stop at first inside run
-                break
-            result.append(enter)
-        result.append(exit_)
+        if not current:
+            current.append(enter)
+        elif not _eq(current[-1], enter):
+            # Gap within a clipped segment (shouldn't normally happen) — start fresh
+            segments.append(current)
+            current = [enter]
+        current.append(exit_)
 
-    return result if len(result) >= 2 else None
+    if current:
+        segments.append(current)
+
+    return [s for s in segments if len(s) >= 2]
 
 
-def _stitch_coastline_chains(raw_chains, tol=0.1):
+def _stitch_coastline_chains(raw_chains, tol=0.0001):
     """Stitch open coastline way fragments into longer chains and closed loops.
 
     OSM delivers coastline as directed open-ended way segments whose endpoints
@@ -1088,42 +1089,48 @@ def _stitch_coastline_chains(raw_chains, tol=0.1):
 
     chains = [list(c) for c in raw_chains]
 
-    # Greedy O(nÂ²) stitch: repeatedly scan for any pair where chain A's last
-    # point is within tol of chain B's first (or last) point, then merge and
-    # restart.  Coastline tiles rarely have more than ~200 chains so this is fine.
+    # Greedy closest-match stitch: for each chain A, find the chain B whose
+    # endpoint is closest to A's last point (within tol), then merge.  Using
+    # closest rather than first-found prevents wrong joins when multiple short
+    # segments are near each other in large fetch areas.
     changed = True
     while changed:
         changed = False
         i = 0
         while i < len(chains):
-            j = 0
-            while j < len(chains):
-                if i == j:
-                    j += 1
+            a = chains[i]
+            ax, ay = a[-1]
+            best_dist = tol
+            best_j = -1
+            best_reversed = False
+            for j in range(len(chains)):
+                if j == i:
                     continue
-                a = chains[i]
                 b = chains[j]
-                ax, ay = a[-1]
                 bx0, by0 = b[0]
                 bxe, bye = b[-1]
-                if math.sqrt((ax - bx0) ** 2 + (ay - by0) ** 2) < tol:
-                    # A end â†’ B start: append B onto A
-                    chains[i] = a + b[1:]
-                    chains.pop(j)
-                    if j < i:
-                        i -= 1
-                    changed = True
-                    break
-                elif math.sqrt((ax - bxe) ** 2 + (ay - bye) ** 2) < tol:
-                    # A end â†’ B end: append reversed B onto A
+                d_start = math.sqrt((ax - bx0) ** 2 + (ay - by0) ** 2)
+                d_end   = math.sqrt((ax - bxe) ** 2 + (ay - bye) ** 2)
+                if d_start < best_dist:
+                    best_dist = d_start
+                    best_j = j
+                    best_reversed = False
+                if d_end < best_dist:
+                    best_dist = d_end
+                    best_j = j
+                    best_reversed = True
+            if best_j != -1:
+                b = chains[best_j]
+                if best_reversed:
                     chains[i] = a + list(reversed(b[:-1]))
-                    chains.pop(j)
-                    if j < i:
-                        i -= 1
-                    changed = True
-                    break
-                j += 1
-            i += 1
+                else:
+                    chains[i] = a + b[1:]
+                chains.pop(best_j)
+                if best_j < i:
+                    i -= 1
+                changed = True
+            else:
+                i += 1
 
     closed_loops = []
     open_chains = []
@@ -1331,8 +1338,8 @@ def _close_chains_with_bbox(chains, bbox_bl):
     - Each chain carries land on its left (OSM convention).  The CW perimeter
       walk between chain endpoints traces the ocean-side boundary.
     - Starting from the chain whose END has the largest CCW perimeter param,
-      we alternate: CW perimeter arc â†’ follow chain forward â†’ CW perimeter
-      arc â†’ follow next chain forward â†’ â€¦ until all chains are consumed.
+      we alternate: CW perimeter arc â†' follow chain forward â†' CW perimeter
+      arc â†' follow next chain forward â†' â€¦ until all chains are consumed.
 
     Returns a list of (x,y), or None if degenerate.
     """
@@ -1391,13 +1398,20 @@ def _close_chains_with_bbox(chains, bbox_bl):
     if not info:
         return None
 
-    # Start from the chain whose END has the largest CCW param.
-    # Initialise current_end_param to that end so the first CW arc wraps
-    # correctly around to chain_0's OWN start.
-    si = max(range(len(info)), key=lambda i: info[i][1])
-    current_end = info[si][1]
+    # Start from the chain whose START has the largest CCW param (first in CW
+    # processing order).  Output it directly without a pre-chain arc, add CW
+    # arcs between consecutive chains, then close with one final arc from the
+    # last chain's end back to the first chain's start.
+    #
+    # The old code used max(end_ccw) and placed the closing arc at the
+    # beginning via _cw_corners(si.end, si.start).  For diagonal two-land
+    # tiles (land top-left + bottom-right) that arc goes the long way around
+    # the perimeter and drags in wrong corners.
+    si = max(range(len(info)), key=lambda i: info[i][0])
+    first_start = info[si][0]
     polygon = []
     idx = si
+    current_end = None
 
     for _ in range(len(info)):
         sp, ep, chain, used = info[idx]
@@ -1405,14 +1419,15 @@ def _close_chains_with_bbox(chains, bbox_bl):
             break
         info[idx][3] = True
 
-        # CW perimeter corners from current_end to this chain's start
-        polygon.extend(_cw_corners(current_end, sp))
-        # Follow chain forward (land on left â†’ ocean polygon traces correctly)
+        if current_end is not None:
+            # CW perimeter corners from previous chain's end to this chain's start
+            polygon.extend(_cw_corners(current_end, sp))
+        # Follow chain forward (land on left -> ocean polygon traces correctly)
         polygon.extend(chain)
         current_end = ep
 
         # Next chain: smallest positive CW distance from current_end to a start
-        best_i, best_d = -1, float('inf')
+        best_i, best_d = -1, float("inf")
         for i, (s, e, c, v) in enumerate(info):
             if v:
                 continue
@@ -1422,6 +1437,10 @@ def _close_chains_with_bbox(chains, bbox_bl):
         if best_i < 0:
             break
         idx = best_i
+
+    # Closing arc: CW from the last chain's end back to the first chain's start.
+    if current_end is not None:
+        polygon.extend(_cw_corners(current_end, first_start))
 
     return polygon if len(polygon) >= 3 else None
 
@@ -1450,7 +1469,7 @@ def _debug_add_poly(name, pts2d, z=0.0, offset=(0.0, 0.0, 0.0)):
 def _build_ocean_mesh(open_chains, closed_loops, bbox_bl, tile):
     """Build the flat ocean mesh object from stitched coastline chains.
 
-    *open_chains*  : chains that cross the tile boundary â†’ close via bbox walk
+    *open_chains*  : chains that cross the tile boundary â†' close via bbox walk
     *closed_loops* : island/peninsula loops entirely inside the tile (unused
                      here â€” island subtraction on a flat 2D polygon is
                      unreliable with boolean solvers; projection() clips to
@@ -1470,26 +1489,27 @@ def _build_ocean_mesh(open_chains, closed_loops, bbox_bl, tile):
         # all chains combined (not one per chain â€” separate polygons overlap).
         good_chains = []
         for chain in open_chains:
-            clipped = _clip_chain_to_bbox(chain, bbox_bl)
-            if clipped is None or len(clipped) < 2:
-                print(f"    [ocean mesh] chain {len(chain)} pts â†’ clipped to nothing, skip")
+            segments = _clip_chain_to_bbox(chain, bbox_bl)
+            if not segments:
+                print(f"    [ocean mesh] chain {len(chain)} pts â†' clipped to nothing, skip")
                 continue
-            simplified = _rdp_simplify(clipped, epsilon=0.1)
-            if len(simplified) < 3:
-                print(f"    [ocean mesh] chain {len(chain)} pts â†’ clipped {len(clipped)} â†’ RDP {len(simplified)}, skip (degenerate)")
-                continue
-            print(f"    [ocean mesh] chain {len(chain)} pts → clipped {len(clipped)} → RDP {len(simplified)}")
-            if bpy.app.debug:
-                print(f"      raw  start={chain[0]}  end={chain[-1]}")
-                print(f"      clip start={clipped[0]}  end={clipped[-1]}")
-                print(f"      rdp  start={simplified[0]}  end={simplified[-1]}")
-                _ci = len(good_chains)
-                _dbg_x = 0.0
-                _dbg_step = 150.0
-                _debug_add_poly(f"chain_raw_{_ci}",     chain,      offset=(_dbg_x,                  -_dbg_step * (_ci + 1), 0.1))
-                _debug_add_poly(f"chain_clipped_{_ci}", clipped,    offset=(_dbg_x + _dbg_step,     -_dbg_step * (_ci + 1), 0.1))
-                _debug_add_poly(f"chain_rdp_{_ci}",     simplified, offset=(_dbg_x + _dbg_step * 2, -_dbg_step * (_ci + 1), 0.1))
-            good_chains.append(simplified)
+            for clipped in segments:
+                simplified = _rdp_simplify(clipped, epsilon=0.1)
+                if len(simplified) < 3:
+                    print(f"    [ocean mesh] chain {len(chain)} pts â†' clipped {len(clipped)} â†' RDP {len(simplified)}, skip (degenerate)")
+                    continue
+                print(f"    [ocean mesh] chain {len(chain)} pts -> clipped {len(clipped)} -> RDP {len(simplified)}")
+                if bpy.app.debug:
+                    print(f"      raw  start={chain[0]}  end={chain[-1]}")
+                    print(f"      clip start={clipped[0]}  end={clipped[-1]}")
+                    print(f"      rdp  start={simplified[0]}  end={simplified[-1]}")
+                    _ci = len(good_chains)
+                    _dbg_x = 0.0
+                    _dbg_step = 150.0
+                    _debug_add_poly(f"chain_raw_{_ci}",     chain,      offset=(_dbg_x,                  -_dbg_step * (_ci + 1), 0.1))
+                    _debug_add_poly(f"chain_clipped_{_ci}", clipped,    offset=(_dbg_x + _dbg_step,     -_dbg_step * (_ci + 1), 0.1))
+                    _debug_add_poly(f"chain_rdp_{_ci}",     simplified, offset=(_dbg_x + _dbg_step * 2, -_dbg_step * (_ci + 1), 0.1))
+                good_chains.append(simplified)
 
         if good_chains:
             # Filter out chains whose endpoints are so close together on the bbox
@@ -1513,9 +1533,10 @@ def _build_ocean_mesh(open_chains, closed_loops, bbox_bl, tile):
                 sp = _ccw_param(ch[0])
                 ep = _ccw_param(ch[-1])
                 span = (ep - sp) % 4.0   # CCW span from start to end
-                if span < 0.05 or span > 3.95:
-                    print(f"    [ocean mesh] skipping sliver chain ({len(ch)} pts, CCW span={span:.3f})")
-                    continue
+                #commented out for now as it was filtering out valid chains in some cases
+                #if span < 0.05 or span > 3.95:
+                #    print(f"    [ocean mesh] skipping sliver chain ({len(ch)} pts, CCW span={span:.3f})")
+                #    continue
                 print(f"    [ocean mesh] chain {len(ch)} pts: start CCW={sp:.3f}  end CCW={ep:.3f}  span={span:.3f}")
                 filtered.append(ch)
             good_chains = filtered
@@ -1558,7 +1579,7 @@ def _build_ocean_mesh(open_chains, closed_loops, bbox_bl, tile):
 
     if not ocean_faces:
         # Either no open chains (tile entirely ocean) or all chain polys were
-        # degenerate â†’ fall back to full bbox rectangle.
+        # degenerate â†' fall back to full bbox rectangle.
         min_x, min_y, max_x, max_y = bbox_bl
         pts3d = [
             (min_x, min_y, 0.0),
