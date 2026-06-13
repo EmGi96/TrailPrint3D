@@ -222,7 +222,6 @@ class TP3D_PG_properties(bpy.types.PropertyGroup):
         description= _("Select a .SVG file"),
         default="",
         maxlen=1024,
-        subtype='FILE_PATH'  # Enables file selection
     )# type: ignore
 
     #overwriteLength: StringProperty(name= _("text1"), default = "")
@@ -309,8 +308,8 @@ class TP3D_PG_properties(bpy.types.PropertyGroup):
     generation_mode: EnumProperty(
         name="Generation Mode",
         items=[
-            ('GENERATION', _("Generation"), _("Single GPX file generation")),
-            ('MULTI', _("Multi"), _("Chain multiple GPX files")),
+            ('GENERATION', _("Trail"), _("Single GPX file generation")),
+            ('MULTI', _("Multi Trail"), _("Chain multiple GPX files")),
             ('TERRAIN', _("Terrain"), _("Generate terrain without GPX")),
         ],
         default='GENERATION',

@@ -394,7 +394,9 @@ class TP3D_PT_advanced(bpy.types.Panel):
             row.label(text=_("SVG / Text Import"), icon='FILE_IMAGE')
             ln = row.operator("tp3d.info_video", text="", icon="QUESTION")
             ln.url = "https://www.youtube.com/@EmGi_"
-            sub.prop(props, "svg_path")
+            row = sub.row(align=True)
+            row.prop(props, "svg_path", text=_("SVG File"))
+            row.operator("tp3d.pick_svg_file", text="", icon='FILEBROWSER')
             sub.operator("tp3d.import_svg", text=_("Import SVG"))
             sub.operator("tp3d.import_text", text=_("Place Text"), icon='FONT_DATA')
 
