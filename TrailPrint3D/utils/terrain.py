@@ -620,7 +620,8 @@ def coloring_main(map, kind="WATER", prefetched_tiles=None):
 
     bpy.ops.object.mode_set(mode="OBJECT")
 
-    merged_object.location.z += 0.2
+    if "SINGLECOLORMODE" not in elementMode:
+        merged_object.location.z += 0.2
     merged_object.name = name + "_" + kind
 
     bpy.context.view_layer.objects.active = merged_object
@@ -1560,7 +1561,7 @@ def createOcean(prefetched_coastline, scaleHor, tile):
         projection("paint", tile, ocean_obj)
         return None
     elif elementMode in ("SINGLECOLORMODE", "SINGLECOLORMODE_REMESH"):
-        projection("singleColorMode", tile, ocean_obj)
+        projection("singleColorMode_remesh", tile, ocean_obj)
         mat = bpy.data.materials.get("WATER")
         ocean_obj.data.materials.clear()
         ocean_obj.data.materials.append(mat)
