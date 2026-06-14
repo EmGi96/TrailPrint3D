@@ -759,6 +759,10 @@ def get_tile_elevation(obj, progress_cb=None):
             elevations = list(struct.unpack_from(f"<{_n}f", _raw, 4))
             if len(elevations) == len(world_verts):
                 print(f"Elevation cache hit ({_n} verts) — skipping API fetch")
+                elevations, _fixed_count = fix_invalid_elevations(elevations)
+                if _fixed_count > 0:
+                    print(f"Fixed {_fixed_count} invalid cached elevation value(s)")
+                    bpy.context.scene.tp3d.buggyDataset = 1
                 lowestElevation = min(elevations)
                 highestElevation = max(elevations)
                 additionalExtrusion = lowestElevation
@@ -795,7 +799,7 @@ def get_tile_elevation(obj, progress_cb=None):
         # Free memory after processing chunk
         del chunk_elevations
 
-    elevations2, _fixed_count = fix_invalid_elevations(elevations)
+    elevations, _fixed_count = fix_invalid_elevations(elevations)
     if _fixed_count > 0:
         print(f"Fixed {_fixed_count} invalid elevation value(s)")
         bpy.context.scene.tp3d.buggyDataset = 1
