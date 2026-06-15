@@ -195,6 +195,7 @@ def coloring_main(map, kind="WATER", prefetched_tiles=None):
 
     pos_geoms = []
     neg_geoms = []
+    _dbg_filtered_small = []   # polygons dropped for being below col_Area (debug only)
 
     scaleHor = bpy.context.scene.tp3d.sScaleHor
     streamWidthMultiplier = bpy.context.scene.tp3d.col_wStreamWidth
@@ -287,6 +288,8 @@ def coloring_main(map, kind="WATER", prefetched_tiles=None):
                         neg_geoms.append(poly)
                         waterCreated += 1
                     else:
+                        if bpy.app.debug and poly is not None and not poly.is_empty:
+                            _dbg_filtered_small.append(poly)
                         waterDeleted += 1
 
                 # Process standalone ways: closed → polygon, open → buffered ribbon
@@ -400,10 +403,16 @@ def coloring_main(map, kind="WATER", prefetched_tiles=None):
         m = _g2d.polygon_to_mesh(f"{kind}_{i}", poly)
         if m is not None:
             result_meshes.append(m)
+    if bpy.app.debug:
+        for poly in _g2d.iter_polygons(final_geom):
+            if poly.area < col_Area:
+                _dbg_filtered_small.append(poly)
     print(f"  [coloring_main] polygon_to_mesh ({kind}, {len(result_meshes)} parts): {time.time()-_t_mesh:.3f}s")
 
     if bpy.app.debug and _dbg_kept:
         _g2d.debug_dump(f"DBG_{kind}_6_kept_polys", _dbg_kept, f"TP3D_Debug_{kind}", z=100.0)
+    if bpy.app.debug and _dbg_filtered_small:
+        _g2d.debug_dump(f"DBG_{kind}_7_filtered_small", _dbg_filtered_small, f"TP3D_Debug_{kind}", z=120.0)
 
     if not result_meshes:
         if _api_empty:
@@ -585,6 +594,8 @@ def coloring_main(map, kind="WATER", prefetched_tiles=None):
         # that punch unwanted holes in lower-priority elements.
         fp = _g2d.footprint_with_holes(zobj)
         if fp is None or fp.area < col_Area:
+            if bpy.app.debug and fp is not None:
+                _dbg_filtered_small.append(fp)
             bm.free()
             bpy.data.objects.remove(zobj, do_unlink=True)
             continue
