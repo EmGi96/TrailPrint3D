@@ -629,15 +629,31 @@ def coloring_main(map, kind="WATER", prefetched_tiles=None):
 
     bm = bmesh.new()
     bm.from_mesh(merged_object.data)
-    min_z = min(v.co.z for v in bm.verts)
-    lowestVert = 100
-    for v in bm.verts:
-        if abs(v.co.z - min_z) > tol and v.co.z >= bpy.context.scene.tp3d.minThickness:
-            if v.co.z < lowestVert:
-                lowestVert = v.co.z
-    for v in bm.verts:
-        if abs(v.co.z - min_z) < tol:
-            v.co.z = lowestVert - 1
+    bm.normal_update()
+
+    if elementMode == "SEPARATE":
+        # Rebuild as a terrain-conforming 1 mm solid: keep only the upward-facing
+        # terrain surface (from the boolean INTERSECT result), delete the flat
+        # bottom cap and vertical side walls, then extrude downward 1 mm.
+        to_delete = [f for f in bm.faces if f.normal.z <= 0.087]  # keep faces up to 85° from horizontal
+        bmesh.ops.delete(bm, geom=to_delete, context='FACES')
+        ret = bmesh.ops.extrude_face_region(bm, geom=bm.faces[:])
+        new_verts = [v for v in ret["geom"] if isinstance(v, bmesh.types.BMVert)]
+        bmesh.ops.translate(bm, verts=new_verts, vec=Vector((0, 0, -1)))
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    else:
+        # SINGLECOLORMODE: flatten the bottom to a consistent level so the cutter
+        # prism extends cleanly below the lowest terrain point in the element area.
+        min_z = min(v.co.z for v in bm.verts)
+        lowestVert = 100
+        for v in bm.verts:
+            if abs(v.co.z - min_z) > tol and v.co.z >= bpy.context.scene.tp3d.minThickness:
+                if v.co.z < lowestVert:
+                    lowestVert = v.co.z
+        for v in bm.verts:
+            if abs(v.co.z - min_z) < tol:
+                v.co.z = lowestVert - 1
+
     bm.to_mesh(merged_object.data)
     bm.free()
 
