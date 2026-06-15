@@ -283,7 +283,7 @@ def coloring_main(map, kind="WATER", prefetched_tiles=None):
                     xy = [(x, y) for x, y, _ in
                           (convert_to_blender_coordinates(lat, lon, ele, 0) for lat, lon, ele in coords)]
                     poly = _g2d.xy_ring_to_polygon(xy)
-                    if poly is not None and not poly.is_empty:
+                    if poly is not None and not poly.is_empty and poly.area >= col_Area:
                         neg_geoms.append(poly)
                         waterCreated += 1
                     else:
@@ -577,6 +577,18 @@ def coloring_main(map, kind="WATER", prefetched_tiles=None):
         bm = bmesh.new()
         bm.from_mesh(zmesh)
         bm.normal_update()
+
+        # Drop fragments that the boolean-intersection clipped below the
+        # per-element area threshold. These appear when a large polygon is
+        # sliced at the map boundary, leaving slivers that individually
+        # fall below col_Area. Without this filter they become tiny cutters
+        # that punch unwanted holes in lower-priority elements.
+        fp = _g2d.footprint_with_holes(zobj)
+        if fp is None or fp.area < col_Area:
+            bm.free()
+            bpy.data.objects.remove(zobj, do_unlink=True)
+            continue
+
         lowest_face = None
         lowest_z = float('inf')
         for face in bm.faces:
