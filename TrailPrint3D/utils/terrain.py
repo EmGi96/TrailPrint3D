@@ -1310,6 +1310,25 @@ def _debug_add_poly(name, pts2d, z=0.0, offset=(0.0, 0.0, 0.0)):
     coll.objects.link(obj)
 
 
+def _debug_add_polyline(name, pts2d, z=0.0, offset=(0.0, 0.0, 0.0)):
+    """Add an edge-only polyline to the TP3D_Debug collection (only when bpy.app.debug)."""
+    if not bpy.app.debug:
+        return
+    from .primitives import col_create_line_mesh  # deferred
+    coll = bpy.data.collections.get("TP3D_Debug")
+    if coll is None:
+        coll = bpy.data.collections.new("TP3D_Debug")
+        bpy.context.scene.collection.children.link(coll)
+    pts3d = [(x, y, z) for x, y in pts2d]
+    obj = col_create_line_mesh(f"_DEBUG_{name}", pts3d)
+    if obj is None:
+        return
+    obj.location = offset
+    for c in list(obj.users_collection):
+        c.objects.unlink(obj)
+    coll.objects.link(obj)
+
+
 def _build_ocean_mesh(open_chains, closed_loops, bbox_bl, tile):
     """Build the flat ocean mesh object from stitched coastline chains.
 
@@ -1378,15 +1397,18 @@ def _build_ocean_mesh(open_chains, closed_loops, bbox_bl, tile):
                 continue
             if _on_border(simplified[0]) and _on_border(simplified[-1]):
                 # A border fragment whose two endpoints sit on the SAME bbox
-                # edge runs along the tile boundary (the coastline briefly
-                # dips out and back across one edge).  It encloses negligible
-                # area but breaks the entry/exit alternation the perimeter
-                # tracer relies on -- producing a self-intersecting polygon.
-                # Drop it from the main border walk.
+                # edge cannot go into border_chains: it breaks the entry/exit
+                # alternation the perimeter tracer relies on, producing a
+                # self-intersecting polygon.  Instead treat it as a land pocket
+                # to subtract from the ocean: the chain + the straight bbox
+                # edge between its two endpoints forms a closed land region
+                # (land-is-left keeps land inside the curve).
                 if _edges_of(simplified[0]) & _edges_of(simplified[-1]):
                     if bpy.app.debug:
-                        print(f"      [ocean mesh] dropping same-edge border fragment "
+                        print(f"      [ocean mesh] same-edge border fragment → island_loop "
                               f"({len(simplified)} pts)")
+                    if len(simplified) >= 3:
+                        island_loops.append(simplified)
                     continue
                 border_chains.append(simplified)
             elif len(simplified) >= 3:
@@ -1546,6 +1568,10 @@ def createOcean(prefetched_coastline, scaleHor, tile):
 
     raw_chains = fetch_coastline_ways(prefetched_coastline, scaleHor)
     print(f"  [ocean] fetch_coastline_ways: {len(raw_chains)} raw ways  ({time.time()-_t_ocean:.3f}s)")
+
+    if bpy.app.debug:
+        for ri, rc in enumerate(raw_chains):
+            _debug_add_polyline(f"raw_chain_{ri}", rc, z=0.2)
 
     if not raw_chains:
         _progress.WarningsOverlay.add_warning(
