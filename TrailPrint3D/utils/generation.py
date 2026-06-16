@@ -1279,7 +1279,7 @@ def runGeneration(type, locked_scale=None):
 
     lowestZ  = float(new_z.min())
     highestZ = float(new_z.max())
-    overlay.update(1.0, "Displacing vertices…")
+    overlay.update(0.80, "Terrain Ready", "Vertices displaced…")
     overlay.sub_percent = None
     additionalExtrusion = lowestZ
     bpy.context.scene.tp3d.sAdditionalExtrusion = additionalExtrusion
