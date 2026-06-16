@@ -1032,6 +1032,24 @@ def single_color_mode_curve(crv, map, keepTolTrail = False, cutDepth = 2, projec
     bool_mod.solver = 'MANIFOLD'
 
     bpy.ops.object.modifier_apply(modifier=bool_mod.name)
+
+    # Keep only the bottom faces of crv_thick and extrude them upward,
+    # so the trail protrudes above the map surface instead of being flush.
+    bm = bmesh.new()
+    bm.from_mesh(crv_thick.data)
+    bm.verts.ensure_lookup_table()
+    bm.faces.ensure_lookup_table()
+    min_z = min(v.co.z for v in bm.verts)
+    bottom_faces = [f for f in bm.faces if all(abs(v.co.z - min_z) < 0.01 for v in f.verts)]
+    bmesh.ops.delete(bm, geom=[f for f in bm.faces if f not in bottom_faces], context='FACES')
+    bm.faces.ensure_lookup_table()
+    res = bmesh.ops.extrude_face_region(bm, geom=bm.faces[:])
+    new_verts = [e for e in res['geom'] if isinstance(e, bmesh.types.BMVert)]
+    bmesh.ops.translate(bm, verts=new_verts, vec=(0, 0, 20))
+    bm.to_mesh(crv_thick.data)
+    crv_thick.data.update()
+    bm.free()
+
     bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY', center='BOUNDS')
     crv_thick.scale = (1.002,1.002,1)
 
