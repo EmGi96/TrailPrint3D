@@ -786,6 +786,19 @@ def _rg_apply_single_color_mode(obj, curveObjs, terrain, props):
             for tcrv in thickerCurves:
                 boolean_operation(elem_obj, tcrv)
 
+    # Subtract the trail groove from buildings and roads so the trail cutout
+    # isn't blocked by 3D elements regardless of element mode.
+    if thickerCurves:
+        for key in ('buildings', 'roads'):
+            elem_obj = terrain.get(key)
+            if not elem_obj:
+                continue
+            _ov = _progress.ProgressOverlay.get()
+            if _ov.active:
+                _ov.update(message=f"Subtracting trail from {key.capitalize()}…")
+            for tcrv in thickerCurves:
+                boolean_operation(elem_obj, tcrv)
+
     if thickerCurves:
         remove_objects(thickerCurves)
 
