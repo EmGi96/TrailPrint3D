@@ -9,6 +9,15 @@ blender_version_min = "4.5.0"
 license = [
   "SPDX:GPL-3.0-or-later",
 ]
+wheels = [
+  "./wheels/shapely-2.1.2-cp313-cp313-win_amd64.whl",
+  "./wheels/shapely-2.1.2-cp313-cp313-macosx_11_0_arm64.whl",
+  "./wheels/shapely-2.1.2-cp313-cp313-manylinux_2_17_x86_64.whl",
+  "./wheels/mapbox_earcut-2.0.0-cp313-cp313-win_amd64.whl",
+  "./wheels/mapbox_earcut-2.0.0-cp313-cp313-macosx_11_0_arm64.whl",
+  "./wheels/mapbox_earcut-2.0.0-cp313-cp313-manylinux_2_17_x86_64.whl",
+]
+
 [permissions]
 network = "To fetch elevation data and map tiles from online services"
 files = "To save generated 3D models files to the user's system"

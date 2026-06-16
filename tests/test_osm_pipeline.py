@@ -743,6 +743,302 @@ def test_fetch_all_kinds_semaphore_caps_concurrency():
 
 
 # ---------------------------------------------------------------------------
+# Coastline pipeline — _stitch_coastline_chains, _close_chain_with_bbox,
+# _build_ocean_mesh, fetch_coastline_ways
+# ---------------------------------------------------------------------------
+
+# Bbox for "Coastline Check" GPX (Gävle coast, Sweden)
+_COASTLINE_BBOX = (60.6419, 17.1906, 60.7008, 17.3296)  # (south, west, north, east)
+
+
+def test_stitch_empty_input():
+    from TrailPrint3D.utils.terrain import _stitch_coastline_chains
+    open_chains, closed_loops = _stitch_coastline_chains([])
+    assert open_chains == [] and closed_loops == [], "Empty input must return two empty lists"
+
+
+def test_stitch_already_closed_single_way():
+    """A single way whose first ≈ last point is classified as a closed loop."""
+    from TrailPrint3D.utils.terrain import _stitch_coastline_chains
+    ring = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0), (0.0, 0.0)]
+    open_chains, closed_loops = _stitch_coastline_chains([ring])
+    assert len(closed_loops) == 1, f"Expected 1 closed loop, got {len(closed_loops)}"
+    assert len(open_chains) == 0, f"Expected 0 open chains, got {len(open_chains)}"
+
+
+def test_stitch_two_fragments_join():
+    """Two abutting fragments must be merged into one open chain."""
+    from TrailPrint3D.utils.terrain import _stitch_coastline_chains
+    a = [(0.0, 0.0), (1.0, 0.0), (2.0, 0.0)]   # ends at (2,0)
+    b = [(2.0, 0.0), (3.0, 0.0), (4.0, 0.0)]   # starts at (2,0)
+    open_chains, closed_loops = _stitch_coastline_chains([a, b])
+    assert len(open_chains) == 1, f"Expected 1 merged chain, got {len(open_chains)}"
+    assert len(closed_loops) == 0
+    merged = open_chains[0]
+    assert len(merged) == 5, f"Merged chain should have 5 pts, got {len(merged)}"
+    assert merged[0] == (0.0, 0.0) and merged[-1] == (4.0, 0.0)
+
+
+def test_stitch_reversed_fragment_joins():
+    """Fragment B reversed (end meets A's end) must still merge."""
+    from TrailPrint3D.utils.terrain import _stitch_coastline_chains
+    a = [(0.0, 0.0), (1.0, 0.0), (2.0, 0.0)]
+    b = [(4.0, 0.0), (3.0, 0.0), (2.0, 0.0)]   # reversed: end=(2,0) matches a's end
+    open_chains, closed_loops = _stitch_coastline_chains([a, b])
+    assert len(open_chains) == 1, f"Expected 1 merged chain, got {len(open_chains)}"
+    merged = open_chains[0]
+    assert merged[0] == (0.0, 0.0) and merged[-1] == (4.0, 0.0), \
+        f"Unexpected endpoints: {merged[0]} … {merged[-1]}"
+
+
+def test_stitch_three_fragments_chain():
+    """Three sequential fragments must reduce to one open chain."""
+    from TrailPrint3D.utils.terrain import _stitch_coastline_chains
+    a = [(0.0, 0.0), (1.0, 0.0)]
+    b = [(1.0, 0.0), (2.0, 0.0)]
+    c = [(2.0, 0.0), (3.0, 0.0)]
+    open_chains, closed_loops = _stitch_coastline_chains([a, b, c])
+    assert len(open_chains) == 1, f"Expected 1 chain, got {len(open_chains)}"
+    assert len(open_chains[0]) == 4, \
+        f"Expected 4 pts after stitching 3 fragments, got {len(open_chains[0])}"
+
+
+def test_stitch_disjoint_chains_stay_separate():
+    """Two chains with no shared endpoints must remain two open chains."""
+    from TrailPrint3D.utils.terrain import _stitch_coastline_chains
+    a = [(0.0, 0.0), (1.0, 0.0), (2.0, 0.0)]
+    b = [(10.0, 0.0), (11.0, 0.0), (12.0, 0.0)]
+    open_chains, closed_loops = _stitch_coastline_chains([a, b])
+    assert len(open_chains) == 2, f"Expected 2 separate chains, got {len(open_chains)}"
+
+
+def test_stitch_fragments_form_closed_ring():
+    """Two fragments that together form a closed ring are classified as a loop."""
+    from TrailPrint3D.utils.terrain import _stitch_coastline_chains
+    a = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0)]
+    b = [(1.0, 1.0), (0.0, 1.0), (0.0, 0.0)]
+    open_chains, closed_loops = _stitch_coastline_chains([a, b])
+    assert len(closed_loops) == 1, f"Expected 1 closed loop, got {len(closed_loops)}"
+    assert len(open_chains) == 0
+
+
+def test_close_chain_with_bbox_returns_polygon():
+    """An open chain crossing two sides of the bbox must produce a closed polygon."""
+    from TrailPrint3D.utils.terrain import _close_chain_with_bbox
+    # Chain runs W→E across the bottom of a 10×10 bbox
+    chain = [(-5.0, -5.0), (0.0, -5.0), (5.0, -5.0)]
+    bbox  = (-5.0, -5.0, 5.0, 5.0)
+    poly  = _close_chain_with_bbox(chain, bbox)
+    assert poly is not None, "_close_chain_with_bbox returned None"
+    assert len(poly) >= 3, f"Polygon needs at least 3 pts, got {len(poly)}"
+
+
+def test_build_ocean_mesh_no_chains_returns_bbox_rect():
+    """No open chains → tile is fully ocean → returns the full bbox rectangle."""
+    from TrailPrint3D.utils.terrain import _build_ocean_mesh
+
+    # Build a tiny dummy tile object for location reference
+    mesh = bpy.data.meshes.new("_test_ocean_tile")
+    tile = bpy.data.objects.new("_test_ocean_tile", mesh)
+    bpy.context.scene.collection.objects.link(tile)
+    tile.location = (0, 0, 0)
+
+    bbox_bl = (-5.0, -5.0, 5.0, 5.0)
+    ocean = _build_ocean_mesh([], [], bbox_bl, tile)
+
+    bpy.data.objects.remove(tile, do_unlink=True)
+
+    assert ocean is not None, "_build_ocean_mesh should return a rect when no chains given"
+    assert len(ocean.data.vertices) == 4, \
+        f"Full-bbox rect should have 4 verts, got {len(ocean.data.vertices)}"
+    assert len(ocean.data.polygons) == 1, \
+        f"Full-bbox rect should have 1 face, got {len(ocean.data.polygons)}"
+    bpy.data.objects.remove(ocean, do_unlink=True)
+
+
+def test_build_ocean_mesh_open_chain_produces_polygon():
+    """One open chain → polygon built and linked as a mesh object."""
+    from TrailPrint3D.utils.terrain import _build_ocean_mesh
+
+    mesh = bpy.data.meshes.new("_test_ocean_tile2")
+    tile = bpy.data.objects.new("_test_ocean_tile2", mesh)
+    bpy.context.scene.collection.objects.link(tile)
+    tile.location = (0, 0, 0)
+
+    bbox_bl = (-5.0, -5.0, 5.0, 5.0)
+    # Chain runs along bottom edge W→E (land-is-left means ocean is below/south)
+    chain = [(-5.0, -5.0), (0.0, -5.0), (5.0, -5.0)]
+    ocean = _build_ocean_mesh([chain], [], bbox_bl, tile)
+
+    bpy.data.objects.remove(tile, do_unlink=True)
+
+    assert ocean is not None, "_build_ocean_mesh with one chain should return an object"
+    assert len(ocean.data.vertices) >= 3, \
+        f"Ocean polygon needs ≥3 verts, got {len(ocean.data.vertices)}"
+    bpy.data.objects.remove(ocean, do_unlink=True)
+
+
+def test_fetch_coastline_ways_empty_prefetch():
+    """Empty prefetch dict returns empty chain list without error."""
+    from TrailPrint3D.utils.osm import fetch_coastline_ways
+    result = fetch_coastline_ways({}, scaleHor=1.0)
+    assert result == [], f"Expected [], got {result!r}"
+
+
+def test_fetch_coastline_ways_extracts_chains():
+    """fetch_coastline_ways returns one chain per way with correct point count."""
+    from TrailPrint3D.utils.osm import fetch_coastline_ways
+
+    # Minimal synthetic Overpass response: 1 coastline way with 3 nodes
+    data = {
+        "elements": [
+            {"type": "node", "id": 1, "lat": 60.64, "lon": 17.20},
+            {"type": "node", "id": 2, "lat": 60.65, "lon": 17.22},
+            {"type": "node", "id": 3, "lat": 60.66, "lon": 17.24},
+            {
+                "type": "way",
+                "id": 101,
+                "nodes": [1, 2, 3],
+                "tags": {"natural": "coastline"},
+            },
+        ]
+    }
+    prefetched = {(60.64, 17.20, 60.66, 17.24): (data, False)}
+    chains = fetch_coastline_ways(prefetched, scaleHor=1.0)
+
+    assert len(chains) == 1, f"Expected 1 chain, got {len(chains)}"
+    assert len(chains[0]) == 3, f"Expected 3 pts, got {len(chains[0])}"
+
+
+def test_fetch_coastline_ways_ignores_non_coastline_tags():
+    """Ways with tags other than natural=coastline are silently ignored."""
+    from TrailPrint3D.utils.osm import fetch_coastline_ways
+
+    data = {
+        "elements": [
+            {"type": "node", "id": 1, "lat": 60.64, "lon": 17.20},
+            {"type": "node", "id": 2, "lat": 60.65, "lon": 17.22},
+            {
+                "type": "way",
+                "id": 200,
+                "nodes": [1, 2],
+                "tags": {"natural": "water"},   # NOT coastline
+            },
+        ]
+    }
+    prefetched = {(60.64, 17.20, 60.65, 17.22): (data, False)}
+    chains = fetch_coastline_ways(prefetched, scaleHor=1.0)
+    assert chains == [], f"Non-coastline way should be ignored, got {chains!r}"
+
+
+def test_fetch_coastline_ways_deduplicates_across_tiles():
+    """The same way_id appearing in two overlapping tiles is only returned once."""
+    from TrailPrint3D.utils.osm import fetch_coastline_ways
+
+    nodes = [
+        {"type": "node", "id": 1, "lat": 60.64, "lon": 17.20},
+        {"type": "node", "id": 2, "lat": 60.65, "lon": 17.22},
+    ]
+    way = {
+        "type": "way",
+        "id": 999,
+        "nodes": [1, 2],
+        "tags": {"natural": "coastline"},
+    }
+    tile_a = {(60.64, 17.20, 60.65, 17.22): ({"elements": nodes + [way]}, False)}
+    tile_b = {(60.64, 17.22, 60.65, 17.24): ({"elements": nodes + [way]}, True)}
+    prefetched = {**tile_a, **tile_b}
+
+    chains = fetch_coastline_ways(prefetched, scaleHor=1.0)
+    assert len(chains) == 1, \
+        f"Duplicate way_id should only produce 1 chain, got {len(chains)}"
+
+
+# ---------------------------------------------------------------------------
+# Live coastline integration — real network, Gävle coast (Sweden)
+# ---------------------------------------------------------------------------
+
+def test_real_coastline_fetch_returns_ways():
+    """Overpass must return at least one natural=coastline way for the Gävle bbox."""
+    import threading
+    from TrailPrint3D.utils.osm import fetch_osm_combined, OsmFetchSettings
+
+    settings = OsmFetchSettings(
+        disable_cache=True, api_retries=2, mapsize=10.0,
+        road_big=False, road_med=False, road_small=False,
+        water_ponds=False, water_small_rivers=False, water_big_rivers=False,
+    )
+    result = fetch_osm_combined(
+        _COASTLINE_BBOX, ["COASTLINE"],
+        settings=settings,
+        semaphore=threading.Semaphore(1),
+    )
+
+    assert "COASTLINE" in result, "COASTLINE kind missing from result"
+    data, _ = result["COASTLINE"]
+    ways = [e for e in data.get("elements", []) if e.get("type") == "way"]
+    print(f"\n    coastline ways returned: {len(ways)}")
+    assert ways, "No coastline ways returned — check Overpass query or bbox"
+
+
+def test_real_coastline_stitch_and_polygon():
+    """End-to-end: fetch → stitch → close with bbox → polygon has ≥3 vertices."""
+    import math
+    import threading
+    from TrailPrint3D.utils.osm import fetch_osm_combined, fetch_coastline_ways, OsmFetchSettings
+    from TrailPrint3D.utils.terrain import _stitch_coastline_chains, _close_chain_with_bbox
+    from TrailPrint3D import constants as const
+
+    settings = OsmFetchSettings(
+        disable_cache=True, api_retries=2, mapsize=10.0,
+        road_big=False, road_med=False, road_small=False,
+        water_ponds=False, water_small_rivers=False, water_big_rivers=False,
+    )
+    result = fetch_osm_combined(
+        _COASTLINE_BBOX, ["COASTLINE"],
+        settings=settings,
+        semaphore=threading.Semaphore(1),
+    )
+
+    scaleHor = 1.0
+
+    def _ll_to_bl(lat, lon):
+        x = const.R * math.radians(lon) * scaleHor
+        y = const.R * math.log(math.tan(math.pi / 4 + math.radians(lat) / 2)) * scaleHor
+        return (x, y)
+
+    prefetched = {_COASTLINE_BBOX: result.get("COASTLINE", ({}, False))}
+    raw_chains = fetch_coastline_ways(prefetched, scaleHor=scaleHor)
+    print(f"\n    raw ways: {len(raw_chains)}")
+    assert raw_chains, "No raw chains from fetch_coastline_ways"
+
+    open_chains, closed_loops = _stitch_coastline_chains(raw_chains)
+    print(f"    open chains: {len(open_chains)}  closed loops: {len(closed_loops)}")
+
+    # Compute the tile bbox using the same inline Mercator formula as createOcean
+    s, w, n, e = _COASTLINE_BBOX
+    sw = _ll_to_bl(s, w)
+    ne = _ll_to_bl(n, e)
+    bbox_bl = (min(sw[0], ne[0]), min(sw[1], ne[1]), max(sw[0], ne[0]), max(sw[1], ne[1]))
+    print(f"    bbox_bl: x=[{bbox_bl[0]:.3f}, {bbox_bl[2]:.3f}]  y=[{bbox_bl[1]:.3f}, {bbox_bl[3]:.3f}]")
+
+    # Every open chain must produce a valid closed polygon when combined with bbox
+    polys_built = 0
+    for i, chain in enumerate(open_chains):
+        poly = _close_chain_with_bbox(chain, bbox_bl)
+        assert poly is not None, f"open_chain[{i}] produced None polygon"
+        assert len(poly) >= 3, \
+            f"open_chain[{i}] polygon has only {len(poly)} pts (need ≥3)"
+        polys_built += 1
+        print(f"    open_chain[{i}]: {len(chain)} pts → polygon {len(poly)} pts")
+
+    # At minimum the stitch must have produced something processable
+    total = len(open_chains) + len(closed_loops)
+    assert total > 0, "Stitch produced no chains at all"
+    print(f"    polygons built: {polys_built}")
+
+
+# ---------------------------------------------------------------------------
 if __name__ == "__main__":
     print("\n" + "=" * 60)
     print("  TrailPrint3D OSM pipeline tests")
@@ -786,5 +1082,25 @@ if __name__ == "__main__":
     # Live Overpass integration (network required)
     _run("live overpass: union query accepted by server", test_real_overpass_union_query)
     _run("live overpass: classifier bins Munich elements",test_real_overpass_classifier)
+
+    # Coastline pipeline — unit tests (no network, no bpy objects)
+    _run("coastline stitch: empty input",                         test_stitch_empty_input)
+    _run("coastline stitch: already-closed single way",           test_stitch_already_closed_single_way)
+    _run("coastline stitch: two abutting fragments merge",        test_stitch_two_fragments_join)
+    _run("coastline stitch: reversed fragment merges",            test_stitch_reversed_fragment_joins)
+    _run("coastline stitch: three sequential fragments → one",    test_stitch_three_fragments_chain)
+    _run("coastline stitch: disjoint chains stay separate",       test_stitch_disjoint_chains_stay_separate)
+    _run("coastline stitch: two halves form closed ring",         test_stitch_fragments_form_closed_ring)
+    _run("coastline bbox close: returns valid polygon",           test_close_chain_with_bbox_returns_polygon)
+    _run("coastline mesh: no chains → full bbox rect",            test_build_ocean_mesh_no_chains_returns_bbox_rect)
+    _run("coastline mesh: open chain → polygon object",           test_build_ocean_mesh_open_chain_produces_polygon)
+    _run("fetch_coastline_ways: empty prefetch → []",             test_fetch_coastline_ways_empty_prefetch)
+    _run("fetch_coastline_ways: extracts chains correctly",       test_fetch_coastline_ways_extracts_chains)
+    _run("fetch_coastline_ways: ignores non-coastline tags",      test_fetch_coastline_ways_ignores_non_coastline_tags)
+    _run("fetch_coastline_ways: deduplicates across tiles",       test_fetch_coastline_ways_deduplicates_across_tiles)
+
+    # Live coastline integration (network required, Gävle coast)
+    _run("live coastline: overpass returns ways",                 test_real_coastline_fetch_returns_ways)
+    _run("live coastline: stitch + polygon end-to-end",           test_real_coastline_stitch_and_polygon)
 
     _assert_all_passed()

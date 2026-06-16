@@ -20,6 +20,7 @@ from .primitives import *
 from .elevation import *
 from .osm import *
 from .scene import *
+from .geometry2d import *
 from .terrain import *
 from .generation import *
 from .generation import (

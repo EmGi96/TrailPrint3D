@@ -85,7 +85,6 @@ def writeMetadata(obj, type = "MAP"):
         obj["el_sMedActive"] = bpy.context.scene.tp3d.el_sMedActive
         obj["el_sSmallActive"] = bpy.context.scene.tp3d.el_sSmallActive
         obj["el_oActive"] = bpy.context.scene.tp3d.el_oActive
-        obj["el_oFlip"] = bpy.context.scene.tp3d.el_oFlip
 
         obj["elementMode"] = bpy.context.scene.tp3d.elementMode
         obj["tolerance"] = bpy.context.scene.tp3d.tolerance

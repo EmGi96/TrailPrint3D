@@ -1,5 +1,6 @@
 import bpy  # type: ignore
 import bmesh  # type: ignore
+import math
 from mathutils import Vector, bvhtree  # type: ignore
 
 
@@ -293,11 +294,13 @@ def delete_selected_verts(obj):
     bmesh.update_edit_mesh(me)
 
 
-def boolean_operation(obj_a, obj_b, operation='DIFFERENCE'):
+def boolean_operation(obj_a, obj_b, operation='DIFFERENCE', solver='MANIFOLD'):
     """
-    Performs a Boolean operation on obj_a with obj_b using the MANIFOLD solver.
+    Performs a Boolean operation on obj_a with obj_b.
 
     operation: 'UNION', 'INTERSECT', or 'DIFFERENCE'
+    solver:    'MANIFOLD' (both inputs must be watertight-manifold) or 'EXACT'
+               (tolerates non-manifold input -- use for OSM element meshes).
     """
     # Ensure both objects exist
     if obj_a is None or obj_b is None:
@@ -308,7 +311,7 @@ def boolean_operation(obj_a, obj_b, operation='DIFFERENCE'):
     mod = obj_a.modifiers.new(name="BooleanManifold", type='BOOLEAN')
     mod.object = obj_b
     mod.operation = operation
-    mod.solver = 'MANIFOLD'
+    mod.solver = solver
 
     # Apply the modifier — obj_b must be viewport-visible or Blender refuses to apply
     prev_hide = obj_b.hide_viewport
@@ -629,7 +632,11 @@ def intersectWithTile(tile, element, extrude_amount=1.0):
         bool_mod = element.modifiers.new(name="__auto_boolean__", type='BOOLEAN')
         bool_mod.operation = 'INTERSECT'
         bool_mod.object = dup
-        bool_mod.solver = 'MANIFOLD'
+        # EXACT (not MANIFOLD): buildings/roads footprints can be non-manifold
+        # (self-touching OSM outlines). The MANIFOLD solver refuses non-manifold
+        # input and silently no-ops, which left elements spanning the whole bbox.
+        # EXACT tolerates non-manifold input so the clip to the map shape works.
+        bool_mod.solver = 'EXACT'
 
         # Apply the boolean modifier
         if bpy.context.mode != 'OBJECT':
@@ -1025,6 +1032,24 @@ def single_color_mode_curve(crv, map, keepTolTrail = False, cutDepth = 2, projec
     bool_mod.solver = 'MANIFOLD'
 
     bpy.ops.object.modifier_apply(modifier=bool_mod.name)
+
+    # Keep only the bottom faces of crv_thick and extrude them upward,
+    # so the trail protrudes above the map surface instead of being flush.
+    bm = bmesh.new()
+    bm.from_mesh(crv_thick.data)
+    bm.verts.ensure_lookup_table()
+    bm.faces.ensure_lookup_table()
+    min_z = min(v.co.z for v in bm.verts)
+    bottom_faces = [f for f in bm.faces if all(abs(v.co.z - min_z) < 0.01 for v in f.verts)]
+    bmesh.ops.delete(bm, geom=[f for f in bm.faces if f not in bottom_faces], context='FACES')
+    bm.faces.ensure_lookup_table()
+    res = bmesh.ops.extrude_face_region(bm, geom=bm.faces[:])
+    new_verts = [e for e in res['geom'] if isinstance(e, bmesh.types.BMVert)]
+    bmesh.ops.translate(bm, verts=new_verts, vec=(0, 0, 20))
+    bm.to_mesh(crv_thick.data)
+    crv_thick.data.update()
+    bm.free()
+
     bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY', center='BOUNDS')
     crv_thick.scale = (1.002,1.002,1)
 
@@ -1113,9 +1138,29 @@ def single_color_mode_mesh_wireframe(original, map, tolerance = None):
         f.select = f.normal.normalized().z >= -0.95  # select non-downward faces
     bmesh.update_edit_mesh(obj.data)
     bpy.ops.mesh.delete(type='FACE')
+
+    # The flat bottom shell carries the ocean region's full triangulation
+    # (every internal diagonal plus the bridge edges that represent island
+    # holes).  The wireframe modifier below turns EVERY remaining edge into an
+    # engraved groove, so those internal diagonals would be imprinted all over
+    # the land surface.  Dissolving the coplanar bottom faces back into clean
+    # n-gons collapses all of that interior geometry, leaving only the true
+    # region boundary -- the coastline and each island outline.
+    bm = bmesh.from_edit_mesh(obj.data)
+    bmesh.ops.dissolve_limit(
+        bm,
+        angle_limit=math.radians(1.0),
+        verts=bm.verts[:],
+        edges=bm.edges[:],
+    )
+    bmesh.update_edit_mesh(obj.data)
     bpy.ops.object.mode_set(mode='OBJECT')
 
-
+    # Guard: if the face deletion wiped all vertices (can happen when the
+    # intersection left only upward-facing faces), bail out gracefully.
+    if not obj.data.vertices:
+        bpy.data.objects.remove(obj, do_unlink=True)
+        return
 
     # Record the z level of the bottom plane before wireframe
     bottom_z = min(v.co.z for v in obj.data.vertices)
@@ -1188,6 +1233,11 @@ def single_color_mode_mesh_wireframe(original, map, tolerance = None):
 def remeshClearing(obj, voxelSize2, tolerance):
 
 
+    # Nothing valid to measure if the element is empty.
+    if not obj.data.vertices:
+        print("[remeshClearing] object has no vertices on entry -- skipping")
+        return
+
     # Record the z level of the bottom faces
     bottom_z = min(v.co.z for v in obj.data.vertices)
 
@@ -1236,6 +1286,9 @@ def remeshClearing(obj, voxelSize2, tolerance):
     mw  = obj.matrix_world
     xs  = [(mw @ v.co).x for v in obj.data.vertices]
     ys  = [(mw @ v.co).y for v in obj.data.vertices]
+    if not xs:
+        print("[remeshClearing] object has no vertices after remesh -- skipping")
+        return
     pad = 0.5
     cx  = (min(xs) + max(xs)) / 2
     cy  = (min(ys) + max(ys)) / 2
@@ -1264,6 +1317,12 @@ def remeshClearing(obj, voxelSize2, tolerance):
 
     applyModifier(obj, bool_mod)
     bpy.data.objects.remove(cube_obj, do_unlink=True)
+
+    # The cube DIFFERENCE can remove every face if the element sat entirely
+    # inside the cut volume.  Bail out before measuring an empty mesh.
+    if not obj.data.vertices:
+        print("[remeshClearing] object emptied by cube cut -- skipping")
+        return
 
     # Keep only the topmost vertices (the flat cap left by the cube's top face)
     top_z = max(v.co.z for v in obj.data.vertices)
@@ -1309,28 +1368,73 @@ def single_color_mode_mesh_remesh(original, map, tolerance = None):
     if tolerance == None:
         tolerance = bpy.context.scene.tp3d.toleranceElements
 
-    voxelSize = 0.1
-    voxelSize2 = 0.2
+    from . import geometry2d as _g2d  # deferred to avoid circular import at load time
 
-    #recalculateNormals(original)
+    # ── Build the cutter from the element's 2D footprint (interior holes kept) ──
+    # The old path isolated the bottom cap and voxel-remeshed it into a solid.
+    # That voxel remesh filled every interior hole narrower than the voxel
+    # (river-loop islands, lake islets, courtyards), so the map DIFFERENCE
+    # carved the enclosed land into a void. Instead we union the element's
+    # downward faces into a Shapely footprint -- which preserves those holes as
+    # interior rings by construction -- dilate it by the tolerance gap, earcut
+    # it into a flat manifold cap (holes intact), and extrude that into a prism.
+    fp = _g2d.footprint_with_holes(original, down_only=True)
+    if fp is None or fp.is_empty:
+        print("[single_color_mode_mesh_remesh] empty footprint -- skipping element")
+        return None
 
-    obj = original.copy()
-    obj.data = obj.data.copy()
-    bpy.context.collection.objects.link(obj)
+    if tolerance > 0:
+        # Dilate the footprint OUTWARD by tolerance * SCM_ELEMENT_GAP_FACTOR.
+        # This makes the recess in the terrain slightly larger than the
+        # element, leaving a clean printed gap around it. Growing (not
+        # insetting) also: thickens thin rivers so they still cut instead of
+        # collapsing; shrinks the island holes by the same amount, giving a
+        # matching gap around enclosed land; and extends the cutter past the
+        # map edge at the boundary, so the terrain side walls get cut away too.
+        from .. import constants as _const  # deferred to avoid circular import at load time
+        gap = tolerance * _const.SCM_ELEMENT_GAP_FACTOR
+        if gap > 0:
+            fp = fp.buffer(gap)
+            fp = _g2d.validate(fp)
+            if fp is None or fp.is_empty:
+                print("[single_color_mode_mesh_remesh] footprint empty after tolerance buffer -- skipping")
+                return None
 
-    # Select bottom faces — leaves obj in Edit Mode with bottom faces selected
-    selectBottomFaces(obj)
+    # World-space bottom of the element: the prism floor (recess depth) sits here.
+    mw = original.matrix_world
+    bottom_z = min((mw @ v.co).z for v in original.data.vertices)
+    PRISM_HEIGHT = 30.0
 
-    # Invert and delete non-bottom faces, leaving only the bottom faces
-    bpy.ops.mesh.select_mode(type='FACE')
-    bpy.ops.mesh.select_all(action='INVERT')
-    bpy.ops.mesh.delete(type='FACE')
+    # Earcut a flat cap (holes preserved) for every polygon part, then merge.
+    caps = []
+    for poly in _g2d.iter_polygons(fp):
+        cap = _g2d.polygon_to_mesh("_cutter_cap", poly)
+        if cap is not None:
+            caps.append(cap)
+    if not caps:
+        print("[single_color_mode_mesh_remesh] no cap geometry -- skipping")
+        return None
+    obj = caps[0] if len(caps) == 1 else merge_objects(caps)
+    if obj is None:
+        return None
 
-    bpy.ops.object.mode_set(mode='OBJECT')
-
-    remeshClearing(obj, voxelSize2, tolerance)
-
-
+    # Drop the caps to the recess floor, orient them downward, and extrude up
+    # into a watertight manifold prism (holes become clean tunnels through it).
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    for v in bm.verts:
+        v.co.z = bottom_z
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    up_faces = [f for f in bm.faces if f.normal.z > 0]
+    if up_faces:
+        bmesh.ops.reverse_faces(bm, faces=up_faces)
+    ret = bmesh.ops.extrude_face_region(bm, geom=bm.faces[:])
+    ext_verts = [g for g in ret["geom"] if isinstance(g, bmesh.types.BMVert)]
+    bmesh.ops.translate(bm, verts=ext_verts, vec=Vector((0, 0, PRISM_HEIGHT)))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    bm.to_mesh(obj.data)
+    bm.free()
+    obj.name = f"{original.name}_cutter"
 
     # Boolean subtract from map
     boolean = map.modifiers.new(name="Boolean", type='BOOLEAN')
@@ -1338,13 +1442,6 @@ def single_color_mode_mesh_remesh(original, map, tolerance = None):
     boolean.object = obj
     boolean.solver = 'MANIFOLD'
     applyModifier(map, boolean)
-
-    # Remesh original for cleaner print geometry
-    remesh = original.modifiers.new(name="Remesh", type='REMESH')
-    remesh.mode = 'VOXEL'
-    remesh.voxel_size = voxelSize
-    remesh.use_smooth_shade = True
-    applyModifier(original, remesh)
 
     if "type" in original and original["type"] == "OTHER":
         print("Setting ExportGroup to 0 for OTHER type")
@@ -1388,16 +1485,20 @@ def merge_with_map(mapobject, mergeobject, flatBottom = False, singleColorMode =
     bpy.context.view_layer.objects.active = mergeobject
     mergeobject.select_set(True)
     bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
+
+    # The ocean object is tagged in _build_ocean_mesh; identify it so its flat
+    # bottom can be kept flush with the terrain base (water must never dip
+    # below the print's base plane).
+    is_ocean = mergeobject.get("_tp3d_is_ocean", False)
+
     bpy.ops.object.mode_set(mode='EDIT')
     bpy.ops.mesh.select_all(action='SELECT')
     bpy.ops.mesh.extrude_region_move()
-    bpy.ops.transform.translate(value=(0, 0, 200))#bpy.ops.mesh.select_all(action='DESELECT')
+    bpy.ops.transform.translate(value=(0, 0, 200))
     bpy.ops.object.mode_set(mode='OBJECT')
     mergeobject.location.z = -1
 
     recalculateNormals(mergeobject)
-
-
 
     # Add boolean modifier
     bool_mod = mergeobject.modifiers.new(name="Boolean", type='BOOLEAN')
@@ -1467,20 +1568,24 @@ def merge_with_map(mapobject, mergeobject, flatBottom = False, singleColorMode =
 
 
 
-        bpy.ops.transform.translate(value=(0, 0, secondlowestprojection - lowestprojection - 1), orient_type='LOCAL')
+        bottom_drop = secondlowestprojection - lowestprojection - 1
+        if is_ocean:
+            # Water must never sit below the terrain base.  The selected bottom
+            # face is already flush with the map base (z = lowestprojection);
+            # clamp the skirt so it is never pushed below that plane.
+            bottom_drop = max(bottom_drop, 0.0)
+        bpy.ops.transform.translate(value=(0, 0, bottom_drop), orient_type='LOCAL')
 
         #bpy.ops.mesh.select_all(action='DESELECT')
         pass
-
-
 
 
     bmesh.update_edit_mesh(mergeobject.data)
     bpy.ops.object.mode_set(mode="OBJECT")
 
 
-
-    mergeobject.location.z += 0.05
+    if not singleColorMode:
+        mergeobject.location.z += 0.05
 
     return mergeobject
 
@@ -1530,6 +1635,7 @@ def projection(operation, Mapobject, obj):
 
         single_color_mode_mesh_wireframe(obj, Mapobject)
 
+
     if operation == "singleColorMode_remesh":
 
         merge_with_map(Mapobject, obj, True)
@@ -1537,6 +1643,7 @@ def projection(operation, Mapobject, obj):
         obj.data.materials.clear()
 
         thicker = single_color_mode_mesh_remesh(obj, Mapobject)
+
 
         remove_objects(thicker)
 

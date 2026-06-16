@@ -509,59 +509,6 @@ def col_create_face_mesh(name, coords):
     bm.free()
     return tobj
 
-def create_ribbon_mesh(name, pts, half_width):
-    """Build a flat ribbon mesh along a polyline.
-
-    pts        -- list/sequence of Vector (x, y, z)
-    half_width -- half the desired ribbon width in Blender units
-
-    Returns a newly linked bpy.types.Object, or None if pts < 2.
-    """
-    if len(pts) < 2:
-        return None
-
-    # Compute per-segment directions
-    seg_dirs = []
-    for a, b in zip(pts[:-1], pts[1:]):
-        d = b - a
-        seg_dirs.append(d.normalized() if d.length != 0 else Vector((0.0, 0.0, 0.0)))
-
-    # Compute smoothed perpendicular at each node
-    perp_at = []
-    npts = len(pts)
-    for i_pt in range(npts):
-        if i_pt == 0:
-            dir_vec = seg_dirs[0]
-        elif i_pt == npts - 1:
-            dir_vec = seg_dirs[-1]
-        else:
-            s = seg_dirs[i_pt - 1] + seg_dirs[i_pt]
-            dir_vec = s.normalized() if s.length != 0 else seg_dirs[i_pt - 1]
-        perp = Vector((-dir_vec.y, dir_vec.x, 0.0))
-        perp_at.append(perp.normalized() if perp.length != 0 else perp)
-
-    # Build left/right vertex pairs and quad faces
-    verts = []
-    faces = []
-    for i_pt, (p, perp) in enumerate(zip(pts, perp_at)):
-        left  = p + perp * half_width
-        right = p - perp * half_width
-        verts.append((left.x,  left.y,  left.z))
-        verts.append((right.x, right.y, right.z))
-
-    for j in range(npts - 1):
-        a_left  = j * 2
-        a_right = j * 2 + 1
-        b_left  = j * 2 + 2
-        b_right = j * 2 + 3
-        faces.append((a_left, b_left, b_right, a_right))
-
-    mesh = bpy.data.meshes.new(name)
-    mesh.from_pydata(verts, [], faces)
-    mesh.update(calc_edges=True)
-    obj = bpy.data.objects.new(name, mesh)
-    bpy.context.collection.objects.link(obj)
-    return obj
 
 def col_create_line_curve(name, coords, close=False, collection=None, bevel_depth=0.0):
     """

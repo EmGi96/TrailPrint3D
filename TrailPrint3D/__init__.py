@@ -165,6 +165,8 @@ classes = [
     operators.TP3D_OT_pick_svg_file,
     operators.TP3D_OT_check_update,
     operators.TP3D_OT_install_update,
+    operators.TP3D_OT_remake_buildings,
+    operators.TP3D_OT_remake_roads,
 ]
 
 _PREMIUM_CLASS_NAMES = [

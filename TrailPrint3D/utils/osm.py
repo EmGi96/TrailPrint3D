@@ -846,37 +846,69 @@ def build_osm_nodes(data):
             nodes[element['id']] = element
     return nodes
 
-def get_building_data(bbox, max_retries=5, timeout=90):
+def _build_terrain_height_sampler(bvh, x_min, x_max, y_min, y_max,
+                                  z_cast, z_floor, resolution=160):
+    """Sample terrain height for many (x, y) points fast, via a numpy grid.
 
-    apiRetries = bpy.context.scene.tp3d.apiRetries
+    Raycasting a BVHTree is one ray at a time (no batch API), so draping ~200k
+    footprint/road vertices one-by-one costs ~30s. Instead this raycasts a
+    fixed resolution x resolution grid ONCE (e.g. 160 = 25.6k rays, a few
+    seconds, independent of how many buildings/roads there are) and returns a
+    vectorized bilinear sampler. Every subsequent height lookup is pure numpy.
 
+    Returns sample(px, py) -> np.ndarray of z, accepting array-likes of equal
+    length. Grid cells that miss the terrain fall back to z_floor.
 
-    south, west, north, east = bbox
-
-    overpass_url = "https://overpass-api.de/api/interpreter"
-    query = f"""
-    [out:json][timeout:{timeout}];
-    (
-    way["building"]({south},{west},{north},{east});
-    );
-    out body;
-    >;
-    out skel qt;
+    The grid is a smoothed approximation of the surface (cell spacing ~ map
+    width / resolution). For the small, relatively flat maps roads/buildings
+    appear on this is visually indistinguishable from per-vertex raycasting;
+    raise *resolution* if roads/buildings cut into or float over steep terrain.
     """
+    import numpy as np
+    ray_down = Vector((0, 0, -1))
+    nx = ny = max(2, int(resolution))
+    gxs = np.linspace(x_min, x_max, nx)
+    gys = np.linspace(y_min, y_max, ny)
+    grid = np.empty((ny, nx), dtype=np.float64)
+    for j in range(ny):
+        gy = float(gys[j])
+        for i in range(nx):
+            hit, _, _, _ = bvh.ray_cast(Vector((float(gxs[i]), gy, z_cast)), ray_down)
+            grid[j, i] = hit.z if hit is not None else z_floor
+    dx = (x_max - x_min) / (nx - 1) if nx > 1 else 1.0
+    dy = (y_max - y_min) / (ny - 1) if ny > 1 else 1.0
 
-    data = _overpass_request(
-        query, overpass_url,
-        method='GET', timeout=timeout, max_retries=max_retries,
-    )
-    if data is None:
-        print("Failed to fetch building data from Overpass API after multiple attempts.")
-    return data
+    def sample(px, py):
+        px = np.asarray(px, dtype=np.float64)
+        py = np.asarray(py, dtype=np.float64)
+        fx = np.clip((px - x_min) / dx, 0.0, nx - 1)
+        fy = np.clip((py - y_min) / dy, 0.0, ny - 1)
+        ix = np.floor(fx).astype(np.intp)
+        iy = np.floor(fy).astype(np.intp)
+        ix1 = np.minimum(ix + 1, nx - 1)
+        iy1 = np.minimum(iy + 1, ny - 1)
+        tx = fx - ix
+        ty = fy - iy
+        z0 = grid[iy, ix] * (1.0 - tx) + grid[iy, ix1] * tx
+        z1 = grid[iy1, ix] * (1.0 - tx) + grid[iy1, ix1] * tx
+        return z0 * (1.0 - ty) + z1 * ty
+
+    return sample
+
 
 def create_buildings(map, default_height=10, scaleHor=1.0):
+    import numpy as np  # bundled wheel; deferred to keep module import light
     from .geo import convert_to_blender_coordinates  # deferred to avoid circular import at load time
     from .mesh_ops import recalculateNormals  # deferred to avoid circular import at load time
     from .scene import remove_objects  # deferred to avoid circular import at load time
+    from .geometry2d import _earcut_triangulate  # deferred to avoid circular import at load time
+    from . import geometry2d as g2d  # deferred to avoid circular import at load time
     from mathutils.bvhtree import BVHTree  # type: ignore
+
+    # Mercator scale used by convert_to_blender_coordinates (it reads sScaleHor
+    # from the scene). Read once so the vectorized node conversion matches.
+    _sScaleHor = bpy.context.scene.tp3d.sScaleHor
+    _t_setup = time.time()
 
     # Copy map and extrude vertical faces outward
     wall_obj = map.copy()
@@ -895,7 +927,9 @@ def create_buildings(map, default_height=10, scaleHor=1.0):
     bpy.ops.mesh.extrude_region_shrink_fatten(TRANSFORM_OT_shrink_fatten={"value": 20.0})
     bpy.ops.object.mode_set(mode='OBJECT')
 
-    # Build BVH once from wall_obj so per-vertex terrain raycasts are cheap
+    # Build BVH once from wall_obj, then bake a terrain heightmap grid so the
+    # per-vertex drape is a vectorized numpy lookup instead of ~200k one-by-one
+    # BVH raycasts (which were the ~30s cost).
     depsgraph = bpy.context.evaluated_depsgraph_get()
     eval_wall = wall_obj.evaluated_get(depsgraph)
     bm_bvh = bmesh.new()
@@ -903,14 +937,98 @@ def create_buildings(map, default_height=10, scaleHor=1.0):
     bm_bvh.transform(wall_obj.matrix_world)
     terrain_bvh = BVHTree.FromBMesh(bm_bvh)
     bm_bvh.free()
-    _ray_down = Vector((0, 0, -1))
+
+    _ov = _progress.ProgressOverlay.get()
+    if _ov.active:
+        _ov.set_fetch_progress('buildings', 0.0)
 
     minThickness = bpy.context.scene.tp3d.minThickness
+
+    _mc = [map.matrix_world @ Vector(c) for c in map.bound_box]
+    _x_min = min(v.x for v in _mc); _x_max = max(v.x for v in _mc)
+    _y_min = min(v.y for v in _mc); _y_max = max(v.y for v in _mc)
+    _z_cast = max(v.z for v in _mc) + 10.0
+    _sample_z = _build_terrain_height_sampler(
+        terrain_bvh, _x_min, _x_max, _y_min, _y_max, _z_cast, minThickness
+    )
+
     minLat = bpy.context.scene.tp3d.minLat
     minLon = bpy.context.scene.tp3d.minLon
     maxLat = bpy.context.scene.tp3d.maxLat
     maxLon = bpy.context.scene.tp3d.maxLon
 
+    # Geometry for ALL buildings across every tile is accumulated here and built
+    # into one mesh at the very end.
+    b_verts = []
+    b_faces = []
+    b_height_mult = bpy.context.scene.tp3d.el_bHeightMultiplier
+
+    # Clip footprints to the map outline in 2D so buildings never spill past the
+    # map edge -- robust, unlike a 3D boolean against a non-manifold building mesh.
+    map_fp = g2d.map_footprint_polygon(map)
+    print(f"[TP3D buildings] setup (wall extrude + BVH + map outline) took {time.time() - _t_setup:.1f}s")
+    if _ov.active:
+        _ov.set_fetch_progress('buildings', 0.15)
+
+    # Stage timers accumulated across all tiles.
+    _t_fetch = 0.0
+    _t_convert = 0.0
+    _t_geom = 0.0
+
+    # Cull buildings whose PRINTED footprint is too small to print cleanly. The
+    # footprint coords are already in print units (same space as the map; 1 unit
+    # ≈ 1 mm on the model), so the threshold is a direct printed-size cutoff. This
+    # is inherently scale-aware: the same mm cutoff culls a larger real-world
+    # building on a larger-km map, where everything prints smaller.
+    min_area = bpy.context.scene.tp3d.el_bMinPrintMM ** 2
+
+    def _append_building(poly, z_offset):
+        # poly: shapely Polygon (single, possibly with holes). Builds a manifold
+        # prism with a flat floor at the lowest terrain point under the footprint
+        # and a flat roof at the highest terrain point + height.
+        ext = list(poly.exterior.coords)
+        if len(ext) > 1 and ext[0] == ext[-1]:
+            ext = ext[:-1]
+        if len(ext) < 3:
+            return
+        holes = []
+        for interior in poly.interiors:
+            ring = list(interior.coords)
+            if len(ring) > 1 and ring[0] == ring[-1]:
+                ring = ring[:-1]
+            if len(ring) >= 3:
+                holes.append(ring)
+        ec = _earcut_triangulate(ext, holes)
+        if ec is None:
+            return
+        verts2d, cap_tris = ec
+        # Vectorized terrain-height lookup for every footprint vertex at once.
+        _vx = [v[0] for v in verts2d]
+        _vy = [v[1] for v in verts2d]
+        zs = _sample_z(_vx, _vy)
+        z_min = float(zs.min())
+        z_top = float(zs.max()) + z_offset
+        n2 = len(verts2d)
+        base = len(b_verts)
+        for (vx, vy) in verts2d:
+            b_verts.append((vx, vy, z_min))
+        for (vx, vy) in verts2d:
+            b_verts.append((vx, vy, z_top))
+        for (ia, ib, ic) in cap_tris:
+            b_faces.append([base + ic, base + ib, base + ia])                 # floor (down)
+            b_faces.append([base + n2 + ia, base + n2 + ib, base + n2 + ic])   # roof (up)
+        # Walls around the exterior ring and each hole. Ring ranges follow
+        # earcut's vertex order (exterior first, then holes).
+        start = 0
+        for ring in [ext] + holes:
+            rn = len(ring)
+            for i in range(rn):
+                a = base + start + i
+                b = base + start + (i + 1) % rn
+                c = base + n2 + start + (i + 1) % rn
+                d = base + n2 + start + i
+                b_faces.append([a, b, c, d])
+            start += rn
 
     lat_step = 2
     lon_step = 2
@@ -933,8 +1051,7 @@ def create_buildings(map, default_height=10, scaleHor=1.0):
                 print(f"Buildings loop: {_cntr}/{_maxcntr}")
                 _ov = _progress.ProgressOverlay.get()
                 if _ov.active:
-                    _ov.update(message=f"Buildings: tile {_cntr}/{_maxcntr} — fetching…")
-                    _ov.set_fetch_progress('buildings', _cntr / _maxcntr)
+                    _ov.update(message=f"Buildings: tile {_cntr}/{_maxcntr} — processing…")
                 south = minLat + k * lat_step
                 north = south + lat_step
                 west = minLon + l * lon_step
@@ -943,11 +1060,13 @@ def create_buildings(map, default_height=10, scaleHor=1.0):
                 bbox = (south, west, north, east)
                 data = []
 
+                _t0 = time.time()
                 data = fetch_osm_data(bbox,"BUILDINGS")
+                _t_fetch += time.time() - _t0
 
                 if not data or "elements" not in data:
                     print("No Building data returned")
-                    return None
+                    continue
 
                 n_buildings = len([e for e in data['elements'] if e['type'] == 'way'])
                 if _ov.active:
@@ -955,15 +1074,19 @@ def create_buildings(map, default_height=10, scaleHor=1.0):
                 # Cache node id -> (lat, lon) and node id -> (x, y, z_base) to avoid repeated conversions
                 raw_nodes = {n['id']: (n['lat'], n['lon']) for n in data['elements'] if n['type'] == 'node'}
 
-                # compute 2D coordinates once per node (z=0 for now)
+                # Compute 2D coordinates for every node in one vectorized numpy
+                # pass instead of a per-node convert_to_blender_coordinates call
+                # (each of which re-reads scene properties).
+                _t0 = time.time()
                 node_xy = {}
-                for nid, (nlat, nlon) in raw_nodes.items():
-                    x, y, z = convert_to_blender_coordinates(nlat, nlon, 0, scaleHor)
-                    node_xy[nid] = (x, y, nlat, nlon)  # keep lat/lon if you need to re-evaluate elevation later
-
-                verts = []   # list of (x, y, z)
-                faces = []   # list of index lists (quads/ngons)
-                vert_count = 0
+                if raw_nodes:
+                    nid_list = list(raw_nodes.keys())
+                    arr = np.array([raw_nodes[nid] for nid in nid_list], dtype=np.float64)  # (N, 2) lat, lon
+                    xs = const.R * np.radians(arr[:, 1]) * _sScaleHor
+                    ys = const.R * np.log(np.tan(np.pi / 4.0 + np.radians(arr[:, 0]) / 2.0)) * _sScaleHor
+                    for nid, x, y, (nlat, nlon) in zip(nid_list, xs.tolist(), ys.tolist(), arr.tolist()):
+                        node_xy[nid] = (x, y, nlat, nlon)
+                _t_convert += time.time() - _t0
 
                 def safe_float_height(h):
                     # supports strings like "10", "10.0", "10 m"
@@ -986,7 +1109,12 @@ def create_buildings(map, default_height=10, scaleHor=1.0):
 
                 relation_elements = [e for e in data['elements'] if e['type'] == 'relation']
 
+                _t0 = time.time()
+                _tile_total = max(1, len(data['elements']))
                 for i,element in enumerate(data['elements']):
+                    if _ov.active and i % max(1, _tile_total // 20) == 0:
+                        _elem_frac = ((_cntr - 1) + i / _tile_total) / _maxcntr
+                        _ov.set_fetch_progress('buildings', 0.15 + 0.60 * _elem_frac)
                     if element['type'] == 'relation':
                         # Find the outer member way and use its nodes as the footprint
                         outer_way = None
@@ -1011,7 +1139,7 @@ def create_buildings(map, default_height=10, scaleHor=1.0):
                     for nid in node_ids:
                         if nid in node_xy:
                             x, y, nlat, nlon = node_xy[nid]
-                            footprint.append((x, y, nlat, nlon))
+                            footprint.append((x, y))
                     if len(footprint) < 3:
                         continue
 
@@ -1020,81 +1148,66 @@ def create_buildings(map, default_height=10, scaleHor=1.0):
                     if levels != 0:
                         height = levels * 2.7
 
-                    z_offset = height * 0.002 * scaleHor * bpy.context.scene.tp3d.el_bHeightMultiplier
+                    z_offset = height * 0.002 * scaleHor * b_height_mult
 
-                    # Raycast each vertex individually against the pre-built BVH
-                    n = len(footprint)
-                    vertex_coords = []
-                    for (x, y, nlat, nlon) in footprint:
-                        xb, yb, _ = convert_to_blender_coordinates(nlat, nlon, 0, scaleHor)
-                        hit, _, _, _ = terrain_bvh.ray_cast(Vector((xb, yb, 1000)), _ray_down)
-                        z_base = hit.z if hit is not None else minThickness
-                        vertex_coords.append((xb, yb, z_base))
+                    # Validate the footprint and clip it to the map shape in 2D.
+                    # validate() repairs self-touching OSM outlines; the clip keeps
+                    # buildings from spilling past the map edge.
+                    poly = g2d.xy_ring_to_polygon(footprint)
+                    if poly is None:
+                        continue
+                    if map_fp is not None:
+                        poly = g2d.validate(poly.intersection(map_fp))
+                    if poly is None or poly.is_empty:
+                        continue
 
-                    z_min = min(z for _, _, z in vertex_coords)
-                    z_max = max(z for _, _, z in vertex_coords)
+                    # Each (clipped) polygon part becomes its own manifold prism.
+                    for part in g2d.iter_polygons(poly, min_area=min_area):
+                        _append_building(part, z_offset)
 
-                    # Flat floor at lowest terrain point, flat roof at highest terrain point + height
-                    for (xb, yb, _) in vertex_coords:
-                        verts.append((xb, yb, z_min))
-                    for (xb, yb, _) in vertex_coords:
-                        verts.append((xb, yb, z_max + z_offset))
-
-                    # Indices for bottom and top
-                    base = vert_count
-                    bottom_idx = [base + i for i in range(n)]
-                    top_idx    = [base + n + i for i in range(n)]
-
-                    # Add faces:
-                    # bottom (note: Blender's face winding is important; reverse for bottom)
-                    faces.append(bottom_idx[::-1])  # bottom polygon (reverse winding so normal faces down)
-                    # top
-                    faces.append(top_idx)          # top polygon
-
-                    # sides: build quads (a, b, c, d) as bottom_i, bottom_i+1, top_i+1, top_i
-                    for i in range(n):
-                        i_next = (i + 1) % n
-                        a = base + i
-                        b = base + i_next
-                        c = base + n + i_next
-                        d = base + n + i
-                        faces.append([a, b, c, d])
-
-                    vert_count += n * 2
-
-                obj = None
+                _t_geom += time.time() - _t0
 
                 if _ov.active:
                     _ov.update(message=f"Buildings: tile {_cntr}/{_maxcntr} — creating {n_buildings} buildings…")
 
-                if vert_count > 0:
-                    # Create mesh and object
-                    mesh = bpy.data.meshes.new("building_mesh")
-                    mesh.from_pydata(verts, [], faces)
-                    mesh.update(calc_edges=True)
-
-                    # Create object
-                    obj = bpy.data.objects.new("Buildings", mesh)
-                    bpy.context.collection.objects.link(obj)
-
-                    # Recalculate normals once after the mesh is built
-                    mesh.validate(verbose=False)
-                    mesh.update(calc_edges=True)
-                    bpy.context.view_layer.update()
-
-                    for poly in mesh.polygons:
-                        poly.use_smooth = False  # flat shading for buildings; change if desired
-
-                    # Finally, ensure object normals are correct
-                    recalculateNormals(obj)
-
-                    mat = bpy.data.materials.get("BUILDINGS")
-                    obj.data.materials.clear()
-                    obj.data.materials.append(mat)
-
-
+    print(f"[TP3D buildings] fetch={_t_fetch:.1f}s  convert={_t_convert:.1f}s  "
+          f"geometry(clip+earcut+raycast)={_t_geom:.1f}s")
+    if _ov.active:
+        _ov.set_fetch_progress('buildings', 0.75)
+        _ov.update(message="Buildings: building mesh…")
+    _t0 = time.time()
     remove_objects(wall_obj)
 
+    if not b_verts:
+        return None
+
+    # Build one mesh containing every building across all tiles.
+    mesh = bpy.data.meshes.new("building_mesh")
+    mesh.from_pydata(b_verts, [], b_faces)
+    mesh.update(calc_edges=True)
+
+    obj = bpy.data.objects.new("Buildings", mesh)
+    bpy.context.collection.objects.link(obj)
+
+    mesh.validate(verbose=False)
+    mesh.update(calc_edges=True)
+    bpy.context.view_layer.update()
+
+    if _ov.active:
+        _ov.set_fetch_progress('buildings', 0.90)
+
+    for poly in mesh.polygons:
+        poly.use_smooth = False  # flat shading for buildings
+
+    recalculateNormals(obj)
+    if _ov.active:
+        _ov.set_fetch_progress('buildings', 1.0)
+
+    mat = bpy.data.materials.get("BUILDINGS")
+    obj.data.materials.clear()
+    obj.data.materials.append(mat)
+
+    print(f"[TP3D buildings] final mesh build ({len(b_verts)} verts) took {time.time() - _t0:.1f}s")
     return obj
 
 def highway_default_width(highway):
@@ -1139,8 +1252,8 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
                 print(f"Roads loop: {_cntr}/{_maxcntr}")
                 _ov = _progress.ProgressOverlay.get()
                 if _ov.active:
-                    _ov.update(message=f"Roads: tile {_cntr}/{_maxcntr} — fetching…")
-                    _ov.set_fetch_progress('roads', _cntr / _maxcntr)
+                    _ov.update(message=f"Roads: tile {_cntr}/{_maxcntr} — processing…")
+                    _ov.set_fetch_progress('roads', 0.0)
 
                 south = minLat + k * lat_step
                 north = south + lat_step
@@ -1151,6 +1264,7 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
 
                 data = []
 
+                #fetches cached data thats been downloaded by fetch_osm_combined
                 data = fetch_osm_data(bbox, "STREETS")
 
                 if not data or "elements" not in data:
@@ -1180,6 +1294,8 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
 
                 for idx, el in enumerate(data['elements']):
                     wm.progress_update(int(idx * 100 / element_count))
+                    if _ov.active and element_count > 0 and idx % max(1, element_count // 20) == 0:
+                        _ov.set_fetch_progress('roads', 0.35 * idx / element_count)
                     if el['type'] != "way":
                         continue
                     node_ids = el.get("nodes", [])
@@ -1222,7 +1338,9 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
 
                     # Keep same streetWidth logic as before
                     streetWidth = (width_m * 0.5) * 0.2 * scaleHor * 0.02 * streetwidthMultiplier
-
+                    if streetWidth < 0.2:
+                        streetWidth = 0.2
+                        any_adjusted = True
 
                     # Compute segment directions and per-node perpendiculars (2D perp)
                     seg_dirs = []
@@ -1271,6 +1389,8 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
                         group['faces'].append((a_left, b_left, b_right, a_right))
 
                 wm.progress_end()
+                if _ov.active:
+                    _ov.set_fetch_progress('roads', 0.35)
 
                 # One-line width summary instead of per-road spam
                 width_summary = ", ".join(
@@ -1308,6 +1428,8 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
 
                     created_objects.append(obj)
 
+                if _ov.active:
+                    _ov.set_fetch_progress('roads', 0.55)
 
                 # If nothing was created, return None
                 if not created_objects:
@@ -1342,6 +1464,7 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
                 print(f"Error applying modifiers on {obj.name}: {e}")
 
         if _ov.active:
+            _ov.set_fetch_progress('roads', 0.65)
             _ov.update(message=f"Roads: Merge road segments into single object")
 
 
@@ -1357,6 +1480,8 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
         except Exception as e:
             print(f"Join failed: {e}")
 
+        if _ov.active:
+            _ov.set_fetch_progress('roads', 0.70)
 
         # The joined object is now the active object
         merged_obj = bpy.context.view_layer.objects.active
@@ -1389,11 +1514,17 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
 
         if _ov.active:
             _ov.update(message=f"Roads: Remeshing roads for clean geometry")
+            _ov.set_fetch_progress('roads', 0.75)
 
         remeshClearing(roads, 0.2, 0)
 
+        if _ov.active:
+            _ov.set_fetch_progress('roads', 0.90)
 
         boolean_operation(roads,map,"INTERSECT")
+
+        if _ov.active:
+            _ov.set_fetch_progress('roads', 1.0)
 
         selectBottomFacesByZ(roads)
         bpy.ops.mesh.delete(type='VERT')
@@ -1424,94 +1555,58 @@ def is_bbox_overlapping(obj1, obj2):
     return all(max1[i] >= min2[i] and max2[i] >= min1[i] for i in range(3))
 
 
-def create_element(bbox, elementHeight=1.0, scaleHor=1.0, kind = "WATER", baseHeight = 1):
-    from .geo import convert_to_blender_coordinates  # deferred to avoid circular import at load time
-    from .primitives import col_create_face_mesh, col_create_line_curve  # deferred to avoid circular import at load time
-    from .mesh_ops import merge_objects, extrude_plane  # deferred to avoid circular import at load time
+def fetch_coastline_ways(prefetched_tiles, scaleHor):
+    """Extract raw directed coastline way sequences from pre-fetched Overpass data.
 
-    col_Area = 5
+    Returns a list of coordinate chains: each chain is a list of (x, y) tuples
+    in Blender space, in OSM way direction (land-is-left convention).
+    Closed ways (first node == last node) are returned as closed chains.
+    No Blender objects are created.  No bpy.context reads.
 
-    waypart = None
+    Parameters
+    ----------
+    prefetched_tiles : dict  {bbox -> (data_dict, from_cache_bool)}
+                       The COASTLINE entry from the prefetch result dict.
+    scaleHor         : float  horizontal scale factor
+    """
+    import math as _math
+    from .. import constants as _const  # type: ignore
 
-    data = []
-    resp = fetch_osm_data(bbox, kind)
+    def _ll_to_bl(lat, lon):
+        """Inline Mercator → Blender XY, elevation fixed at 0."""
+        x = _const.R * _math.radians(lon) * scaleHor
+        y = _const.R * _math.log(_math.tan(_math.pi / 4 + _math.radians(lat) / 2)) * scaleHor
+        return (x, y)
 
-    created_objects = []
-    elementDeleted = 0
-    elementCreated = 0
+    chains = []
+    seen_way_ids = set()
 
-    if resp == None:
-        return None
-
-    data = resp
-
-    nodes = build_osm_nodes(data)
-    bodies = extract_multipolygon_bodies(data['elements'], nodes)
-
-    for i, coords in enumerate(bodies):
-        blender_coords = [convert_to_blender_coordinates(lat, lon, ele, scaleHor) for lat, lon, ele in coords]
-        blender_coords = [(x,y,0) for (x, y, z) in blender_coords]
-        calcArea = calculate_polygon_area_2d(blender_coords)
-        if calcArea > col_Area:
-            tobj = col_create_face_mesh(f"Relation_{i}", blender_coords)
-            created_objects.append(tobj)
-            elementCreated += 1
-        else:
-            elementDeleted += 1
-
-    wm = bpy.context.window_manager
-    wm.progress_begin(0, 100)
-
-    for i, element in enumerate(data['elements']):
-        wm.progress_update(i*100/len(nodes) if nodes else 0)
-
-        coords = []
-        for node_id in element.get('nodes', []):
-            if node_id in nodes:
-                node = nodes[node_id]
-                x,y,_ = convert_to_blender_coordinates(node['lat'], node['lon'], 0, scaleHor)
-                coord = (x,y,0)
-                coords.append(coord)
-        tArea = calculate_polygon_area_2d(coords)
-        if len(coords) < 2 or (tArea < col_Area and element['type'] != 'way'):
-            elementDeleted += 1
+    for bbox, (data, _from_cache) in prefetched_tiles.items():
+        if not data or "elements" not in data:
             continue
 
-        tags = element.get("tags", {})
-        if coords[0] == coords[-1] and kind != "COASTLINE":
-            tobj = col_create_face_mesh(f"coloredObject_{i}", coords)
-            created_objects.append(tobj)
-            elementCreated += 1
-        elif kind == "COASTLINE":
-            tobj = col_create_line_curve(f"coloredObject_{i}", coords, close=False)
-            created_objects.append(tobj)
-            tobj.select_set(False)
-            elementCreated += 1
+        nodes = {el['id']: el for el in data['elements'] if el['type'] == 'node'}
 
-            waypart = tobj
+        for el in data['elements']:
+            if el['type'] != 'way':
+                continue
+            if el['id'] in seen_way_ids:
+                continue
+            if el.get('tags', {}).get('natural') != 'coastline':
+                continue
+            seen_way_ids.add(el['id'])
 
-    wm.progress_end()
+            node_ids = el.get('nodes', [])
+            pts = []
+            for nid in node_ids:
+                if nid not in nodes:
+                    continue
+                nd = nodes[nid]
+                pts.append(_ll_to_bl(nd['lat'], nd['lon']))
 
-    time.sleep(1)  # Pause to prevent request throttling
+            if len(pts) >= 2:
+                chains.append(pts)
+
+    return chains
 
 
-    if elementCreated > 0:
-        print(f"created: {elementCreated} of {kind}")
-        element = merge_objects(created_objects)
-
-        element.name = kind
-
-        bpy.ops.object.shade_flat()
-
-        if kind == "WATER":
-            mat = bpy.data.materials.get("BLUE")
-        elif kind == "GREEN":
-            mat = bpy.data.materials.get("GREEN")
-        else:
-            mat = bpy.data.materials.get("BLACK")
-        element.data.materials.clear()
-        element.data.materials.append(mat)
-        extrude_plane(element,elementHeight)
-        return element
-    else:
-        return None

@@ -93,9 +93,9 @@ def _rg_validate_inputs(flags):
         )
         return None
 
-    if singleColorMode and elementMode == "SEPARATE":
-        show_message_box("Single Color Mode and Separate Element Mode cannot be used together. either disable Single-color Mode for the trail or switch to SingleColorMode for elements.")
-        return None
+    #if singleColorMode and elementMode == "SEPARATE":
+    #    show_message_box("Single Color Mode and Separate Element Mode cannot be used together. either disable Single-color Mode for the trail or switch to SingleColorMode for elements.")
+    #    return None
 
     if "gpx_file" in flags:
         if not gpx_file_path or gpx_file_path == "":
@@ -418,22 +418,8 @@ def _rg_start_osm_prefetch(tp3d, map_km):
         _active_kind_tasks.append(("BUILDINGS", _tile_tasks))
     if any([tp3d.el_sBigActive, tp3d.el_sMedActive, tp3d.el_sSmallActive]) and map_km <= const.ROADS_MAXSIZE:
         _active_kind_tasks.append(("STREETS", _tile_tasks))
-    # Ocean/coastline uses a padded bbox (+10%) to ensure coastline curves extend
-    # past the map edges for correct boolean clipping.  Pre-fetch it now with that
-    # same bbox so fetch_osm_data hits the cache when createOcean runs later.
     if tp3d.el_oActive == 1:
-        _ocean_pad_lat = (tp3d.maxLat - tp3d.minLat) * 0.10
-        _ocean_lon_span = tp3d.maxLon - tp3d.minLon
-        if _ocean_lon_span < 0:
-            _ocean_lon_span += 360
-        _ocean_pad_lon = _ocean_lon_span * 0.10
-        _ocean_bbox = (
-            tp3d.minLat - _ocean_pad_lat,
-            max(-180.0, tp3d.minLon - _ocean_pad_lon),
-            tp3d.maxLat + _ocean_pad_lat,
-            min(180.0,  tp3d.maxLon + _ocean_pad_lon),
-        )
-        _active_kind_tasks.append(("COASTLINE", [_ocean_bbox]))
+        _active_kind_tasks.append(("COASTLINE", _tile_tasks))
     if not _active_kind_tasks:
         return None, {}
 
@@ -462,7 +448,7 @@ def _rg_build_terrain_elements(obj, scaleHor, curveObj=None, phase_start=0.83, p
     from .terrain import coloring_main, createOcean, _COLORING_EMPTY, _COLORING_PAINTED, _COLORING_FILTERED, _fetch_all_kinds_parallel  # deferred to avoid circular import at load time
     from .osm import OsmFetchSettings  # deferred to avoid circular import at load time
     from .osm import create_buildings, create_roads  # deferred to avoid circular import at load time
-    from .scene import set_origin_to_3d_cursor, get_random_world_vertices  # deferred to avoid circular import at load time
+    from .scene import set_origin_to_3d_cursor  # deferred to avoid circular import at load time
     from .mesh_ops import intersectWithTile  # deferred to avoid circular import at load time
     from .metadata import writeMetadata  # deferred to avoid circular import at load time
 
@@ -560,6 +546,14 @@ def _rg_build_terrain_elements(obj, scaleHor, curveObj=None, phase_start=0.83, p
             if (flag_attr(tp3d) if callable(flag_attr) else getattr(tp3d, flag_attr) == 1) and map_km <= max_size:
                 if _all_prefetched.get(key.upper()):
                     _ov.set_fetch_ready(key)
+        # Buildings, roads, and ocean are pre-fetched in the same batch but aren't
+        # in COLORING_ELEMENTS, so mark them ready here too.
+        if tp3d.el_bActive == 1 and map_km <= const.BUILDINGS_MAXSIZE and _all_prefetched.get('BUILDINGS'):
+            _ov.set_fetch_ready('buildings')
+        if any([tp3d.el_sBigActive, tp3d.el_sMedActive, tp3d.el_sSmallActive]) and map_km <= const.ROADS_MAXSIZE and _all_prefetched.get('STREETS'):
+            _ov.set_fetch_ready('roads')
+        if tp3d.el_oActive == 1 and _all_prefetched.get('COASTLINE'):
+            _ov.set_fetch_ready('water')
 
     terrain = {}
     for key, flag_attr, max_size, phase, msg in COLORING_ELEMENTS:
@@ -598,49 +592,21 @@ def _rg_build_terrain_elements(obj, scaleHor, curveObj=None, phase_start=0.83, p
     if tp3d.el_oActive == 1:
         _advance_elem_progress("Ocean", "Creating ocean…")
         _ov.set_fetch_progress('water', 0.5 if _water_feat_active else 0.0)
-        minLat = tp3d.minLat
-        minLon = tp3d.minLon
-        maxLat = tp3d.maxLat
-        maxLon = tp3d.maxLon
-        if curveObj is not None:
-            landpoints = get_random_world_vertices(curveObj, 200)
-        else:
-            print("No trail found, deriving land hints from terrain elevation")
-            depsgraph = bpy.context.evaluated_depsgraph_get()
-            obj_eval  = obj.evaluated_get(depsgraph)
-            world_mat = obj_eval.matrix_world
-            all_verts = [world_mat @ v.co for v in obj_eval.data.vertices]
-            if all_verts:
-                avg_z      = sum(v.z for v in all_verts) / len(all_verts)
-                high_verts = [v for v in all_verts if v.z > avg_z]
-                sample_pool = high_verts if high_verts else all_verts
-                landpoints  = random.sample(sample_pool, min(200, len(sample_pool)))
-            else:
-                landpoints = []
         print("Create Ocean")
-        ocean_pad_lat = (maxLat - minLat) * 0.10
-        # Compute real geographic longitude span, handling antimeridian crossing
-        lon_span = maxLon - minLon
-        if lon_span < 0:  # crosses the antimeridian (e.g. NZ: minLon=160, maxLon=-160)
-            lon_span += 360
-        ocean_pad_lon = lon_span * 0.10
-        bbox_west = max(-180.0, minLon - ocean_pad_lon)
-        bbox_east = min(180.0, maxLon + ocean_pad_lon)
-        terrain['ocean'] = createOcean(
-            (minLat - ocean_pad_lat, bbox_west, maxLat + ocean_pad_lat, bbox_east),
-            2, scaleHor, landpoints, obj, obj, tp3d.minThickness,
-        )
+        _coastline_tiles = _all_prefetched.get("COASTLINE", {})
+        terrain['ocean'] = createOcean(_coastline_tiles, scaleHor, obj)
         _ov.set_fetch_done('water', success=terrain['ocean'] is not None)
 
     print("Base elements Created")
+
 
     # --------------------------------------------------
     # Warn if buildings or roads are used together with any singleColorMode.
     # --------------------------------------------------
     _roads_active = any([tp3d.el_sBigActive, tp3d.el_sMedActive, tp3d.el_sSmallActive])
     _any_scm = tp3d.singleColorMode or "SINGLECOLORMODE" in tp3d.elementMode
-    if (tp3d.el_bActive == 1 or _roads_active) and _any_scm:
-        _progress.WarningsOverlay.add_warning("3D Elements (Buildings/Roads) are not compatible with SingleColorMode", "warn")
+    #if (tp3d.el_bActive == 1 or _roads_active) and _any_scm:
+    #    _progress.WarningsOverlay.add_warning("3D Elements (Buildings/Roads) are not compatible with SingleColorMode", "warn")
 
     # --------------------------------------------------
     # Buildings — own creation function + intersection post-processing.
@@ -650,14 +616,16 @@ def _rg_build_terrain_elements(obj, scaleHor, curveObj=None, phase_start=0.83, p
         if map_km <= const.BUILDINGS_MAXSIZE:
             _advance_elem_progress("Buildings", "Fetching building data…")
             _ov.set_fetch_progress('buildings', 0.0)
-
+            _ov.set_fetch_ready('buildings')
             buildings = create_buildings(obj, 10, scaleHor)
 
-            set_origin_to_3d_cursor(buildings)
-            intersectWithTile(obj, buildings)
-            buildings.name = obj.name + "_" + "Buildings"
-            terrain['buildings'] = buildings
-            writeMetadata(buildings, type="BUILDINGS")
+            if buildings is not None:
+                # Buildings are already clipped to the map shape in 2D inside
+                # create_buildings, so no 3D boolean clip is needed here.
+                set_origin_to_3d_cursor(buildings)
+                buildings.name = obj.name + "_" + "Buildings"
+                terrain['buildings'] = buildings
+                writeMetadata(buildings, type="BUILDINGS")
             _ov.set_fetch_done('buildings', success=buildings is not None)
         else:
             print("INFO: MAP IS TOO BIG FOR BUILDINGS (< 10Km Map size Required)")
@@ -671,7 +639,8 @@ def _rg_build_terrain_elements(obj, scaleHor, curveObj=None, phase_start=0.83, p
         if map_km <= const.ROADS_MAXSIZE:
             _advance_elem_progress("Roads", "Fetching road data…")
             _ov.set_fetch_progress('roads', 0.0)
-            roads = create_roads(obj, 0.4, scaleHor, map_km)
+            _ov.set_fetch_ready('roads')
+            roads = create_roads(obj, tp3d.el_sHeight, scaleHor, map_km)
             if roads is not None:
                 roads = bpy.context.active_object
                 roads.data.materials.clear()
@@ -732,7 +701,7 @@ def _rg_apply_single_color_mode(obj, curveObjs, terrain, props):
                 thickerCurves[i].scale = (1.01, 1.01, 1.01)
                 boolean_operation(survivingCurveObjs[i + 1], thickerCurves[i])
 
-    if props['elementMode'] == "SEPARATE":
+    if props['elementMode'] == "SEPARATE" and 1 == 0:
         for i, key in enumerate(TERRAIN_PRIORITY_ORDER):
 
             elem_obj = terrain.get(key)
@@ -757,7 +726,7 @@ def _rg_apply_single_color_mode(obj, curveObjs, terrain, props):
                 for tcrv in curveObjs:
                     boolean_operation(elem_obj, tcrv)
 
-    if props['elementMode'] in ("SINGLECOLORMODE", "SINGLECOLORMODE_REMESH") or 1 == 0:
+    if props['elementMode'] in ("SINGLECOLORMODE", "SINGLECOLORMODE_REMESH"):
 
         _ov = _progress.ProgressOverlay.get()
         if _ov.active:
@@ -767,6 +736,9 @@ def _rg_apply_single_color_mode(obj, curveObjs, terrain, props):
 
         _scm_fn = single_color_mode_mesh_remesh if props['elementMode'] == "SINGLECOLORMODE_REMESH" else single_color_mode_mesh_wireframe
 
+        _active_scm_keys = [k for k in TERRAIN_PRIORITY_ORDER if terrain.get(k)]
+        _n_scm = max(1, len(_active_scm_keys))
+        _scm_done = 0
 
         for i, key in enumerate(TERRAIN_PRIORITY_ORDER):
             elem_obj = terrain.get(key)
@@ -774,13 +746,19 @@ def _rg_apply_single_color_mode(obj, curveObjs, terrain, props):
                 continue
             _ov = _progress.ProgressOverlay.get()
             if _ov.active:
-                _ov.update(message=f"Merging {key.capitalize()}…")
+                _ov.update(
+                    percent=0.95 + 0.02 * (_scm_done / _n_scm),
+                    message=f"Single-color: remeshing {key.capitalize()} ({_scm_done + 1}/{_n_scm})…",
+                )
 
             thicker = _scm_fn(elem_obj, obj)
             thicker_by_key[key] = thicker
 
             if _ov.active:
-                _ov.update(message=f"subtract other layers from {elem_obj.name}…")
+                _ov.update(
+                    percent=0.95 + 0.02 * ((_scm_done + 0.5) / _n_scm),
+                    message=f"Single-color: subtracting from {key.capitalize()}…",
+                )
 
             # Subtract all curve thicker-bodies
             for tcrv in thickerCurves:
@@ -790,9 +768,36 @@ def _rg_apply_single_color_mode(obj, curveObjs, terrain, props):
             for prev_key in TERRAIN_PRIORITY_ORDER[:i]:
                 if prev_key in thicker_by_key:
                     boolean_operation(elem_obj, thicker_by_key[prev_key])
+
+            _scm_done += 1
+
         for thicker in thicker_by_key.values():
             #pass
             remove_objects(thicker)
+
+    if props['elementMode'] == "SEPARATE" and thickerCurves:
+        for key in TERRAIN_PRIORITY_ORDER:
+            elem_obj = terrain.get(key)
+            if not elem_obj:
+                continue
+            _ov = _progress.ProgressOverlay.get()
+            if _ov.active:
+                _ov.update(message=f"Cutting trail from {key.capitalize()}…")
+            for tcrv in thickerCurves:
+                boolean_operation(elem_obj, tcrv)
+
+    # Subtract the trail groove from buildings and roads so the trail cutout
+    # isn't blocked by 3D elements regardless of element mode.
+    if thickerCurves:
+        for key in ('buildings', 'roads'):
+            elem_obj = terrain.get(key)
+            if not elem_obj:
+                continue
+            _ov = _progress.ProgressOverlay.get()
+            if _ov.active:
+                _ov.update(message=f"Subtracting trail from {key.capitalize()}…")
+            for tcrv in thickerCurves:
+                boolean_operation(elem_obj, tcrv)
 
     if thickerCurves:
         remove_objects(thickerCurves)
@@ -1274,7 +1279,7 @@ def runGeneration(type, locked_scale=None):
 
     lowestZ  = float(new_z.min())
     highestZ = float(new_z.max())
-    overlay.update(1.0, "Displacing vertices…")
+    overlay.update(0.80, "Terrain Ready", "Vertices displaced…")
     overlay.sub_percent = None
     additionalExtrusion = lowestZ
     bpy.context.scene.tp3d.sAdditionalExtrusion = additionalExtrusion
@@ -1412,6 +1417,7 @@ def runGeneration(type, locked_scale=None):
         _osm_prefetch_thread.join()
     elements = _rg_build_terrain_elements(obj, scaleHor, curveObj=curveObjs[0] if curveObjs else None,
                                           prefetched_osm=_osm_prefetched)
+    
 
     # --- Phase 15: Single color mode processing ---
     overlay.update(0.95, "Coloring", "Applying single-color mode…") 

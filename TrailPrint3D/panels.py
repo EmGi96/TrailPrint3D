@@ -247,7 +247,9 @@ class TP3D_PT_advanced(bpy.types.Panel):
                 col.prop(props, "col_wArea")
                 row = col.row(align=True)
                 row.prop(props, "el_oActive", icon='CHECKBOX_HLT' if props.el_oActive else 'CHECKBOX_DEHLT')
-                row.prop(props, "el_oFlip", icon='CHECKBOX_HLT' if props.el_oFlip else 'CHECKBOX_DEHLT')
+                if props.el_oActive:
+                    col.prop(props, "el_oMinIslandArea")
+                    col.prop(props, "el_oRdpEpsilon")
 
             sub = box.box()
             sub.label(text=_("Forests"), icon='FORCE_WIND')
@@ -294,6 +296,8 @@ class TP3D_PT_advanced(bpy.types.Panel):
             row = sub.row(align=True)
             row.prop(props, "el_bActive")
             row.prop(props, "el_bHeightMultiplier")
+            sub.prop(props, "el_bMinPrintMM")
+            sub.operator("tp3d.remake_buildings", icon='FILE_REFRESH')
 
             sub = box.box()
             row = sub.row()
@@ -305,7 +309,10 @@ class TP3D_PT_advanced(bpy.types.Panel):
                 col.prop(props, "el_sBigActive", icon='CHECKBOX_HLT' if props.el_sBigActive else 'CHECKBOX_DEHLT')
                 col.prop(props, "el_sMedActive", icon='CHECKBOX_HLT' if props.el_sMedActive else 'CHECKBOX_DEHLT')
                 col.prop(props, "el_sSmallActive", icon='CHECKBOX_HLT' if props.el_sSmallActive else 'CHECKBOX_DEHLT')
-                sub.prop(props, "el_sMultiplier")
+                row = sub.row(align=True)
+                row.prop(props, "el_sMultiplier")
+                row.prop(props, "el_sHeight")
+                sub.operator("tp3d.remake_roads", icon='FILE_REFRESH')
 
         # --- PIN ---
         layout.prop(props, "show_pin", icon="TRIA_DOWN" if props.show_pin else "TRIA_RIGHT", emboss=False)

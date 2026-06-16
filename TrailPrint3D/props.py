@@ -289,8 +289,10 @@ class TP3D_PG_properties(bpy.types.PropertyGroup):
     col_KeepManifold: BoolProperty(name= _("Keep Non-Manifold Objects"), default=False, description = _("Keep Broken/Non-Manifold objects")) # type: ignore
     el_bActive: BoolProperty(name= _("Include Buildings"), default=False, description = _("For Maps < 5Km Reccomended")) # type: ignore
     el_bHeightMultiplier: FloatProperty(name= _("Height Multiplier"), default=1.0, min=0.01, soft_max=10.0, description=_("Multiplies building height")) # type: ignore
+    el_bMinPrintMM: FloatProperty(name= _("Min Footprint (mm)"), default=0.15, min=0.0, soft_max=5.0, precision=2, description=_("Buildings whose printed footprint side is smaller than this (in model mm) are skipped. Scale-aware: a larger real-world building on a bigger-km map prints smaller, so this threshold naturally culls more on larger maps.")) # type: ignore
 
     el_sMultiplier: FloatProperty(name= _("Street Width Multiplier"), default = 1, description = _("To make Streets thicker or thinner")) # type: ignore
+    el_sHeight: FloatProperty(name= _("Road Height"), default = 0.4, min=0.0, description = _("Height of road geometry above terrain")) # type: ignore
 
     show_water: BoolProperty(name= _("Water & Ocean"), default=False) # type: ignore
     show_roads: BoolProperty(name= _("Roads"), default=False) # type: ignore
@@ -298,8 +300,8 @@ class TP3D_PG_properties(bpy.types.PropertyGroup):
     el_sMedActive: BoolProperty(name= _("Medium Streets"), default=False, description = f"secondary, tertiary, secondary_link, tertiary_link — ignored on maps < {const.STREETS_MAJOR_ONLY_THRESHOLD}km") # type: ignore
     el_sSmallActive: BoolProperty(name= _("Small Streets"), default=False, description = f"residential, living_street, unclassified, service, footway — ignored on maps < {const.STREETS_PRIMARY_THRESHOLD}km") # type: ignore
     el_oActive: BoolProperty(name=_("Include Ocean"), default=False, description=_("Generate ocean surface cut along the coastline. Experimental")) # type: ignore
-    el_oFlip: BoolProperty(name=_("Flip Ocean Side"), default=False, description=_("Flip the cutter normals if the ocean appears on the wrong side")) # type: ignore
-
+    el_oMinIslandArea: FloatProperty(name=_("Min Island Area"), default=2.0, min=0.0, soft_max=100.0, description=_("Islands smaller than this area (in map units²) are not punched out of the ocean. At a 100mm map size, 1 map unit ≈ 1mm on the print, so the default 2.0 ≈ a ~1.4×1.4mm patch. Set to 0 to punch all islands.")) # type: ignore
+    el_oRdpEpsilon: FloatProperty(name=_("Coastline Simplify"), default=0.1, min=0.0, soft_max=2.0, precision=3, description=_("Douglas-Peucker simplification tolerance (map units) applied to the coastline before building the ocean. Higher = fewer points but can introduce self-intersections on convoluted coasts. Set to 0 to disable simplification. Testing aid.")) # type: ignore
     mountain_treshold:IntProperty(name= _("Mountain Threshold"), default = 60, min = 0, max = 100,subtype='PERCENTAGE', description= _("Height Threshold to Color Mountains")) # type: ignore
     cl_thickness: FloatProperty(name= _("Contour Line Thickness"), default = 0.2, description = _("Thickness of the Contour Line")) # type: ignore
     cl_distance: FloatProperty(name= _("Contour Line distance"), default = 2, description = _("Distance between Contour lines")) # type: ignore
