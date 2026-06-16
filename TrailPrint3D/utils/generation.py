@@ -546,6 +546,14 @@ def _rg_build_terrain_elements(obj, scaleHor, curveObj=None, phase_start=0.83, p
             if (flag_attr(tp3d) if callable(flag_attr) else getattr(tp3d, flag_attr) == 1) and map_km <= max_size:
                 if _all_prefetched.get(key.upper()):
                     _ov.set_fetch_ready(key)
+        # Buildings, roads, and ocean are pre-fetched in the same batch but aren't
+        # in COLORING_ELEMENTS, so mark them ready here too.
+        if tp3d.el_bActive == 1 and map_km <= const.BUILDINGS_MAXSIZE and _all_prefetched.get('BUILDINGS'):
+            _ov.set_fetch_ready('buildings')
+        if any([tp3d.el_sBigActive, tp3d.el_sMedActive, tp3d.el_sSmallActive]) and map_km <= const.ROADS_MAXSIZE and _all_prefetched.get('STREETS'):
+            _ov.set_fetch_ready('roads')
+        if tp3d.el_oActive == 1 and _all_prefetched.get('COASTLINE'):
+            _ov.set_fetch_ready('water')
 
     terrain = {}
     for key, flag_attr, max_size, phase, msg in COLORING_ELEMENTS:
@@ -597,8 +605,8 @@ def _rg_build_terrain_elements(obj, scaleHor, curveObj=None, phase_start=0.83, p
     # --------------------------------------------------
     _roads_active = any([tp3d.el_sBigActive, tp3d.el_sMedActive, tp3d.el_sSmallActive])
     _any_scm = tp3d.singleColorMode or "SINGLECOLORMODE" in tp3d.elementMode
-    if (tp3d.el_bActive == 1 or _roads_active) and _any_scm:
-        _progress.WarningsOverlay.add_warning("3D Elements (Buildings/Roads) are not compatible with SingleColorMode", "warn")
+    #if (tp3d.el_bActive == 1 or _roads_active) and _any_scm:
+    #    _progress.WarningsOverlay.add_warning("3D Elements (Buildings/Roads) are not compatible with SingleColorMode", "warn")
 
     # --------------------------------------------------
     # Buildings — own creation function + intersection post-processing.
@@ -608,7 +616,7 @@ def _rg_build_terrain_elements(obj, scaleHor, curveObj=None, phase_start=0.83, p
         if map_km <= const.BUILDINGS_MAXSIZE:
             _advance_elem_progress("Buildings", "Fetching building data…")
             _ov.set_fetch_progress('buildings', 0.0)
-
+            _ov.set_fetch_ready('buildings')
             buildings = create_buildings(obj, 10, scaleHor)
 
             if buildings is not None:
@@ -631,6 +639,7 @@ def _rg_build_terrain_elements(obj, scaleHor, curveObj=None, phase_start=0.83, p
         if map_km <= const.ROADS_MAXSIZE:
             _advance_elem_progress("Roads", "Fetching road data…")
             _ov.set_fetch_progress('roads', 0.0)
+            _ov.set_fetch_ready('roads')
             roads = create_roads(obj, tp3d.el_sHeight, scaleHor, map_km)
             if roads is not None:
                 roads = bpy.context.active_object
@@ -717,7 +726,7 @@ def _rg_apply_single_color_mode(obj, curveObjs, terrain, props):
                 for tcrv in curveObjs:
                     boolean_operation(elem_obj, tcrv)
 
-    if props['elementMode'] in ("SINGLECOLORMODE", "SINGLECOLORMODE_REMESH") or 1 == 0:
+    if props['elementMode'] in ("SINGLECOLORMODE", "SINGLECOLORMODE_REMESH"):
 
         _ov = _progress.ProgressOverlay.get()
         if _ov.active:
@@ -727,6 +736,9 @@ def _rg_apply_single_color_mode(obj, curveObjs, terrain, props):
 
         _scm_fn = single_color_mode_mesh_remesh if props['elementMode'] == "SINGLECOLORMODE_REMESH" else single_color_mode_mesh_wireframe
 
+        _active_scm_keys = [k for k in TERRAIN_PRIORITY_ORDER if terrain.get(k)]
+        _n_scm = max(1, len(_active_scm_keys))
+        _scm_done = 0
 
         for i, key in enumerate(TERRAIN_PRIORITY_ORDER):
             elem_obj = terrain.get(key)
@@ -734,13 +746,19 @@ def _rg_apply_single_color_mode(obj, curveObjs, terrain, props):
                 continue
             _ov = _progress.ProgressOverlay.get()
             if _ov.active:
-                _ov.update(message=f"Merging {key.capitalize()}…")
+                _ov.update(
+                    percent=0.95 + 0.02 * (_scm_done / _n_scm),
+                    message=f"Single-color: remeshing {key.capitalize()} ({_scm_done + 1}/{_n_scm})…",
+                )
 
             thicker = _scm_fn(elem_obj, obj)
             thicker_by_key[key] = thicker
 
             if _ov.active:
-                _ov.update(message=f"subtract other layers from {elem_obj.name}…")
+                _ov.update(
+                    percent=0.95 + 0.02 * ((_scm_done + 0.5) / _n_scm),
+                    message=f"Single-color: subtracting from {key.capitalize()}…",
+                )
 
             # Subtract all curve thicker-bodies
             for tcrv in thickerCurves:
@@ -750,6 +768,9 @@ def _rg_apply_single_color_mode(obj, curveObjs, terrain, props):
             for prev_key in TERRAIN_PRIORITY_ORDER[:i]:
                 if prev_key in thicker_by_key:
                     boolean_operation(elem_obj, thicker_by_key[prev_key])
+
+            _scm_done += 1
+
         for thicker in thicker_by_key.values():
             #pass
             remove_objects(thicker)

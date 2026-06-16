@@ -938,6 +938,10 @@ def create_buildings(map, default_height=10, scaleHor=1.0):
     terrain_bvh = BVHTree.FromBMesh(bm_bvh)
     bm_bvh.free()
 
+    _ov = _progress.ProgressOverlay.get()
+    if _ov.active:
+        _ov.set_fetch_progress('buildings', 0.0)
+
     minThickness = bpy.context.scene.tp3d.minThickness
 
     _mc = [map.matrix_world @ Vector(c) for c in map.bound_box]
@@ -963,6 +967,8 @@ def create_buildings(map, default_height=10, scaleHor=1.0):
     # map edge -- robust, unlike a 3D boolean against a non-manifold building mesh.
     map_fp = g2d.map_footprint_polygon(map)
     print(f"[TP3D buildings] setup (wall extrude + BVH + map outline) took {time.time() - _t_setup:.1f}s")
+    if _ov.active:
+        _ov.set_fetch_progress('buildings', 0.15)
 
     # Stage timers accumulated across all tiles.
     _t_fetch = 0.0
@@ -1045,8 +1051,7 @@ def create_buildings(map, default_height=10, scaleHor=1.0):
                 print(f"Buildings loop: {_cntr}/{_maxcntr}")
                 _ov = _progress.ProgressOverlay.get()
                 if _ov.active:
-                    _ov.update(message=f"Buildings: tile {_cntr}/{_maxcntr} — fetching…")
-                    _ov.set_fetch_progress('buildings', _cntr / _maxcntr)
+                    _ov.update(message=f"Buildings: tile {_cntr}/{_maxcntr} — processing…")
                 south = minLat + k * lat_step
                 north = south + lat_step
                 west = minLon + l * lon_step
@@ -1105,7 +1110,11 @@ def create_buildings(map, default_height=10, scaleHor=1.0):
                 relation_elements = [e for e in data['elements'] if e['type'] == 'relation']
 
                 _t0 = time.time()
+                _tile_total = max(1, len(data['elements']))
                 for i,element in enumerate(data['elements']):
+                    if _ov.active and i % max(1, _tile_total // 20) == 0:
+                        _elem_frac = ((_cntr - 1) + i / _tile_total) / _maxcntr
+                        _ov.set_fetch_progress('buildings', 0.15 + 0.60 * _elem_frac)
                     if element['type'] == 'relation':
                         # Find the outer member way and use its nodes as the footprint
                         outer_way = None
@@ -1163,6 +1172,9 @@ def create_buildings(map, default_height=10, scaleHor=1.0):
 
     print(f"[TP3D buildings] fetch={_t_fetch:.1f}s  convert={_t_convert:.1f}s  "
           f"geometry(clip+earcut+raycast)={_t_geom:.1f}s")
+    if _ov.active:
+        _ov.set_fetch_progress('buildings', 0.75)
+        _ov.update(message="Buildings: building mesh…")
     _t0 = time.time()
     remove_objects(wall_obj)
 
@@ -1181,10 +1193,15 @@ def create_buildings(map, default_height=10, scaleHor=1.0):
     mesh.update(calc_edges=True)
     bpy.context.view_layer.update()
 
+    if _ov.active:
+        _ov.set_fetch_progress('buildings', 0.90)
+
     for poly in mesh.polygons:
         poly.use_smooth = False  # flat shading for buildings
 
     recalculateNormals(obj)
+    if _ov.active:
+        _ov.set_fetch_progress('buildings', 1.0)
 
     mat = bpy.data.materials.get("BUILDINGS")
     obj.data.materials.clear()
@@ -1235,8 +1252,8 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
                 print(f"Roads loop: {_cntr}/{_maxcntr}")
                 _ov = _progress.ProgressOverlay.get()
                 if _ov.active:
-                    _ov.update(message=f"Roads: tile {_cntr}/{_maxcntr} — fetching…")
-                    _ov.set_fetch_progress('roads', _cntr / _maxcntr)
+                    _ov.update(message=f"Roads: tile {_cntr}/{_maxcntr} — processing…")
+                    _ov.set_fetch_progress('roads', 0.0)
 
                 south = minLat + k * lat_step
                 north = south + lat_step
@@ -1277,6 +1294,8 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
 
                 for idx, el in enumerate(data['elements']):
                     wm.progress_update(int(idx * 100 / element_count))
+                    if _ov.active and element_count > 0 and idx % max(1, element_count // 20) == 0:
+                        _ov.set_fetch_progress('roads', 0.35 * idx / element_count)
                     if el['type'] != "way":
                         continue
                     node_ids = el.get("nodes", [])
@@ -1370,6 +1389,8 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
                         group['faces'].append((a_left, b_left, b_right, a_right))
 
                 wm.progress_end()
+                if _ov.active:
+                    _ov.set_fetch_progress('roads', 0.35)
 
                 # One-line width summary instead of per-road spam
                 width_summary = ", ".join(
@@ -1407,6 +1428,8 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
 
                     created_objects.append(obj)
 
+                if _ov.active:
+                    _ov.set_fetch_progress('roads', 0.55)
 
                 # If nothing was created, return None
                 if not created_objects:
@@ -1441,6 +1464,7 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
                 print(f"Error applying modifiers on {obj.name}: {e}")
 
         if _ov.active:
+            _ov.set_fetch_progress('roads', 0.65)
             _ov.update(message=f"Roads: Merge road segments into single object")
 
 
@@ -1456,6 +1480,8 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
         except Exception as e:
             print(f"Join failed: {e}")
 
+        if _ov.active:
+            _ov.set_fetch_progress('roads', 0.70)
 
         # The joined object is now the active object
         merged_obj = bpy.context.view_layer.objects.active
@@ -1488,11 +1514,17 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
 
         if _ov.active:
             _ov.update(message=f"Roads: Remeshing roads for clean geometry")
+            _ov.set_fetch_progress('roads', 0.75)
 
         remeshClearing(roads, 0.2, 0)
 
+        if _ov.active:
+            _ov.set_fetch_progress('roads', 0.90)
 
         boolean_operation(roads,map,"INTERSECT")
+
+        if _ov.active:
+            _ov.set_fetch_progress('roads', 1.0)
 
         selectBottomFacesByZ(roads)
         bpy.ops.mesh.delete(type='VERT')
