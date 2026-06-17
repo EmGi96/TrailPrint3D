@@ -113,9 +113,9 @@ class TP3D_PT_generate(bpy.types.Panel):
                 col.separator(factor=1.0)
                 if temp.PREMIUMVERSION:
                     #pass
-                    col.operator("tp3d.map_picker", text=_("Pick Area on Map"), icon='WORLD')
+                    col.operator("tp3d.map_picker", text=_("Multi Tile Configurator"), icon='WORLD')
                 else:
-                    col.operator("tp3d.terrain_dummy", text=_("Pick Area on Map"), icon='WORLD')
+                    col.operator("tp3d.terrain_dummy", text=_("Multi Tile Configurator"), icon='WORLD')
             else:
                 # Files
                 box = layout.box()

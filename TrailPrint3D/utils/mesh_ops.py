@@ -903,6 +903,15 @@ def intersect_trail_with_existing_box(cutobject,trail):
         if robj2 != None:
             bpy.data.objects.remove(robj2, do_unlink=True)
 
+        if len(cube.data.polygons) == 0:
+            # is_point_inside_cube above is only a coarse bbox/point pre-check —
+            # a trail vertex can fall just inside the tile's AABB while the
+            # actual boolean INTERSECT still yields no geometry (e.g. the trail
+            # only grazes a corner). Without this, an empty "_TRAIL_n" object
+            # with no mesh data is left behind in the scene.
+            bpy.data.objects.remove(cube, do_unlink=True)
+            return
+
         mat = bpy.data.materials.get("TRAIL")
         cube.data.materials.clear()
         cube.data.materials.append(mat)
