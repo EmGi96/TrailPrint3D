@@ -21,12 +21,12 @@ def update_text_object(obj_name, new_text):
         text_obj.data.body = new_text
 
 
-def create_text(name, text, position, scale_multiplier, rotation=(0, 0, 0), extrude=20):
+def create_text(name, text, position, scale_multiplier, rotation=(0, 0, 0), extrude=20, font_path=None):
     txt_data = bpy.data.curves.new(name=name, type='FONT')
     txt_obj = bpy.data.objects.new(name=name, object_data=txt_data)
     bpy.context.collection.objects.link(txt_obj)
 
-    textFont = bpy.context.scene.tp3d.textFont
+    textFont = font_path or bpy.context.scene.tp3d.textFont
 
     if textFont == "":
         if platform.system() == "Windows":
@@ -421,10 +421,14 @@ def HexagonOuterText():
     textfield1 = bpy.context.scene.tp3d.textfield1
     textfield2 = bpy.context.scene.tp3d.textfield2
     textfield3 = bpy.context.scene.tp3d.textfield3
+    textfield4 = bpy.context.scene.tp3d.textfield4
+    textfield5 = bpy.context.scene.tp3d.textfield5
     titleIcon = bpy.context.scene.tp3d.titleIcon
     iconString1 = bpy.context.scene.tp3d.iconText1
     iconString2 = bpy.context.scene.tp3d.iconText2
     iconString3 = bpy.context.scene.tp3d.iconText3
+    iconString4 = bpy.context.scene.tp3d.iconText4
+    iconString5 = bpy.context.scene.tp3d.iconText5
 
 
     outersize = size * ( 1 + outerBorderSize/100)
@@ -485,13 +489,27 @@ def HexagonOuterText():
 
 
 
-
-    for i, (text_name, angle) in enumerate(zip(["t_name","t_length", "t_elevation", "t_duration"], [90 + text_angle_preset, 210 + text_angle_preset, 270 + text_angle_preset, 330 + text_angle_preset])):
+    # Hexagon sides sit at 30/90/150/210/270/330 deg. Title takes the flat
+    # top (90), text1-3 take the three bottom sides (210/270/330), and
+    # field4/field5 take the two remaining upper sides (30/150) -- the only
+    # ones left empty. Upper-half sides (sin(angle) > 0, same half as the
+    # title) need the same +180 flip as the title to read right-side up;
+    # the lower-half sides don't.
+    text_specs = [
+        ("t_name", 90, True),
+        ("t_length", 210, False),
+        ("t_elevation", 270, False),
+        ("t_duration", 330, False),
+        ("t_field4", 30, True),
+        ("t_field5", 150, True),
+    ]
+    for text_name, base_angle, flip in text_specs:
+        angle = base_angle + text_angle_preset
         angle_centered = angle + 90
         x = math.cos(math.radians(angle)) * (dist * math.cos(math.radians(30)))
         y = math.sin(math.radians(angle)) * (dist * math.cos(math.radians(30)))
         rot_z = math.radians(angle_centered)
-        if i == 0:
+        if flip:
             rot_z += math.radians(180)
         create_text(text_name, text_name.split("_")[1].capitalize(), (x, y,1.4),1,  (0, 0, rot_z), 0.4)
 
@@ -499,6 +517,8 @@ def HexagonOuterText():
     tElevation = bpy.data.objects.get("t_elevation")
     tLength = bpy.data.objects.get("t_length")
     tDuration = bpy.data.objects.get("t_duration")
+    tField4 = bpy.data.objects.get("t_field4")
+    tField5 = bpy.data.objects.get("t_field5")
 
 
 
@@ -506,6 +526,8 @@ def HexagonOuterText():
     transform_MapObject(tElevation, centerx, centery)
     transform_MapObject(tLength, centerx, centery)
     transform_MapObject(tDuration, centerx, centery)
+    transform_MapObject(tField4, centerx, centery)
+    transform_MapObject(tField5, centerx, centery)
 
 
     #Scale text sizes to mm values (blender units)
@@ -525,9 +547,13 @@ def HexagonOuterText():
     tElevation.scale.x *= scale_factor
     tLength.scale.x *= scale_factor
     tDuration.scale.x *= scale_factor
+    tField4.scale.x *= scale_factor
+    tField5.scale.x *= scale_factor
     tElevation.scale.y *= scale_factor
     tLength.scale.y *= scale_factor
     tDuration.scale.y *= scale_factor
+    tField4.scale.y *= scale_factor
+    tField5.scale.y *= scale_factor
 
     bpy.ops.object.select_all(action='DESELECT')
 
@@ -535,6 +561,8 @@ def HexagonOuterText():
     tElevation.select_set(True)
     tLength.select_set(True)
     tDuration.select_set(True)
+    tField4.select_set(True)
+    tField5.select_set(True)
 
     bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
 
@@ -543,23 +571,31 @@ def HexagonOuterText():
     textfield1 = replaceShapeText(textfield1, tLength)
     textfield2 = replaceShapeText(textfield2, tElevation)
     textfield3 = replaceShapeText(textfield3, tDuration)
+    textfield4 = replaceShapeText(textfield4, tField4)
+    textfield5 = replaceShapeText(textfield5, tField5)
 
     icon0 = None
     icon1 = None
     icon2 = None
     icon3 = None
+    icon4 = None
+    icon5 = None
 
 
     icon0 = textIcon(titleIcon,tName,outerHex, False, textSize2)
     icon1 = textIcon(iconString1,tLength,outerHex, False, textSize)
     icon2 = textIcon(iconString2,tElevation,outerHex, False, textSize)
     icon3 = textIcon(iconString3,tDuration,outerHex, False, textSize)
+    icon4 = textIcon(iconString4,tField4,outerHex, False, textSize)
+    icon5 = textIcon(iconString5,tField5,outerHex, False, textSize)
 
 
     convert_text_to_mesh("t_name", outerHex.name, False)
     convert_text_to_mesh("t_elevation", outerHex.name, False)
     convert_text_to_mesh("t_length", outerHex.name, False)
     convert_text_to_mesh("t_duration", outerHex.name, False)
+    convert_text_to_mesh("t_field4", outerHex.name, False)
+    convert_text_to_mesh("t_field5", outerHex.name, False)
 
 
 
@@ -569,6 +605,8 @@ def HexagonOuterText():
     if icon1 != None: icon1.select_set(True)
     if icon2 != None: icon2.select_set(True)
     if icon3 != None: icon3.select_set(True)
+    if icon4 != None: icon4.select_set(True)
+    if icon5 != None: icon5.select_set(True)
 
     bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
 
@@ -577,6 +615,8 @@ def HexagonOuterText():
     tElevation.select_set(True)
     tLength.select_set(True)
     tDuration.select_set(True)
+    tField4.select_set(True)
+    tField5.select_set(True)
 
 
     bpy.context.view_layer.objects.active = tName

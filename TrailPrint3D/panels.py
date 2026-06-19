@@ -114,8 +114,10 @@ class TP3D_PT_generate(bpy.types.Panel):
                 if temp.PREMIUMVERSION:
                     #pass
                     col.operator("tp3d.map_picker", text=_("Multi Tile Configurator"), icon='WORLD')
+                    col.operator("tp3d.puzzle_picker", text=_("Puzzle Generator"), icon='MOD_BOOLEAN')
                 else:
                     col.operator("tp3d.terrain_dummy", text=_("Multi Tile Configurator"), icon='WORLD')
+                    col.operator("tp3d.terrain_dummy", text=_("Puzzle Generator"), icon='MOD_BOOLEAN')
             else:
                 # Files
                 box = layout.box()
@@ -535,6 +537,15 @@ class TP3D_PT_shapes(bpy.types.Panel):
                 split = row.split(factor=0.3)
                 split.prop(props,"iconText3", text = "")
                 split.prop(props, "textfield3", text = "")
+                if props.shape == "HEXAGON OUTER TEXT":
+                    row = layout.row()
+                    split = row.split(factor=0.3)
+                    split.prop(props,"iconText4", text = "")
+                    split.prop(props, "textfield4", text = "")
+                    row = layout.row()
+                    split = row.split(factor=0.3)
+                    split.prop(props,"iconText5", text = "")
+                    split.prop(props, "textfield5", text = "")
             else:
                 #row = layout.row()
                 #row.enabled = False
@@ -556,6 +567,15 @@ class TP3D_PT_shapes(bpy.types.Panel):
                 split = row.split(factor=0.3)
                 split.operator("tp3d.terrain_dummy", text=_('Icon'), icon='LOCKED')
                 split.prop(props, "textfield3", text = "")
+                if props.shape == "HEXAGON OUTER TEXT":
+                    row = layout.row()
+                    split = row.split(factor=0.3)
+                    split.operator("tp3d.terrain_dummy", text=_('Icon'), icon='LOCKED')
+                    split.prop(props, "textfield4", text = "")
+                    row = layout.row()
+                    split = row.split(factor=0.3)
+                    split.operator("tp3d.terrain_dummy", text=_('Icon'), icon='LOCKED')
+                    split.prop(props, "textfield5", text = "")
 
             layout.prop(props, "plateThickness")
             layout.prop(props, "outerBorderSize")
