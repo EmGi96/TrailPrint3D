@@ -144,7 +144,7 @@ class TP3D_PG_properties(bpy.types.PropertyGroup):
     o_apiCounter_OpenElevation: StringProperty(name="apiCounter_OpenElevation", default = "API Limit: ---/1000 monthly") # type: ignore
     o_mapsGenerated: StringProperty(name="MapsGenerated", default = "") # type: ignore
     o_centerx: FloatProperty(name = _("Center X"), default = 0, description = _("X Center of the Path")) # type: ignore
-    o_centery: FloatProperty(name = _("Center Y"), default = 0, description = _("y Center of the Path")) # type: ignore
+    o_centery: FloatProperty(name = _("Center Y"), default = 0, description = _("Y Center of the Path")) # type: ignore
 
     magnetHeight: FloatProperty(name = _("Magnet Height"), default = 2.5, description = _("Height of the Holes for Magnets")) # type: ignore
     magnetDiameter: FloatProperty(name = _("Magnet Diameter"), default = 6.3, description = _("Diameter of the Holes for Magnets")) # type: ignore
@@ -167,6 +167,8 @@ class TP3D_PG_properties(bpy.types.PropertyGroup):
     textfield1: StringProperty(name= _("text1"), default = "{length}", description = _("Codes = | {name} | {length} | {elevation} |{date} | {speed}")) # type: ignore
     textfield2: StringProperty(name= _("text2"), default = "{elevation}", description = _("Codes = | {name} | {length} | {elevation} |{date} | {speed}")) # type: ignore
     textfield3: StringProperty(name= _("text3"), default = "{duration}", description = _("Codes = | {name} | {length} | {elevation} |{date} | {speed}")) # type: ignore
+    textfield4: StringProperty(name= _("text4"), default = "", description = _("Codes = | {name} | {length} | {elevation} |{date} | {speed}")) # type: ignore
+    textfield5: StringProperty(name= _("text5"), default = "", description = _("Codes = | {name} | {length} | {elevation} |{date} | {speed}")) # type: ignore
     titleIcon: EnumProperty(
         name="Title Icon",
         items=[
@@ -217,6 +219,30 @@ class TP3D_PG_properties(bpy.types.PropertyGroup):
         ],
         default='time'
     )# type: ignore
+    iconText4: EnumProperty(
+        name="Text 4 Icon",
+        items=[
+            ('distance', _("Distance Icon"), _("Distance Icon before the Text")),
+            ('elevation', _("Elevation Icon"), _("Elevation Icon before the Text")),
+            ('time', _("Time Icon"), _("Time icon before the Text")),
+            ('speed', _("Speed Icon"), _("Speed icon before the Text")),
+            ('date', _("Date Icon"), _("Date icon before the Text")),
+            ('no', _("No Icon"), _("No icon before the Text"))
+        ],
+        default='no'
+    )# type: ignore
+    iconText5: EnumProperty(
+        name="Text 5 Icon",
+        items=[
+            ('distance', _("Distance Icon"), _("Distance Icon before the Text")),
+            ('elevation', _("Elevation Icon"), _("Elevation Icon before the Text")),
+            ('time', _("Time Icon"), _("Time icon before the Text")),
+            ('speed', _("Speed Icon"), _("Speed icon before the Text")),
+            ('date', _("Date Icon"), _("Date icon before the Text")),
+            ('no', _("No Icon"), _("No icon before the Text"))
+        ],
+        default='no'
+    )# type: ignore
 
     svg_path: StringProperty(
         name= _("SVG Path"),
@@ -260,10 +286,10 @@ class TP3D_PG_properties(bpy.types.PropertyGroup):
     elementMode: EnumProperty(
         name="Element handling",
         items=[
-            ('PAINT', _("Paint on Map"), "Paint the Elements onto the map"),
-            ('SINGLECOLORMODE_REMESH', _("Single-Color mode"), "Use this SingleColorMode, if it causes problems try the other one"),
+            ('PAINT', _("Paint on Map"), _("Paint the Elements onto the map")),
+            ('SINGLECOLORMODE_REMESH', _("Single-Color mode"), _("Use this SingleColorMode, if it causes problems try the other one")),
             #('SINGLECOLORMODE', _("SingleColor (Alternative)"), "Use this SingleColorMode if the other one causes problems"),
-            ('SEPARATE', _("Separate objects"), "Elements as separate objects (Increase Element Threshold to filter out unprintable element 'noise')")
+            ('SEPARATE', _("Separate objects"), _("Elements as separate objects (Increase Element Threshold to filter out unprintable element 'noise')"))
         ],
         default='PAINT'
     )# type: ignore

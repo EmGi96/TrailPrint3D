@@ -460,32 +460,65 @@ def RaycastCurveToMesh(curve_obj, mesh_obj):
         else:
             points = spline.points
 
+        # First pass: raycast every point, recording the local-space hit (or
+        # None on a miss/bad hit) without touching the curve yet. A miss
+        # usually means this particular point fell just past the terrain's
+        # edge -- falling back to the point's own pre-raycast position (the
+        # old behaviour) left a sharp drop to whatever raw elevation it had
+        # there instead of continuing the terrain's actual surface height.
+        #
+        # A "successful" hit can still be wrong: near a jigsaw piece's
+        # boundary the straight-down ray can graze the piece's near-vertical
+        # side wall instead of its flat top, which ray_cast reports as a
+        # normal success just at whatever height it happened to clip that
+        # wall -- producing an isolated steep spike, not a clean miss. Only
+        # accept a hit whose surface normal points mostly upward (a true top
+        # face); anything else is treated as a miss too.
+        hits = []
+        originals = []
         for point in points:
-            # world-space position of curve point
             if spline.type == 'BEZIER':
                 co_world = curve_world @ point.co
             else:
                 co_world = curve_world @ point.co.xyz
+            originals.append(point.co.xyz if spline.type != 'BEZIER' else point.co.copy())
 
-            # convert origin to mesh local
             co_local = mesh_world_inv @ co_world
-
-            # raycast in mesh local space
             success, hit_loc, normal, face_index = eval_mesh_obj.ray_cast(co_local, direction_local)
-
             if success:
-                # back to world space
-                hit_world = mesh_world @ hit_loc
-                # then into curve local
-                local_hit = curve_world_inv @ hit_world
+                world_normal = (mesh_world.to_3x3() @ normal).normalized()
+                if world_normal.z < 0.5:
+                    success = False
+            hits.append(curve_world_inv @ (mesh_world @ hit_loc) if success else None)
 
-                if spline.type == 'BEZIER':
-                    point.co = local_hit
-                    point.handle_left_type = point.handle_right_type = 'AUTO'
-                else:
-                    point.co = (local_hit.x, local_hit.y, local_hit.z, 1.0)
+        # Fill gaps from the nearest point along the spline that DID hit --
+        # carried forward first, then backward (covers a run of misses at
+        # the very start of the spline, before any hit has happened yet).
+        last_hit = None
+        for i, h in enumerate(hits):
+            if h is not None:
+                last_hit = h
+            elif last_hit is not None:
+                hits[i] = last_hit
+        next_hit = None
+        for i in range(len(hits) - 1, -1, -1):
+            if hits[i] is not None:
+                next_hit = hits[i]
+            elif next_hit is not None:
+                hits[i] = next_hit
+
+        # Second pass: apply. If literally nothing on this spline ever hit
+        # (no terrain below it at all), restore each point to where it
+        # started rather than leaving it stranded 1000 units up in the air.
+        for point, local_hit, orig in zip(points, hits, originals):
+            if local_hit is None:
+                point.co = orig - offset if spline.type == 'BEZIER' else (orig.x, orig.y, orig.z - offset.z, 1.0)
+                continue
+            if spline.type == 'BEZIER':
+                point.co = local_hit
+                point.handle_left_type = point.handle_right_type = 'AUTO'
             else:
-                point.co -= Vector((offset.x, offset.y, offset.z, 1.0))
+                point.co = (local_hit.x, local_hit.y, local_hit.z, 1.0)
 
     bpy.context.view_layer.objects.active = curve_obj
     bpy.ops.object.mode_set(mode='EDIT')
@@ -536,32 +569,92 @@ def RaycastCurveToAnyMesh(curve_obj, offset_z=1000.0, smooth_after=True):
         else:
             points = spline.points
 
+        # First pass: raycast every point, recording the local-space hit (or
+        # None on a miss) without touching the curve yet. A miss usually
+        # means this particular point fell just past the terrain's edge --
+        # falling back to the point's own pre-raycast position (the old
+        # behaviour, or here simply leaving it untouched) left a sharp step
+        # to whatever raw elevation it had there (or stranded it offset_z
+        # units up in the air) instead of continuing the terrain's actual
+        # surface height.
+        hits = []
+        originals = []
+        ws = []
         for point in points:
-            # get world-space position of the point
             if spline.type == 'BEZIER':
                 co_world = curve_world @ point.co
+                originals.append(point.co.copy())
             else:
                 co_world = curve_world @ point.co.xyz
+                originals.append(point.co.xyz)
+                ws.append(getattr(point.co, "w", 1.0))
 
-            # cast ray from this origin straight down in world-space
-            # scene.ray_cast returns (result, location, normal, face_index, object, matrix)
             hit_result = scene.ray_cast(depsgraph, co_world, direction_world)
-            hit_success = hit_result[0]
-
-            if hit_success:
-                hit_loc_world = hit_result[1]
-
-                # convert hit back into curve local space
-                local_hit = curve_world_inv @ hit_loc_world
-
-                if spline.type == 'BEZIER':
-                    point.co = local_hit
-                    # keep handles auto to get a reasonable shape; alternatively compute
-                    point.handle_left_type = point.handle_right_type = 'AUTO'
+            # scene.ray_cast checks the WHOLE scene, not just the terrain --
+            # it was landing on OTHER trail objects (leftover/duplicate
+            # curves converted to mesh elsewhere) sitting in the scene, which
+            # often have some upward-facing surface too and so passed the
+            # normal check below while still being completely the wrong
+            # object. Only accept a hit on something actually tagged as a
+            # MAP/terrain object; everything else (trails, or anything else
+            # in the scene) is rejected regardless of its normal.
+            hit_obj = hit_result[4] if hit_result[0] else None
+            is_map_hit = hit_obj is not None and (hit_obj.get("objType") == "MAP" or hit_obj.get("Object type") == "MAP")
+            # Same reasoning as RaycastCurveToMesh on top of that: only
+            # accept a hit whose normal points mostly upward (a true top
+            # face) -- near a jigsaw piece's boundary the ray can otherwise
+            # graze a near-vertical side wall and report a "successful" hit
+            # at the wrong height.
+            hit_ok = is_map_hit and hit_result[2].z >= 0.5
+            if not hit_ok:
+                if not hit_result[0]:
+                    reason = "no hit"
+                elif not is_map_hit:
+                    reason = f"hit non-map object"
                 else:
-                    # preserve w component
-                    w = getattr(point.co, "w", 1.0)
-                    point.co = (local_hit.x, local_hit.y, local_hit.z, w)
+                    reason = f"normal.z={hit_result[2].z:.2f} (not upward)"
+                hit_obj_name = hit_obj.name if hit_obj else None
+                print(f"[TP3D raycast] point {len(hits)} at ({co_world.x:.1f},{co_world.y:.1f}) rejected: "
+                      f"{reason}, hit_object={hit_obj_name}, hit_z={hit_result[1].z if hit_result[0] else 'n/a'}")
+            hits.append(curve_world_inv @ hit_result[1] if hit_ok else None)
+
+        rejected_indices = [i for i, h in enumerate(hits) if h is None]
+
+        # Fill gaps from the nearest point along the spline that DID hit --
+        # carried forward first, then backward (covers a run of misses at
+        # the very start of the spline, before any hit has happened yet).
+        last_hit = None
+        for i, h in enumerate(hits):
+            if h is not None:
+                last_hit = h
+            elif last_hit is not None:
+                hits[i] = last_hit
+        next_hit = None
+        for i in range(len(hits) - 1, -1, -1):
+            if hits[i] is not None:
+                next_hit = hits[i]
+            elif next_hit is not None:
+                hits[i] = next_hit
+
+        for i in rejected_indices:
+            filled_z = hits[i].z if hits[i] is not None else None
+            print(f"[TP3D raycast] point {i} rejected -> filled with z={filled_z}")
+
+        # Second pass: apply. If literally nothing on this spline ever hit
+        # (no terrain below it at all), restore each point to where it
+        # started rather than leaving it stranded offset_z units up.
+        for i, point in enumerate(points):
+            local_hit = hits[i]
+            if local_hit is None:
+                point.co = originals[i] - offset if spline.type == 'BEZIER' else \
+                    (originals[i].x, originals[i].y, originals[i].z - offset.z, ws[i])
+                continue
+            if spline.type == 'BEZIER':
+                point.co = local_hit
+                # keep handles auto to get a reasonable shape; alternatively compute
+                point.handle_left_type = point.handle_right_type = 'AUTO'
+            else:
+                point.co = (local_hit.x, local_hit.y, local_hit.z, ws[i])
 
     # optional smoothing (go into edit mode, smooth, come back)
     if smooth_after:
@@ -798,7 +891,39 @@ def intersect_alltrails_with_existing_box(cutobject):
 
 def intersect_trail_with_existing_box(cutobject,trail):
     #cutobject is the object that will be cut to the Map shapes
-    cutobject.scale.z = 1000
+
+    # Replace cutobject's own geometry with a CLEAN tall prism built from
+    # just its flat 2D footprint, before anything else. The old approach
+    # instead scaled cutobject's REAL mesh 1000x in Z to build a "cookie
+    # cutter" tall enough to safely envelop the trail tube regardless of
+    # terrain height -- harmless for a flat-ish tile, but a puzzle piece has
+    # its own terrain-following top AND a small bottom-rim bevel; scaling
+    # those tiny Z variations 1000x explodes them into wildly distorted
+    # slopes right at the piece's edge, which then leak into the final
+    # boolean below as spike artifacts unrelated to the trail itself. The
+    # final clipped result still ends up baked into cutobject either way
+    # (every caller relies on that), just built from clean geometry now.
+    from . import geometry2d as g2d  # deferred to avoid circular import at load time
+    footprint = g2d.footprint_with_holes(cutobject, down_only=True)
+    if footprint is not None and not footprint.is_empty:
+        mc = [cutobject.matrix_world @ Vector(c) for c in cutobject.bound_box]
+        bottom_z = min(v.z for v in mc) - 1000.0
+        top_z = max(v.z for v in mc) + 1000.0
+        verts, faces = [], []
+        for part in g2d.iter_polygons(footprint):
+            _extrude_flat_polygon(g2d, part, bottom_z, top_z, verts, faces)
+        if verts:
+            new_mesh = bpy.data.meshes.new(cutobject.data.name)
+            new_mesh.from_pydata(verts, [], faces)
+            new_mesh.update()
+            _clean_solid_mesh(new_mesh)
+            old_mesh = cutobject.data
+            # verts above are WORLD-space (footprint_with_holes/bound_box
+            # both already account for matrix_world) -- reset the object's
+            # own transform so it doesn't get re-applied on top.
+            cutobject.matrix_world = Matrix.Identity(4)
+            cutobject.data = new_mesh
+            bpy.data.meshes.remove(old_mesh)
 
     print(f"Trail name {trail.name}")
 
@@ -808,7 +933,6 @@ def intersect_trail_with_existing_box(cutobject,trail):
 
     cutobject.select_set(True)
     bpy.context.view_layer.objects.active = cutobject
-    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
 
     #cube = bpy.data.objects.get(cutobject)
     cube = cutobject
@@ -912,7 +1036,10 @@ def intersect_trail_with_existing_box(cutobject,trail):
             bpy.data.objects.remove(cube, do_unlink=True)
             return
 
-        mat = bpy.data.materials.get("TRAIL")
+        # Keep whatever material the original trail had (e.g. trails
+        # generated with alternating TRAIL/YELLOW materials) instead of
+        # forcing TRAIL on every merge.
+        mat = trail.data.materials[0] if trail.data.materials else bpy.data.materials.get("TRAIL")
         cube.data.materials.clear()
         cube.data.materials.append(mat)
 
@@ -994,6 +1121,422 @@ def _extrude_flat_polygon(g2d_mod, polygon, bottom_z, top_z, verts, faces):
             d = base + n2 + start + i
             faces.append((a, b, c, d))
         start += rn
+
+
+def _ensure_outward_normals(obj):
+    """Make sure obj's normals point outward, robustly.
+
+    recalculateNormals()'s normals_make_consistent() only guarantees every
+    face is consistent with its neighbors -- for a thin/concave solid like a
+    jigsaw piece it can end up fully consistent but globally INVERTED (a
+    known limitation of that heuristic), which is exactly what happened to
+    one piece. A closed manifold's signed volume (divergence theorem: sum
+    each face's contribution to the volume integral) is a deterministic,
+    purely geometric way to tell which way is actually outward -- positive
+    means correctly outward, negative means the whole mesh is inside-out --
+    independent of whatever normals_make_consistent() decided.
+    """
+    recalculateNormals(obj)
+
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    bm.faces.ensure_lookup_table()
+    volume = 0.0
+    for f in bm.faces:
+        if len(f.verts) < 3:
+            continue
+        v0 = f.verts[0].co
+        for i in range(1, len(f.verts) - 1):
+            volume += v0.dot(f.verts[i].co.cross(f.verts[i + 1].co))
+    volume /= 6.0
+    if volume < 0:
+        bmesh.ops.reverse_faces(bm, faces=bm.faces[:])
+        bm.to_mesh(obj.data)
+        obj.data.update()
+    bm.free()
+
+
+def _bevel_bottom_edges(obj, bevel_width):
+    """Chamfer the rim where the bottom face meets the side walls.
+
+    Only the BOTTOM rim -- not the top edge or the vertical tab/blank side
+    walls -- so pieces still print flat and the interlocking shape on top
+    stays exact; the bevel just eases the bottom corner (helps pieces seat
+    into each other without snagging, and softens the first-layer edge).
+
+    Uses the actual mesh.bevel operator on a real face/edge selection
+    (select the bottom faces -> region_to_loop for their boundary -> bevel
+    that edge loop) rather than driving bmesh.ops.bevel directly, since
+    that's simpler to verify.
+
+    The bottom faces are identified purely by Z POSITION (every vertex near
+    the mesh's minimum Z), never by face-normal direction. normals_make_
+    consistent() (still run below, since correct normals matter for export/
+    printing) can produce a set of normals that's internally CONSISTENT but
+    globally INVERTED for some piece shapes -- a known limitation on thin/
+    concave solids. Selecting by normal.z direction would then grab the TOP
+    face on an affected piece and bevel the wrong side, which is exactly
+    what happened. Z position is a plain geometric fact, unaffected by which
+    way the normals ended up pointing.
+    """
+    if bevel_width <= 0 or not obj.data.vertices:
+        return
+
+    _ensure_outward_normals(obj)
+
+    bpy.ops.object.select_all(action='DESELECT')
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_mode(type='FACE')
+    bpy.ops.mesh.select_all(action='DESELECT')
+
+    bm = bmesh.from_edit_mesh(obj.data)
+    bm.verts.ensure_lookup_table()
+    if not bm.verts:
+        bpy.ops.object.mode_set(mode='OBJECT')
+        return
+    z_values = [v.co.z for v in bm.verts]
+    min_z, max_z = min(z_values), max(z_values)
+    z_tol = max(1e-3, (max_z - min_z) * 0.01)
+    n_bottom = 0
+    for f in bm.faces:
+        if all(abs(v.co.z - min_z) < z_tol for v in f.verts):
+            f.select = True
+            n_bottom += 1
+    bmesh.update_edit_mesh(obj.data)
+    print(f"[TP3D puzzle bevel] {obj.name}: {n_bottom} bottom face(s) found (by Z position)")
+
+    if n_bottom == 0:
+        bpy.ops.object.mode_set(mode='OBJECT')
+        return
+
+    bpy.ops.mesh.region_to_loop()
+    bpy.ops.mesh.select_mode(type='EDGE')
+
+    bm = bmesh.from_edit_mesh(obj.data)
+    n_edges = sum(1 for e in bm.edges if e.select)
+    print(f"[TP3D puzzle bevel] {obj.name}: {n_edges} boundary edge(s) selected, beveling {bevel_width}mm")
+
+    if n_edges > 0:
+        bpy.ops.mesh.bevel(offset=bevel_width, offset_type='OFFSET', segments=1, affect='EDGES')
+
+    bpy.ops.object.mode_set(mode='OBJECT')
+
+
+def cut_into_puzzle_pieces(terrain_obj, pieces, tolerance_mm=0.3):
+    """Cut a single finished map tile into separate jigsaw puzzle piece objects.
+
+    `terrain_obj` -- a normal, already-generated (and trail-merged, if
+    applicable) map tile object. Cut apart AFTER full generation rather than
+    generating each piece independently, so every piece shares one continuous
+    terrain/trail layout with no per-piece elevation-fetch seams.
+
+    `pieces` -- list of dicts {'row', 'col', 'points': [[x, y], ...]} where
+    (x, y) are normalized [0, 1] coordinates over terrain_obj's own footprint
+    (0,0 / 1,1 = opposite corners of its world-space bounding box) -- matches
+    how the picker page lays out its rows x columns jigsaw grid over the
+    drawn rectangle. Each piece's boundary is expected to already include its
+    interlocking tab/blank curves; this function does not generate jigsaw
+    geometry itself.
+
+    `tolerance_mm` -- real-world gap to leave between adjacent pieces.
+    Applied as a uniform inward `buffer()` on every piece polygon, which
+    gives every shared edge -- straight or curved tab/blank alike -- the same
+    gap without any jigsaw-specific tolerance math.
+
+    Reuses the exact same flat-prism-then-INTERSECT technique already proven
+    for `single_color_mode_curve`: `_extrude_flat_polygon` for a clean
+    manifold solid, `_clean_solid_mesh` to keep MANIFOLD booleans from
+    silently no-opping on near-degenerate geometry, `boolean_operation` for
+    the cut itself.
+
+    Each piece's bottom rim is also chamfered (`_bevel_bottom_edges`) by
+    min(0.5mm, minThickness / 2), so pieces seat into each other more easily
+    and the bottom edge isn't perfectly sharp.
+
+    Returns the list of newly created piece objects. `terrain_obj` itself is
+    removed once every piece has been extracted.
+    """
+    from . import geometry2d as g2d  # deferred to avoid circular import at load time
+
+    mc = [terrain_obj.matrix_world @ Vector(c) for c in terrain_obj.bound_box]
+    x_min = min(v.x for v in mc); x_max = max(v.x for v in mc)
+    y_min = min(v.y for v in mc); y_max = max(v.y for v in mc)
+    z_min = min(v.z for v in mc); z_max = max(v.z for v in mc)
+    bottom_z = z_min - 10.0
+    top_z = z_max + 10.0
+
+    materials = list(terrain_obj.data.materials)
+    # terrain_obj already carries the full writeMetadata("MAP") dump (Horizontal
+    # Scale, objSize, Shape, edge_south/north/west/east, etc. -- set by
+    # createTerrainFromSelected before this function runs) plus whatever the
+    # caller tagged it with. Brand-new piece objects don't inherit custom
+    # properties through bpy.data.objects.new()/booleans, so copy everything
+    # over verbatim rather than re-deriving a subset of fields by hand.
+    terrain_metadata = dict(terrain_obj.items())
+    bevel_width = min(0.5, bpy.context.scene.tp3d.minThickness / 2)
+    piece_objs = []
+
+    for piece in pieces:
+        world_xy = [
+            (x_min + nx * (x_max - x_min), y_min + ny * (y_max - y_min))
+            for nx, ny in piece['points']
+        ]
+        poly = g2d.xy_ring_to_polygon(world_xy)
+        if poly is None or poly.is_empty:
+            continue
+        if tolerance_mm > 0:
+            # join_style='mitre' (not the default 'round'): a round join adds
+            # up to 8 small arc segments at every convex corner it shrinks,
+            # and the jigsaw curve is already a polyline with many slightly-
+            # angled segments -- every one of those bends would otherwise
+            # sprout its own little cluster of extra vertices. Mitre just
+            # extends the two adjacent edges to meet at a single sharp point.
+            poly = g2d.validate(poly.buffer(-tolerance_mm / 2, join_style='mitre'))
+        if poly is None or poly.is_empty:
+            continue
+
+        verts, faces = [], []
+        for part in g2d.iter_polygons(poly):
+            _extrude_flat_polygon(g2d, part, bottom_z, top_z, verts, faces)
+        if not verts:
+            continue
+
+        row, col = piece.get('row', 0), piece.get('col', 0)
+        mesh = bpy.data.meshes.new(f"{terrain_obj.name}_piece_{row}_{col}")
+        mesh.from_pydata(verts, [], faces)
+        mesh.update()
+        _clean_solid_mesh(mesh)
+        for m in materials:
+            mesh.materials.append(m)
+
+        piece_obj = bpy.data.objects.new(mesh.name, mesh)
+        bpy.context.collection.objects.link(piece_obj)
+
+        boolean_operation(piece_obj, terrain_obj, 'INTERSECT')
+        if len(piece_obj.data.vertices) == 0:
+            bpy.data.objects.remove(piece_obj, do_unlink=True)
+            continue
+
+        _bevel_bottom_edges(piece_obj, bevel_width)
+
+        for k, v in terrain_metadata.items():
+            piece_obj[k] = v
+        # Override/add after the bulk copy so these always win and are never
+        # shadowed by a same-named key from terrain_obj.
+        piece_obj["objType"] = "MAP"
+        piece_obj["Object type"] = "MAP"
+        piece_obj["PuzzleRow"] = row
+        piece_obj["PuzzleCol"] = col
+        piece_objs.append(piece_obj)
+
+    bpy.data.objects.remove(terrain_obj, do_unlink=True)
+    return piece_objs
+
+
+def _rounded_rect_polygon(width, height, radius, quad_segs=8):
+    """A Shapely Polygon for a width x height rectangle, centered at the
+    origin, with its outer corners rounded to *radius* (clamped so the
+    rounding never exceeds half the rectangle's own width/height).
+    """
+    from shapely.geometry import box as _box  # deferred to avoid circular import at load time
+    radius = max(0.0, min(radius, width / 2, height / 2))
+    if radius <= 1e-6:
+        return _box(-width / 2, -height / 2, width / 2, height / 2)
+    inner = _box(-width / 2 + radius, -height / 2 + radius, width / 2 - radius, height / 2 - radius)
+    return inner.buffer(radius, quad_segs=quad_segs, join_style='round')
+
+
+def _resolve_holder_font(font_filename):
+    """Map an HTML <select> font filename (e.g. "ariblk.ttf") to a real path.
+
+    Only Windows is resolved explicitly here -- matches the level of cross-
+    platform support `create_text`'s own existing fallback already has (one
+    hardcoded Mac path, nothing for Linux). Returns None (meaning "use
+    create_text's own default resolution") if there's no usable match.
+    """
+    if not font_filename:
+        return None
+    import sys, os
+    if sys.platform != 'win32':
+        return None
+    candidate = f"C:/WINDOWS/FONTS/{font_filename}"
+    return candidate if os.path.isfile(candidate) else None
+
+
+def _emboss_holder_text(holder_obj, text, outer_w, outer_h, wall_width, top_z,
+                         font="", text_size_mm=None):
+    """Emboss *text* centered on the front (south, -Y) rim of holder_obj and
+    join it in as one printable part, in the WHITE material.
+
+    The text's natural size is measured at scale 1 (instead of assuming a
+    fixed font size) so it's scaled to *text_size_mm* (or, if not given, to
+    fit the rim strip's available height) -- and always clamped by available
+    width too, for long strings -- regardless of font metrics or string
+    length.
+    """
+    from . import text_objects as txt  # deferred: text_objects imports from this module
+    from .primitives import setupColors  # deferred to avoid circular import at load time
+
+    text = (text or "").strip()
+    if not text:
+        return holder_obj
+
+    setupColors()
+
+    name = "PuzzleHolderText"
+    old = bpy.data.objects.get(name)
+    if old:
+        bpy.data.objects.remove(old, do_unlink=True)
+
+    text_obj = txt.create_text(name, text, (0, 0, 0), 1.0, font_path=_resolve_holder_font(font))
+
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    obj_eval = text_obj.evaluated_get(depsgraph)
+    bbox = [Vector(c) for c in obj_eval.bound_box]
+    natural_w = max(c.x for c in bbox) - min(c.x for c in bbox)
+    natural_h = max(c.y for c in bbox) - min(c.y for c in bbox)
+    if natural_w <= 1e-6 or natural_h <= 1e-6:
+        bpy.data.objects.remove(text_obj, do_unlink=True)
+        return holder_obj
+
+    target_h = text_size_mm if text_size_mm and text_size_mm > 0 else max(0.5, wall_width - 1.5)
+    available_w = max(1.0, outer_w - 6.0)   # margin so text clears the rim's outer/inner edges
+    scale = min(target_h / natural_h, available_w / natural_w)
+    text_obj.scale = (scale, scale, 1)
+
+    raised_height = 0.6
+    text_obj.data.extrude = 1.0
+    # Z is set so the text is embedded well into the wall and only
+    # ~raised_height pokes up above its top surface, regardless of whether
+    # Curve.extrude turns out to be one- or two-sided.
+    text_obj.location = (0, -outer_h / 2 + wall_width / 2, top_z - 1.0 + raised_height)
+
+    bpy.context.view_layer.objects.active = text_obj
+    txt.convert_text_to_mesh(text_obj.name, holder_obj.name, False)
+
+    white_mat = bpy.data.materials.get("WHITE")
+    text_obj.data.materials.clear()
+    if white_mat:
+        text_obj.data.materials.append(white_mat)
+
+    bpy.ops.object.select_all(action='DESELECT')
+    text_obj.select_set(True)
+    holder_obj.select_set(True)
+    bpy.context.view_layer.objects.active = holder_obj
+    bpy.ops.object.join()
+
+    return holder_obj
+
+
+def build_puzzle_holder(piece_objs, text="", wall_width=4.0, wall_height=4.0,
+                         floor_thickness=2.0, clearance=0.1, corner_radius=5.0,
+                         pocket_corner_radius=0.0, font="", text_size_mm=None):
+    """Build a rounded-rectangle tray sized to hold an already-generated
+    jigsaw puzzle (cut_into_puzzle_pieces' output).
+
+    The combined world-space XY bounding box of every object in *piece_objs*
+    reconstructs the puzzle's true assembled footprint -- every outer grid
+    edge is always straight, only internal seams have tabs, so the union of
+    every piece's own bbox equals the original rectangle's footprint
+    regardless of the per-piece tolerance shrink. The inner pocket is that
+    footprint plus *clearance*; the outer footprint adds *wall_width* of rim
+    on every side, with the OUTSIDE corners rounded to *corner_radius*. The
+    pocket's own corners are rounded separately to *pocket_corner_radius* --
+    normally passed in matching the puzzle's own corner radius (the puzzle
+    itself is rounded client-side, baked directly into each piece's
+    polygon), so the pocket visually matches whatever the puzzle's actual
+    outer corners look like instead of always being sharp.
+    The pocket is recessed `wall_height - floor_thickness` deep into the
+    top, leaving a solid floor of *floor_thickness* underneath -- the rim
+    outside the pocket keeps the full *wall_height*. The holder gets the
+    BLACK material; embossed text (see `_emboss_holder_text`) gets WHITE.
+
+    Reuses the same flat-prism + boolean technique as
+    `cut_into_puzzle_pieces` / `single_color_mode_curve`.
+    """
+    from . import geometry2d as g2d  # deferred to avoid circular import at load time
+    from .primitives import setupColors  # deferred to avoid circular import at load time
+
+    objs = [o for o in (piece_objs or []) if o is not None]
+    if not objs:
+        return None
+
+    x_min = y_min = float('inf')
+    x_max = y_max = float('-inf')
+    for obj in objs:
+        corners = [obj.matrix_world @ Vector(c) for c in obj.bound_box]
+        x_min = min(x_min, min(c.x for c in corners))
+        x_max = max(x_max, max(c.x for c in corners))
+        y_min = min(y_min, min(c.y for c in corners))
+        y_max = max(y_max, max(c.y for c in corners))
+
+    puzzle_w = x_max - x_min
+    puzzle_h = y_max - y_min
+    center_x, center_y = (x_min + x_max) / 2, (y_min + y_max) / 2
+
+    pocket_w = puzzle_w + clearance
+    pocket_h = puzzle_h + clearance
+    outer_w = pocket_w + 2 * wall_width
+    outer_h = pocket_h + 2 * wall_width
+
+    outer_poly = _rounded_rect_polygon(outer_w, outer_h, corner_radius)
+    pocket_poly = _rounded_rect_polygon(pocket_w, pocket_h, pocket_corner_radius)
+
+    verts, faces = [], []
+    for part in g2d.iter_polygons(outer_poly):
+        _extrude_flat_polygon(g2d, part, 0.0, wall_height, verts, faces)
+    if not verts:
+        return None
+
+    mesh = bpy.data.meshes.new("PuzzleHolder")
+    mesh.from_pydata(verts, [], faces)
+    mesh.update()
+    _clean_solid_mesh(mesh)
+    setupColors()
+    black_mat = bpy.data.materials.get("BLACK")
+    if black_mat:
+        mesh.materials.append(black_mat)
+
+    holder_obj = bpy.data.objects.new(mesh.name, mesh)
+    bpy.context.collection.objects.link(holder_obj)
+
+    # Small overshoot below the pocket's true floor (proportional to
+    # floor_thickness, so it can never undercut the floor entirely even if
+    # floor_thickness is set very thin) -- cheap insurance against a
+    # perfectly coplanar cut face confusing the boolean solver.
+    pocket_bottom_z = floor_thickness - min(0.05, floor_thickness * 0.25)
+    pocket_verts, pocket_faces = [], []
+    for part in g2d.iter_polygons(pocket_poly):
+        _extrude_flat_polygon(g2d, part, pocket_bottom_z, wall_height + 5.0, pocket_verts, pocket_faces)
+    cutter_mesh = bpy.data.meshes.new("PuzzleHolderPocketCutter")
+    cutter_mesh.from_pydata(pocket_verts, [], pocket_faces)
+    cutter_mesh.update()
+    _clean_solid_mesh(cutter_mesh)
+    cutter_obj = bpy.data.objects.new(cutter_mesh.name, cutter_mesh)
+    bpy.context.collection.objects.link(cutter_obj)
+
+    boolean_operation(holder_obj, cutter_obj, 'DIFFERENCE')
+    bpy.data.objects.remove(cutter_obj, do_unlink=True)
+
+    if text:
+        _emboss_holder_text(holder_obj, text, outer_w, outer_h, wall_width, wall_height,
+                             font=font, text_size_mm=text_size_mm)
+
+    # Positioned at the puzzle's own XY center; Z so the pocket floor's TOP
+    # surface (local Z = floor_thickness, where an assembled puzzle would
+    # rest) lands exactly on world Z=0 -- the same plane the puzzle pieces
+    # themselves sit on.
+    holder_obj.location = (center_x, center_y, -floor_thickness)
+
+    holder_obj["objType"] = "HOLDER"
+    holder_obj["Object type"] = "HOLDER"
+    # ExportGroup 2 == "Printed with Plate" (utils/metadata.py) -- reused
+    # here for the holder so it groups together on export the same way.
+    holder_obj["ExportGroup"] = 2
+
+    return holder_obj
 
 
 def single_color_mode_curve(crv, map, keepTolTrail = False, cutDepth = 2, projectionObj = None):
@@ -1622,6 +2165,65 @@ def merge_with_map(mapobject, mergeobject, flatBottom = False, singleColorMode =
         mergeobject.location.z += 0.05
 
     return mergeobject
+
+
+def merge_active_with_map(map_obj, active_obj):
+    """Merge `active_obj` onto `map_obj`, dispatching by type.
+
+    MESH/FONT objects go through the interactive `tp3d.popup_merge` operator;
+    CURVE objects (trails) go through `merge_with_map` or, in Single Color
+    Mode, a duplicated `single_color_mode_curve` pass with the TRAIL material
+    applied. Shared by TP3D_OT_merge_with_map so the same logic can be reused
+    from other operators/scripts without going through that operator's UI.
+
+    Returns False if `map_obj` failed validation (caller should abort the
+    whole batch, matching the original operator's early-return behaviour),
+    True otherwise -- including the "invalid active type" case, which only
+    warns and lets the caller continue on to the next object.
+    """
+    from .scene import show_message_box  # deferred to avoid circular import at load time
+
+    if map_obj is None:
+        show_message_box("No Map Selected")
+        return False
+
+    if "objSize" not in map_obj.keys():
+        show_message_box("Selected object is not a Map")
+        return False
+
+    if active_obj.type in ("MESH", "FONT"):
+        bpy.context.scene.tp3d.currentMap = map_obj
+        active_obj.select_set(True)
+        bpy.context.view_layer.objects.active = active_obj
+        bpy.ops.object.select_all(action='DESELECT')
+        bpy.ops.tp3d.popup_merge('INVOKE_DEFAULT')
+
+    elif active_obj.type == "CURVE":
+        if not bpy.context.scene.tp3d.singleColorMode:
+            merge_with_map(map_obj, active_obj, True, False)
+            active_obj.hide_set(True)
+        else:
+            dup = active_obj.copy()
+            dup.data = active_obj.data.copy()
+            bpy.context.collection.objects.link(dup)
+            result = single_color_mode_curve(dup, map_obj, False)
+            if result is None:
+                # No intersection with the map -- single_color_mode_curve
+                # already deleted `dup` itself, so there's nothing left to
+                # assign a material to.
+                print("Trail does not intersect the Map")
+            else:
+                # Keep whatever material the original trail had (e.g. trails
+                # generated with alternating TRAIL/YELLOW materials) instead
+                # of forcing TRAIL on every merge.
+                mat = active_obj.data.materials[0] if active_obj.data.materials else bpy.data.materials.get("TRAIL")
+                dup.data.materials.clear()
+                dup.data.materials.append(mat)
+
+    else:
+        show_message_box("Selected object has a invalid type")
+
+    return True
 
 
 def projection(operation, Mapobject, obj):

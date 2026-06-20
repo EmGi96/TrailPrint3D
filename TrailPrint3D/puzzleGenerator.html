@@ -1,0 +1,973 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>TrailPrint3D Puzzle Generator</title>
+    <meta name="referrer" content="no-referrer">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+    <style>
+        * { box-sizing: border-box; }
+        /* The toolbar's own Draw icon is redundant with the sidebar's Draw
+           button (which programmatically clicks it) -- hide it but keep it
+           functional, the synthetic .click() on it still fires while hidden. */
+        .leaflet-draw { display: none !important; }
+        body { font-family: 'Segoe UI', sans-serif; background: #1a1a1a; color: #eee; margin: 0; overflow: hidden; display: flex; height: 100vh; }
+        #sidebar { width: 200px; background: #222; border-right: 1px solid #444; padding: 20px; display: flex; flex-direction: column; gap: 15px; overflow-y: auto; }
+        #map { flex: 1; position: relative; }
+        #legend { position: absolute; bottom: 10px; right: 10px; z-index: 1000; background: rgba(26,26,26,0.85);
+            border: 1px solid #444; border-radius: 4px; padding: 8px 10px; font-size: 11px; color: #eee;
+            display: flex; flex-direction: column; gap: 5px; pointer-events: none; }
+        .legend-row { display: flex; align-items: center; gap: 6px; }
+        .legend-swatch { width: 14px; height: 14px; border-radius: 2px; flex-shrink: 0; }
+        .legend-swatch.line { width: 16px; height: 0; border-top: 2.5px dashed; background: none; border-radius: 0; }
+        .shape-btn { padding: 12px 20px; background: #333; color: #eee; border: 2px solid #444; border-radius: 4px; cursor: pointer; font-weight: bold; transition: all 0.2s; }
+        .shape-btn:hover { background: #444; border-color: #007bff; }
+        #drawActions { position: absolute; top: 80px; left: 10px; z-index: 1000; display: flex; flex-direction: column; gap: 6px;
+            background: rgba(26,26,26,0.85); border: 1px solid #444; border-radius: 4px; padding: 6px; }
+        #drawActions .shape-btn.icon-btn { width: 32px; height: 32px; padding: 0; display: flex; align-items: center; justify-content: center; }
+        .btn-send { padding: 12px 20px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; margin-top: auto; }
+        .btn-send:disabled { background: #444; cursor: not-allowed; }
+        #status { padding: 10px; background: #2a2a2a; border-radius: 4px; font-size: 12px; text-align: center; }
+        .field-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: #aaa; }
+        .field-row input[type=number] { width: 64px; background: #2a2a2a; color: #eee; border: 1px solid #444; border-radius: 4px; padding: 4px 6px; }
+        .field-row input[type=text], .field-row select { background: #2a2a2a; color: #eee; border: 1px solid #444; border-radius: 4px; padding: 4px 6px; }
+        .field-row input[type=text] { width: 100px; }
+        .field-row select { width: 110px; }
+        .field-row input[type=checkbox] { width: 16px; height: 16px; accent-color: #007bff; cursor: pointer; }
+        .sidebar-divider { width: 100%; border: none; border-top: 1px solid #444; margin: 0; }
+        #advancedSection { border: 1px solid #444; border-radius: 4px; }
+        #advancedSection summary { padding: 8px 10px; font-size: 12px; font-weight: bold; color: #ccc;
+            cursor: pointer; list-style: none; }
+        #advancedSection summary::-webkit-details-marker { display: none; }
+        #advancedSection summary::before { content: '▶'; display: inline-block; margin-right: 6px; font-size: 9px;
+            transition: transform 0.15s; }
+        #advancedSection[open] summary::before { transform: rotate(90deg); }
+        #advancedSection .advanced-body { padding: 0 10px 10px; display: flex; flex-direction: column; gap: 8px; }
+        #gpxList details { border: 1px solid #444; border-radius: 4px; }
+        #gpxList summary { padding: 5px 8px; cursor: pointer; list-style: none; color: #ccc; }
+        #gpxList summary::-webkit-details-marker { display: none; }
+        #gpxList summary::before { content: '▶'; display: inline-block; margin-right: 6px; font-size: 9px;
+            transition: transform 0.15s; }
+        #gpxList details[open] summary::before { transform: rotate(90deg); }
+        #gpxList .gpx-list-body { padding: 0 8px 6px; }
+        #holderTextPreview { background: #2a2a2a; border: 1px solid #444; border-radius: 4px; min-height: 44px;
+            display: flex; align-items: center; justify-content: center; padding: 6px; overflow: hidden;
+            white-space: nowrap; text-overflow: ellipsis; }
+    </style>
+</head>
+<body>
+    <div id="sidebar">
+        <div style="font-weight: bold; font-size: 14px; margin-bottom: 10px;">TrailPrint3D Puzzle</div>
+        <div class="field-row">
+            <label for="puzzleNameInput">Name</label>
+            <input type="text" id="puzzleNameInput" placeholder="rows-cols_Puzzle">
+        </div>
+        <hr class="sidebar-divider">
+        <input type="file" id="gpxInput" accept=".gpx" multiple style="display: none;">
+        <button id="importGpx" style="padding: 12px 20px; background: #2a8a2a; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Import GPX</button>
+        <div id="gpxList" style="display:none; font-size:11px; color:#aaa; line-height:1.8;"></div>
+        <button id="clearGpx" style="display:none; padding:5px 10px; background:#2a1e1e; color:#cc6666; border:1px solid #553333; border-radius:4px; cursor:pointer; font-size:11px;">Clear GPX</button>
+        <hr class="sidebar-divider">
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+            <div class="field-row">
+                <label>Size (mm)</label>
+                <div style="display: flex; align-items: center; gap: 4px;">
+                    <input type="number" id="lengthInput" min="0" step="1" value="100" title="Length" style="width: 50px;">
+                    <span style="color: #666;">×</span>
+                    <input type="number" id="widthInput" min="0" step="1" value="100" title="Width" style="width: 50px;">
+                </div>
+            </div>
+        </div>
+        <hr class="sidebar-divider">
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+            <div class="field-row">
+                <label>Grid (rows × cols)</label>
+                <div style="display: flex; align-items: center; gap: 4px;">
+                    <input type="number" id="rowsInput" min="1" max="20" step="1" value="3" title="Rows" style="width: 50px;">
+                    <span style="color: #666;">×</span>
+                    <input type="number" id="colsInput" min="1" max="20" step="1" value="3" title="Columns" style="width: 50px;">
+                </div>
+            </div>
+        </div>
+        <details id="advancedSection">
+            <summary>Advanced</summary>
+            <div class="advanced-body">
+                <div class="field-row">
+                    <label for="toleranceInput">Tolerance (mm)</label>
+                    <input type="number" id="toleranceInput" min="0" max="2" step="0.05" value="0.3">
+                </div>
+                <div class="field-row">
+                    <label for="tabSizeInput">Tab Size</label>
+                    <input type="number" id="tabSizeInput" min="10" max="30" step="0.1" value="20">
+                </div>
+                <div class="field-row">
+                    <label for="jitterInput">Jitter</label>
+                    <input type="number" id="jitterInput" min="0" max="13" step="0.1" value="4">
+                </div>
+                <div class="field-row">
+                    <label for="puzzleCornerRadiusInput">Corner Radius</label>
+                    <input type="number" id="puzzleCornerRadiusInput" min="0" max="30" step="1.0" value="4">
+                </div>
+            </div>
+        </details>
+        <hr class="sidebar-divider">
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+            <div class="field-row">
+                <label for="holderEnabled">Generate Holder</label>
+                <input type="checkbox" id="holderEnabled">
+            </div>
+            <div id="holderOptions" style="display:none; flex-direction: column; gap: 10px;">
+                <div class="field-row">
+                    <label for="holderTextInput">Text</label>
+                    <input type="text" id="holderTextInput" placeholder="Label">
+                </div>
+                <div class="field-row">
+                    <label for="holderWallWidthInput">Frame Thickness</label>
+                    <input type="number" id="holderWallWidthInput" min="1" max="20" step="1" value="10">
+                </div>
+                <div class="field-row">
+                    <label for="holderCornerRadiusInput">Corner Radius</label>
+                    <input type="number" id="holderCornerRadiusInput" min="0" max="30" step="1" value="5">
+                </div>
+                <div class="field-row">
+                    <label for="holderFontSelect">Font</label>
+                    <select id="holderFontSelect">
+                        <option value="">Default</option>
+                        <option value="arial.ttf">Arial</option>
+                        <option value="arialbd.ttf">Arial Bold</option>
+                        <option value="ariblk.ttf">Arial Black</option>
+                        <option value="impact.ttf">Impact</option>
+                        <option value="times.ttf">Times New Roman</option>
+                        <option value="comic.ttf">Comic Sans MS</option>
+                    </select>
+                </div>
+                <div class="field-row">
+                    <label for="holderTextSizeInput">Text Size (mm)</label>
+                    <input type="number" id="holderTextSizeInput" min="1" max="50" step="0.5" value="8">
+                </div>
+                <div id="holderTextPreview"></div>
+            </div>
+        </div>
+        <div id="status">Draw a rectangle to begin.</div>
+        <button id="send" class="btn-send" disabled>Send to Blender</button>
+    </div>
+    <div id="map">
+        <div id="drawActions">
+            <button id="drawBtn" class="shape-btn icon-btn" title="Draw">
+                <svg viewBox="0 0 20 20" width="16" height="16" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-9.193 9.193-3.535.707.707-3.535 9.193-9.193z"/></svg>
+            </button>
+            <button id="deleteBtn" class="shape-btn icon-btn" title="Delete">
+                <svg viewBox="0 0 20 20" width="16" height="16" fill="currentColor"><path d="M6 2a1 1 0 00-1 1v1H2v2h1v11a2 2 0 002 2h10a2 2 0 002-2V6h1V4h-3V3a1 1 0 00-1-1H6zM5 6h10v11H5V6zm3 2v7h2V8H8zm4 0v7h2V8h-2z"/></svg>
+            </button>
+        </div>
+        <div id="legend">
+            <div class="legend-row"><span class="legend-swatch" style="background:#E97826;"></span>Drawn area</div>
+            <div class="legend-row"><span class="legend-swatch" style="background:#007bff;"></span>Puzzle piece</div>
+            <div class="legend-row"><span class="legend-swatch line" style="border-color:red;"></span>Imported GPX</div>
+            <div class="legend-row"><span class="legend-swatch line" style="border-color:#000;"></span>Holder outline</div>
+        </div>
+    </div>
+
+    <script>
+        var PORT = __PORT__;
+        var map = L.map('map').setView([46.57, 7.98], 11);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png').addTo(map);
+
+        var drawnItems = new L.FeatureGroup();
+        map.addLayer(drawnItems);
+        var puzzleLayer = new L.FeatureGroup();
+        map.addLayer(puzzleLayer);
+        var gpxLayer = new L.FeatureGroup();
+        map.addLayer(gpxLayer);
+        var holderLayer = new L.FeatureGroup();
+        map.addLayer(holderLayer);
+
+        var coords = null;       // drawn rectangle bounds, exactly as drawn -- never resized
+        var pieces = [];         // current jigsaw pieces: [{row, col, points: [[x,y],...]}, ...]
+        var gpxPaths = [];
+        var gpxNames = [];
+
+        // ── Length/Width aspect-ratio fitting ───────────────────────────────
+        // Matches utils/constants.py R and the unscaled Mercator projection
+        // convert_to_neutral_coordinates uses server-side -- needed so the
+        // aspect ratio computed here lines up with the same flat projection
+        // the backend maps each piece's normalized [0,1] points through.
+        var EARTH_R = 6371.0;
+
+        function neutralXY(lat, lon) {
+            return {
+                x: EARTH_R * (lon * Math.PI / 180),
+                y: EARTH_R * Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI / 180) / 2))
+            };
+        }
+
+        function computePuzzleGeometry(bounds) {
+            // The drawn rectangle itself is never resized -- only the area the
+            // jigsaw GRID is built within is fit to Length:Width, centered,
+            // like a CSS "background-size: cover" fit: scaled to whichever
+            // axis needs MORE of `bounds` to reach the target ratio, so the
+            // other axis slightly overflows past the drawn edge rather than
+            // leaving any of the drawn area uncovered. Pieces straddling that
+            // overflowing edge get naturally clipped to the real generated
+            // tile's actual boundary by cut_into_puzzle_pieces's own boolean
+            // INTERSECT, so frac is allowed to go below 0 / above 1 here
+            // without any special-casing.
+            //
+            // Also returns the puzzle's own true width/height (puzzleX,
+            // puzzleY) in consistent real-world-proportional units (mm when
+            // Length/Width are set; the drawn area's own neutral-projection
+            // span otherwise). buildPuzzlePieces needs these to build its
+            // lattice in an ISOTROPIC space -- one unit means the same real
+            // distance along both axes -- since the drawn rectangle's own
+            // raw X/Y span generally does NOT correspond to equal real-world
+            // distances (unless it happens to be perfectly square), and the
+            // puzzle's target aspect ratio can differ from the drawn area's
+            // own. Computing tab/jitter geometry directly in drawn-area-
+            // normalized [0,1]x[0,1] space (the old approach) silently
+            // stretched/skewed every tab to match whatever distortion that
+            // mismatch introduced.
+            var lengthMm = parseFloat(document.getElementById('lengthInput').value) || 0;
+            var widthMm = parseFloat(document.getElementById('widthInput').value) || 0;
+
+            var p1 = neutralXY(bounds.south, bounds.west);
+            var p2 = neutralXY(bounds.north, bounds.east);
+            var fullX = Math.abs(p2.x - p1.x);
+            var fullY = Math.abs(p2.y - p1.y);
+
+            if (lengthMm <= 0 || widthMm <= 0 || fullX <= 0 || fullY <= 0) {
+                return { frac: { nx0: 0, ny0: 0, nx1: 1, ny1: 1 }, puzzleX: fullX || 1, puzzleY: fullY || 1, scale: 1 };
+            }
+
+            // scale = neutral-units-per-mm such that NEITHER dimension falls
+            // short of `bounds` -- the larger requirement wins (cover fit).
+            var scale = Math.max(fullX / lengthMm, fullY / widthMm);
+            var fracX = (scale * lengthMm) / fullX;
+            var fracY = (scale * widthMm) / fullY;
+
+            return {
+                frac: {
+                    nx0: (1 - fracX) / 2, nx1: 1 - (1 - fracX) / 2,
+                    ny0: (1 - fracY) / 2, ny1: 1 - (1 - fracY) / 2
+                },
+                puzzleX: lengthMm,
+                puzzleY: widthMm,
+                scale: scale
+            };
+        }
+
+        function updateGpxList() {
+            var listEl = document.getElementById('gpxList');
+            var clearBtn = document.getElementById('clearGpx');
+            if (gpxNames.length === 0) {
+                listEl.style.display = 'none'; clearBtn.style.display = 'none'; return;
+            }
+            listEl.style.display = 'block';
+            clearBtn.style.display = 'block';
+            var items = gpxNames.map(function(n) { return '<div>+ ' + n + '</div>'; }).join('');
+            if (gpxNames.length > 1) {
+                listEl.innerHTML = '<details><summary>' + gpxNames.length + ' trails imported</summary>'
+                    + '<div class="gpx-list-body">' + items + '</div></details>';
+            } else {
+                listEl.innerHTML = items;
+            }
+        }
+
+        function saveState() {
+            // Unlike map_picker.html, gpxPaths/gpxNames ARE persisted here --
+            // the puzzle page caches the selected trails across reopens
+            // instead of treating GPX import as session-only. The server
+            // still has the uploaded temp files on disk at gpxPaths[i], so
+            // restoring just the path/name list is enough to keep them
+            // selected and ready to send (the red polyline preview itself
+            // isn't redrawn on restore, since the raw GPX content isn't kept
+            // client-side -- only the already-imported names/paths).
+            var c = map.getCenter();
+            fetch('http://127.0.0.1:' + PORT + '/save_state', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    lat: c.lat, lng: c.lng, zoom: map.getZoom(),
+                    name: document.getElementById('puzzleNameInput').value,
+                    length: document.getElementById('lengthInput').value,
+                    width: document.getElementById('widthInput').value,
+                    rows: document.getElementById('rowsInput').value,
+                    cols: document.getElementById('colsInput').value,
+                    tolerance: document.getElementById('toleranceInput').value,
+                    tabSize: document.getElementById('tabSizeInput').value,
+                    jitter: document.getElementById('jitterInput').value,
+                    puzzleCornerRadius: document.getElementById('puzzleCornerRadiusInput').value,
+                    coords: coords,
+                    gpxPaths: gpxPaths,
+                    gpxNames: gpxNames,
+                    holderEnabled: document.getElementById('holderEnabled').checked,
+                    holderText: document.getElementById('holderTextInput').value,
+                    holderWallWidth: document.getElementById('holderWallWidthInput').value,
+                    holderCornerRadius: document.getElementById('holderCornerRadiusInput').value,
+                    holderFont: document.getElementById('holderFontSelect').value,
+                    holderTextSize: document.getElementById('holderTextSizeInput').value
+                })
+            }).catch(function() {});
+        }
+
+        function restoreState() {
+            fetch('http://127.0.0.1:' + PORT + '/get_state', { cache: 'no-store' })
+                .then(function(r) { return r.json(); })
+                .then(function(s) {
+                    console.log('[TP3D picker] /get_state returned:', s);
+                    if (!s) return;
+                    if (s.name != null) document.getElementById('puzzleNameInput').value = s.name;
+                    if (s.length != null) document.getElementById('lengthInput').value = s.length;
+                    if (s.width != null) document.getElementById('widthInput').value = s.width;
+                    if (s.rows) document.getElementById('rowsInput').value = s.rows;
+                    if (s.cols) document.getElementById('colsInput').value = s.cols;
+                    if (s.tolerance != null) document.getElementById('toleranceInput').value = s.tolerance;
+                    if (s.tabSize != null) document.getElementById('tabSizeInput').value = s.tabSize;
+                    if (s.jitter != null) document.getElementById('jitterInput').value = s.jitter;
+                    if (s.puzzleCornerRadius != null) document.getElementById('puzzleCornerRadiusInput').value = s.puzzleCornerRadius;
+                    if (s.holderEnabled != null) document.getElementById('holderEnabled').checked = s.holderEnabled;
+                    if (s.holderText != null) document.getElementById('holderTextInput').value = s.holderText;
+                    if (s.holderWallWidth != null) document.getElementById('holderWallWidthInput').value = s.holderWallWidth;
+                    if (s.holderCornerRadius != null) document.getElementById('holderCornerRadiusInput').value = s.holderCornerRadius;
+                    if (s.holderFont != null) document.getElementById('holderFontSelect').value = s.holderFont;
+                    if (s.holderTextSize != null) document.getElementById('holderTextSizeInput').value = s.holderTextSize;
+                    updateHolderVisibility();
+                    updateHolderTextPreview();
+                    if (s.gpxPaths && s.gpxPaths.length) {
+                        gpxPaths = s.gpxPaths;
+                        gpxNames = s.gpxNames || [];
+                        updateGpxList();
+                    }
+                    if (s.coords) {
+                        coords = s.coords;
+                        var rect = L.rectangle([[coords.south, coords.west], [coords.north, coords.east]], {
+                            color: '#E97826', weight: 3, opacity: 1, fill: true, fillOpacity: 0.15
+                        });
+                        drawnItems.addLayer(rect);
+                        bindLiveEdit(rect);
+                        regeneratePuzzle();
+                    }
+                    updateStatus();
+                    updateSendState();
+                    // Done LAST, after coords is already restored above --
+                    // setView() fires 'moveend' (bound to saveState further
+                    // down), and saveState() reads the live `coords`
+                    // variable. Calling setView() before coords was restored
+                    // let that moveend handler write coords:null back to the
+                    // state file, silently wiping the drawn area on every
+                    // reopen even when nothing else changed.
+                    if (s.lat != null) map.setView([s.lat, s.lng], s.zoom);
+                })
+                .catch(function() {});
+        }
+
+        // ── Jigsaw piece generation ─────────────────────────────────────────
+        // Port of https://github.com/Draradech/jigsaw's tab-curve algorithm
+        // (the same one used at https://draradech.github.io/jigsaw/jigsaw.html),
+        // adapted to build closed per-piece polygons instead of just an SVG
+        // cut-line network. Every INTERNAL shared edge gets one tab/blank
+        // curve; outer boundary edges stay straight. Each shared edge is
+        // built ONCE and reused (reversed) by both neighboring pieces, so
+        // they interlock exactly. The 0.3mm-style tolerance gap is NOT
+        // applied here -- it's applied server-side as a uniform inward
+        // buffer on the actual 3D piece polygons
+        // (TrailPrint3D/utils/mesh_ops.py cut_into_puzzle_pieces), which
+        // handles curved edges for free without needing real polygon-offset
+        // math in JS.
+
+        function makeTabParamSequence(tabSize, jitter) {
+            // Threads continuous random state along one row/column (mirrors
+            // the original's first()/next()): `flip` and the jitter offset
+            // `e` carry over from each edge to the next, which is what makes
+            // adjacent tabs blend smoothly at the shared lattice corner
+            // instead of just being smooth within their own curve.
+            var flip = false;
+            function jrand() { return (Math.random() * 2 - 1) * jitter; }
+            var e = jrand();
+            return function nextParams() {
+                var flipOld = flip;
+                flip = Math.random() > 0.5;
+                var a = (flip === flipOld) ? -e : e;
+                var b = jrand(), c = jrand(), d = jrand();
+                e = jrand();
+                return { t: tabSize, a: a, b: b, c: c, d: d, e: e, sign: flip ? -1 : 1 };
+            };
+        }
+
+        function tabControlPoints(p) {
+            // The 10 control points (p0..p9) of the original algorithm, in
+            // normalized edge-local space: x = fraction along the edge
+            // (0..1), y = perpendicular bulge as a fraction of edge length
+            // (sign-flipped per edge via p.sign). p2/p7 and p3/p6 share
+            // formulas by design -- b/c/d are shared per-edge jitter, not
+            // randomized separately per side, which is what keeps the tab
+            // recognizably symmetric even with jitter applied.
+            var t = p.t, a = p.a, b = p.b, c = p.c, d = p.d, e = p.e;
+            var raw = [
+                [0.0, 0.0],
+                [0.2, a],
+                [0.5 + b + d, -t + c],
+                [0.5 - t + b, t + c],
+                [0.5 - 2 * t + b - d, 3 * t + c],
+                [0.5 + 2 * t + b - d, 3 * t + c],
+                [0.5 + t + b, t + c],
+                [0.5 + b + d, -t + c],
+                [0.8, e],
+                [1.0, 0.0]
+            ];
+            return raw.map(function(pt) { return [pt[0], pt[1] * p.sign]; });
+        }
+
+        function bez(p0, p1, p2, p3, t) {
+            var u = 1 - t;
+            return [
+                u*u*u*p0[0] + 3*u*u*t*p1[0] + 3*u*t*t*p2[0] + t*t*t*p3[0],
+                u*u*u*p0[1] + 3*u*u*t*p1[1] + 3*u*t*t*p2[1] + t*t*t*p3[1]
+            ];
+        }
+
+        function flattenTab(params, segsPerCurve) {
+            // Three cubic Beziers sharing endpoints: P0-P1-P2-P3, P3-P4-P5-P6,
+            // P6-P7-P8-P9 -- exactly the original's three "C ..." commands.
+            var P = tabControlPoints(params);
+            var pts = [P[0]];
+            [[P[0], P[1], P[2], P[3]], [P[3], P[4], P[5], P[6]], [P[6], P[7], P[8], P[9]]]
+                .forEach(function(c) {
+                    for (var i = 1; i <= segsPerCurve; i++) pts.push(bez(c[0], c[1], c[2], c[3], i / segsPerCurve));
+                });
+            return pts;
+        }
+
+        function placeEdge(p0, p1, straight, params) {
+            // p0, p1: {x, y} normalized grid points. Returns an array of
+            // [x, y] points from p0 to p1 -- a straight line, or a tabbed
+            // jigsaw curve transformed (scaled + rotated + translated) onto
+            // the actual edge.
+            if (straight) return [[p0.x, p0.y], [p1.x, p1.y]];
+            var dx = p1.x - p0.x, dy = p1.y - p0.y;
+            var len = Math.sqrt(dx * dx + dy * dy);
+            var ex = dx / len, ey = dy / len;
+            var px = -ey, py = ex; // 90° CCW from edge direction
+            var unit = flattenTab(params, 8);
+            return unit.map(function(u) {
+                var ux = u[0] * len, uy = u[1] * len;
+                return [p0.x + ux * ex + uy * px, p0.y + ux * ey + uy * py];
+            });
+        }
+
+        // Replaces a single sharp corner point (prev -> corner -> next) with
+        // a rounded fillet of *radius*, clamped to never eat more than ~half
+        // of either adjacent segment (so it can't overshoot into a tiny
+        // piece/edge). The lattice corners this is used on are always 90deg
+        // in isotropic space (an axis-aligned rows x cols grid), so the arc
+        // center is the standard right-angle-fillet construction: pull back
+        // *radius* along the incoming edge, then *radius* again along the
+        // outgoing edge direction.
+        function roundCornerPoint(prev, corner, next, radius, segs) {
+            var d1x = corner[0] - prev[0], d1y = corner[1] - prev[1];
+            var len1 = Math.sqrt(d1x * d1x + d1y * d1y);
+            var d2x = next[0] - corner[0], d2y = next[1] - corner[1];
+            var len2 = Math.sqrt(d2x * d2x + d2y * d2y);
+            var r = Math.min(radius, len1 * 0.49, len2 * 0.49);
+            if (!(r > 1e-9)) return [corner];
+            var u1x = d1x / len1, u1y = d1y / len1;
+            var u2x = d2x / len2, u2y = d2y / len2;
+            var p1 = [corner[0] - u1x * r, corner[1] - u1y * r];
+            var p2 = [corner[0] + u2x * r, corner[1] + u2y * r];
+            var center = [p1[0] + u2x * r, p1[1] + u2y * r];
+            var a1 = Math.atan2(p1[1] - center[1], p1[0] - center[0]);
+            var a2 = Math.atan2(p2[1] - center[1], p2[0] - center[0]);
+            var da = a2 - a1;
+            while (da > Math.PI) da -= 2 * Math.PI;
+            while (da < -Math.PI) da += 2 * Math.PI;
+            var pts = [];
+            for (var k = 0; k <= segs; k++) {
+                var t = a1 + da * (k / segs);
+                pts.push([center[0] + r * Math.cos(t), center[1] + r * Math.sin(t)]);
+            }
+            return pts;
+        }
+
+        // Replaces pts[cornerIndex] (a closed-loop point, wrapping for its
+        // neighbors) with a rounded fillet in place.
+        function applyCornerRadius(pts, cornerIndex, radius, segs) {
+            var n = pts.length;
+            var prev = pts[(cornerIndex - 1 + n) % n];
+            var corner = pts[cornerIndex];
+            var next = pts[(cornerIndex + 1) % n];
+            var arcPts = roundCornerPoint(prev, corner, next, radius, segs);
+            Array.prototype.splice.apply(pts, [cornerIndex, 1].concat(arcPts));
+        }
+
+        function buildPuzzlePieces(rows, cols, tabSize, jitter, geo, cornerRadius) {
+            // Lattice corners built in ISOTROPIC space -- x spans [0,
+            // geo.puzzleX], y spans [0, geo.puzzleY], both in the SAME real-
+            // world-proportional units -- so every tab/jitter computation
+            // downstream (which scales purely off Euclidean edge length, see
+            // placeEdge) comes out correctly proportioned regardless of the
+            // drawn rectangle's own aspect ratio. These stay exactly on-grid
+            // (unperturbed) so every piece meeting at a corner aligns
+            // precisely; only the edges BETWEEN corners get tab curves.
+            var L = [];
+            for (var r = 0; r <= rows; r++) {
+                L.push([]);
+                for (var c = 0; c <= cols; c++) {
+                    L[r].push({ x: (c / cols) * geo.puzzleX, y: (r / rows) * geo.puzzleY });
+                }
+            }
+
+            // Horizontal edges H[r][c]: L[r][c] -> L[r][c+1]. Straight on the
+            // top/bottom boundary (r=0 or r=rows), tabbed otherwise. One
+            // param sequence per ROW so tabs blend smoothly along it.
+            var H = [];
+            for (r = 0; r <= rows; r++) {
+                H.push([]);
+                var straightRow = (r === 0 || r === rows);
+                var seqH = straightRow ? null : makeTabParamSequence(tabSize, jitter);
+                for (c = 0; c < cols; c++) {
+                    H[r].push(placeEdge(L[r][c], L[r][c + 1], straightRow, straightRow ? null : seqH()));
+                }
+            }
+            // Vertical edges V[r][c]: L[r][c] -> L[r+1][c]. Straight on the
+            // left/right boundary (c=0 or c=cols), tabbed otherwise. One
+            // param sequence per COLUMN.
+            var V = [];
+            for (r = 0; r < rows; r++) V.push([]);
+            for (c = 0; c <= cols; c++) {
+                var straightCol = (c === 0 || c === cols);
+                var seqV = straightCol ? null : makeTabParamSequence(tabSize, jitter);
+                for (r = 0; r < rows; r++) {
+                    V[r].push(placeEdge(L[r][c], L[r + 1][c], straightCol, straightCol ? null : seqV()));
+                }
+            }
+
+            function withoutLast(arr) { return arr.slice(0, arr.length - 1); }
+            function reversedWithoutLast(arr) { return arr.slice().reverse().slice(0, arr.length - 1); }
+
+            // Points are returned in ISOTROPIC space ([0,puzzleX] x
+            // [0,puzzleY]) rather than pre-mapped into any other coordinate
+            // system here -- regeneratePuzzle() derives the two spaces that
+            // actually need them: drawn-area-relative (for the on-map
+            // preview) and puzzle-bbox-relative (for the payload sent to
+            // Blender). See isoToDrawnAreaSpace/isoToPuzzleSpace.
+            var result = [];
+            for (var i = 0; i < rows; i++) {
+                for (var j = 0; j < cols; j++) {
+                    var bottom = withoutLast(H[i][j]);            // left -> right
+                    var right = withoutLast(V[i][j + 1]);         // bottom -> top
+                    var top = reversedWithoutLast(H[i + 1][j]);   // right -> left
+                    var left = reversedWithoutLast(V[i][j]);      // top -> bottom
+                    var pts = bottom.concat(right, top, left);
+
+                    // Only the 4 pieces touching the PUZZLE's own outer
+                    // corners get rounded -- one sharp point each (the
+                    // others stay straight/tabbed exactly as before).
+                    // Indices reference the as-built pts array, in
+                    // DESCENDING order so an earlier splice (which grows
+                    // the array) never shifts an index still to be
+                    // processed -- matters when a single piece spans more
+                    // than one puzzle corner (e.g. rows===1 or cols===1).
+                    if (cornerRadius > 0) {
+                        var cornerIdxs = [];
+                        if (i === rows - 1 && j === 0) cornerIdxs.push(bottom.length + right.length + top.length); // top-left
+                        if (i === rows - 1 && j === cols - 1) cornerIdxs.push(bottom.length + right.length);       // top-right
+                        if (i === 0 && j === cols - 1) cornerIdxs.push(bottom.length);                             // bottom-right
+                        if (i === 0 && j === 0) cornerIdxs.push(0);                                                // bottom-left
+                        cornerIdxs.forEach(function(idx) { applyCornerRadius(pts, idx, cornerRadius, 6); });
+                    }
+
+                    result.push({ row: i, col: j, isoPoints: pts });
+                }
+            }
+            return result;
+        }
+
+        // Map a point from isotropic [0,puzzleX]x[0,puzzleY] space back to
+        // normalized-relative-to-the-DRAWN-RECTANGLE space (via geo.frac) --
+        // used only for the on-map preview (normToLatLng interprets points
+        // as fractions of the drawn rectangle's own corners).
+        function isoToDrawnAreaSpace(pt, geo) {
+            return [
+                geo.frac.nx0 + (pt[0] / geo.puzzleX) * (geo.frac.nx1 - geo.frac.nx0),
+                geo.frac.ny0 + (pt[1] / geo.puzzleY) * (geo.frac.ny1 - geo.frac.ny0)
+            ];
+        }
+
+        // Map a point from isotropic space to normalized-relative-to-the-
+        // PUZZLE'S-OWN-true-bbox space (always exactly [0,1] x [0,1], no
+        // cover-fit overflow/margin) -- this is what actually gets sent to
+        // Blender, paired with puzzleGeoBbox() as the *bbox* field, so the
+        // base terrain tile gets built to the puzzle's real footprint
+        // instead of the drawn rectangle's. Sending pieces relative to the
+        // drawn rectangle instead (the old behaviour) meant any piece
+        // overflowing past the drawn edge in the cover-fit case got cut off
+        // by cut_into_puzzle_pieces's boolean INTERSECT against a tile sized
+        // to the drawn rectangle -- the actual bug behind the puzzle (and,
+        // since the holder is built from the puzzle pieces' own real
+        // geometry, the holder too) ending up shaped like the drawn
+        // rectangle instead of the puzzle's Length x Width.
+        function isoToPuzzleSpace(pt, geo) {
+            return [pt[0] / geo.puzzleX, pt[1] / geo.puzzleY];
+        }
+
+        // The puzzle's own true geographic bbox -- the drawn rectangle's
+        // bbox with geo.frac applied on each edge, so it matches the
+        // (possibly slightly larger or smaller) area isoToPuzzleSpace's
+        // [0,1] now refers to.
+        function puzzleGeoBbox(drawnCoords, frac) {
+            return {
+                south: drawnCoords.south + frac.ny0 * (drawnCoords.north - drawnCoords.south),
+                north: drawnCoords.south + frac.ny1 * (drawnCoords.north - drawnCoords.south),
+                west: drawnCoords.west + frac.nx0 * (drawnCoords.east - drawnCoords.west),
+                east: drawnCoords.west + frac.nx1 * (drawnCoords.east - drawnCoords.west)
+            };
+        }
+
+        function normToLatLng(nx, ny) {
+            // The drawn rectangle is an axis-aligned lat/lon box, so direct
+            // linear interpolation is exact for preview purposes (the actual
+            // Blender-side placement uses the real Mercator-ish projection
+            // already used by the rest of the addon -- this is preview-only).
+            return [coords.south + ny * (coords.north - coords.south), coords.west + nx * (coords.east - coords.west)];
+        }
+
+        function renderPuzzlePreview() {
+            puzzleLayer.clearLayers();
+            pieces.forEach(function(p) {
+                L.polygon(p.points.map(function(pt) { return normToLatLng(pt[0], pt[1]); }), {
+                    color: '#007bff', weight: 1.5, opacity: 0.9, fill: true, fillOpacity: 0.08
+                }).addTo(puzzleLayer);
+            });
+        }
+
+        // ── Holder preview ──────────────────────────────────────────────────
+        // The holder is a rounded-rectangle tray, concentric with the puzzle,
+        // extending HOLDER_CLEARANCE_MM/2 + frame thickness past the puzzle's
+        // own true (real-world-mm) footprint on every side -- mirrors
+        // build_puzzle_holder's geometry server-side.
+        var HOLDER_CLEARANCE_MM = 0.1;
+
+        function updateHolderVisibility() {
+            var enabled = document.getElementById('holderEnabled').checked;
+            document.getElementById('holderOptions').style.display = enabled ? 'flex' : 'none';
+        }
+
+        // Maps the <select id="holderFontSelect"> filenames (the actual font
+        // FILES Blender loads server-side) to a CSS font-family + weight, for
+        // the sidebar text preview -- not for the map, which never rendered
+        // real font glyphs at all (see updateHolderTextPreview below).
+        var HOLDER_FONT_PREVIEW = {
+            '':            { family: '"Arial Black", Arial, sans-serif', bold: true },
+            'arial.ttf':   { family: 'Arial, sans-serif', bold: false },
+            'arialbd.ttf': { family: 'Arial, sans-serif', bold: true },
+            'ariblk.ttf':  { family: '"Arial Black", Arial, sans-serif', bold: true },
+            'impact.ttf':  { family: 'Impact, "Arial Narrow", sans-serif', bold: true },
+            'times.ttf':   { family: '"Times New Roman", Times, serif', bold: false },
+            'comic.ttf':   { family: '"Comic Sans MS", cursive, sans-serif', bold: false }
+        };
+
+        function updateHolderTextPreview() {
+            var box = document.getElementById('holderTextPreview');
+            var text = document.getElementById('holderTextInput').value.trim();
+            var font = HOLDER_FONT_PREVIEW[document.getElementById('holderFontSelect').value] || HOLDER_FONT_PREVIEW[''];
+            var textSizeMm = parseFloat(document.getElementById('holderTextSizeInput').value) || 8;
+
+            box.textContent = text || 'Preview';
+            box.style.fontFamily = font.family;
+            box.style.fontWeight = font.bold ? 'bold' : 'normal';
+            box.style.color = text ? '#fff' : '#666';
+            // Not a real mm-accurate size (this box has no map scale to
+            // anchor to) -- just scaled proportionally to Text Size so
+            // raising/lowering it visibly grows/shrinks the preview too,
+            // clamped to stay inside the box.
+            box.style.fontSize = Math.max(10, Math.min(34, textSizeMm * 2.5)) + 'px';
+        }
+
+        function roundedRectLatLngs(hx0, hy0, hx1, hy1, rx, ry, segs) {
+            // rx/ry are normalized (frac-space) radii, generally DIFFERENT
+            // per axis since lat/lon frac-per-mm isn't isotropic -- each
+            // corner is approximated as a quarter-ellipse rather than a true
+            // circular arc, close enough for a preview outline.
+            rx = Math.max(0, Math.min(rx, (hx1 - hx0) / 2));
+            ry = Math.max(0, Math.min(ry, (hy1 - hy0) / 2));
+            var pts = [];
+            function arc(cx, cy, startAngle, endAngle) {
+                for (var i = 0; i <= segs; i++) {
+                    var t = startAngle + (endAngle - startAngle) * (i / segs);
+                    pts.push(normToLatLng(cx + rx * Math.cos(t), cy + ry * Math.sin(t)));
+                }
+            }
+            arc(hx1 - rx, hy0 + ry, -Math.PI / 2, 0);        // bottom-right
+            arc(hx1 - rx, hy1 - ry, 0, Math.PI / 2);         // top-right
+            arc(hx0 + rx, hy1 - ry, Math.PI / 2, Math.PI);   // top-left
+            arc(hx0 + rx, hy0 + ry, Math.PI, 1.5 * Math.PI); // bottom-left
+            return pts;
+        }
+
+        function updateHolderOutline() {
+            holderLayer.clearLayers();
+            if (!document.getElementById('holderEnabled').checked || !coords) return;
+
+            var wallWidth = parseFloat(document.getElementById('holderWallWidthInput').value) || 4;
+            var geo = computePuzzleGeometry(coords);
+            var p1 = neutralXY(coords.south, coords.west);
+            var p2 = neutralXY(coords.north, coords.east);
+            var fullX = Math.abs(p2.x - p1.x);
+            var fullY = Math.abs(p2.y - p1.y);
+            if (fullX <= 0 || fullY <= 0) return;
+
+            var marginMm = HOLDER_CLEARANCE_MM / 2 + wallWidth;
+            var marginFracX = (geo.scale * marginMm) / fullX;
+            var marginFracY = (geo.scale * marginMm) / fullY;
+            var hx0 = geo.frac.nx0 - marginFracX, hx1 = geo.frac.nx1 + marginFracX;
+            var hy0 = geo.frac.ny0 - marginFracY, hy1 = geo.frac.ny1 + marginFracY;
+
+            var cornerRadiusMm = parseFloat(document.getElementById('holderCornerRadiusInput').value) || 0;
+            var radiusFracX = (geo.scale * cornerRadiusMm) / fullX;
+            var radiusFracY = (geo.scale * cornerRadiusMm) / fullY;
+            var outline = roundedRectLatLngs(hx0, hy0, hx1, hy1, radiusFracX, radiusFracY, 8);
+            L.polygon(outline, { color: '#000000', weight: 2, opacity: 0.9, fill: false, dashArray: '4,4' }).addTo(holderLayer);
+        }
+
+        function regeneratePuzzle() {
+            puzzleLayer.clearLayers();
+            pieces = [];
+            if (!coords) { updateStatus(); updateSendState(); holderLayer.clearLayers(); return; }
+            var rows = Math.max(1, parseInt(document.getElementById('rowsInput').value) || 1);
+            var cols = Math.max(1, parseInt(document.getElementById('colsInput').value) || 1);
+            // Same units/formula as the reference generator: tabsize/200 and
+            // jitter/100, both expressed as a fraction of one cell's size.
+            var tabSize = (parseFloat(document.getElementById('tabSizeInput').value) || 20) / 200;
+            var jitter = (parseFloat(document.getElementById('jitterInput').value) || 4) / 100;
+            var cornerRadius = parseFloat(document.getElementById('puzzleCornerRadiusInput').value) || 0;
+            var geo = computePuzzleGeometry(coords);
+            pieces = buildPuzzlePieces(rows, cols, tabSize, jitter, geo, cornerRadius);
+            pieces.forEach(function(p) {
+                p.points = p.isoPoints.map(function(pt) { return isoToDrawnAreaSpace(pt, geo); });
+                p.puzzlePoints = p.isoPoints.map(function(pt) { return isoToPuzzleSpace(pt, geo); });
+            });
+            renderPuzzlePreview();
+            updateHolderOutline();
+            updateStatus();
+            updateSendState();
+        }
+
+        function updateSendState() {
+            var ready = pieces.length > 0 || gpxPaths.length > 0;
+            document.getElementById('send').disabled = !ready;
+        }
+
+        function updateStatus() {
+            var nGpx = gpxPaths.length;
+            var gpxSuffix = nGpx ? ' + ' + nGpx + ' trail(s)' : '';
+            if (pieces.length) {
+                document.getElementById('status').textContent = pieces.length + ' piece(s)' + gpxSuffix + ' ready.';
+            } else if (nGpx) {
+                document.getElementById('status').textContent = nGpx + ' trail(s) ready to send.';
+            } else {
+                document.getElementById('status').textContent = 'Draw a rectangle to begin.';
+            }
+        }
+
+        function bindLiveEdit(layer) {
+            // Show the rectangle's drag handles immediately and recompute the
+            // puzzle grid live as the user drags an edge/corner. The drawn
+            // rectangle itself is always used exactly as drawn -- Length/
+            // Width only affect which sub-area of it the puzzle grid covers
+            // (see computePuzzleGeometry), never the rectangle.
+            layer.editing.enable();
+            layer.on('edit', function() {
+                var b = layer.getBounds();
+                coords = { north: b.getNorth(), south: b.getSouth(), east: b.getEast(), west: b.getWest() };
+                regeneratePuzzle();
+                saveState();
+            });
+        }
+
+        function makeDrawControl() {
+            return new L.Control.Draw({
+                draw: { polyline: false, polygon: false, circle: false, marker: false, circlemarker: false, rectangle: true },
+                edit: false
+            });
+        }
+        var drawControl = makeDrawControl();
+        map.addControl(drawControl);
+        map.on('moveend', saveState);
+
+        document.getElementById('importGpx').addEventListener('click', function() {
+            document.getElementById('gpxInput').click();
+        });
+
+        document.getElementById('gpxInput').addEventListener('change', function(e) {
+            var files = Array.from(e.target.files);
+            this.value = '';
+            if (!files.length) return;
+            // Wait for every file in this batch to finish, then fit to
+            // gpxLayer's combined bounds exactly once (see map_picker.html
+            // for why per-file fitBounds is wrong with multiple files).
+            var pending = files.length;
+            files.forEach(function(file) {
+                var reader = new FileReader();
+                reader.onload = function(event) {
+                    try {
+                        var gpxDoc = new DOMParser().parseFromString(event.target.result, 'text/xml');
+                        if (gpxDoc.getElementsByTagName('parsererror').length) { alert('Error parsing ' + file.name); return; }
+                        var trkpts = gpxDoc.getElementsByTagName('trkpt');
+                        if (trkpts.length > 0) {
+                            var pts = [];
+                            for (var i = 0; i < trkpts.length; i++) {
+                                var lat = parseFloat(trkpts[i].getAttribute('lat'));
+                                var lon = parseFloat(trkpts[i].getAttribute('lon'));
+                                pts.push([lat, lon]);
+                            }
+                            gpxLayer.addLayer(L.polyline(pts, { color: 'red', weight: 3, opacity: 0.7 }));
+                        }
+                        fetch('http://127.0.0.1:' + PORT + '/upload_gpx', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/gpx+xml', 'X-Filename': file.name },
+                            body: event.target.result
+                        })
+                        .then(function(r) { return r.json(); })
+                        .then(function(res) {
+                            gpxPaths.push(res.path);
+                            gpxNames.push(file.name);
+                            updateGpxList();
+                            updateSendState();
+                            updateStatus();
+                            saveState();
+                        })
+                        .catch(function() { alert('Could not save GPX to temp file.'); });
+                    } catch (err) { alert('Error importing GPX: ' + err.message); }
+                    finally {
+                        pending--;
+                        if (pending === 0 && gpxLayer.getBounds().isValid()) {
+                            map.fitBounds(gpxLayer.getBounds(), { padding: [50, 50] });
+                        }
+                    }
+                };
+                reader.readAsText(file);
+            });
+        });
+
+        document.getElementById('clearGpx').addEventListener('click', function() {
+            gpxPaths = []; gpxNames = [];
+            gpxLayer.clearLayers();
+            updateGpxList();
+            saveState();
+            updateSendState();
+            updateStatus();
+        });
+
+        document.getElementById('drawBtn').addEventListener('click', function() {
+            map.removeControl(drawControl);
+            drawControl = makeDrawControl();
+            map.addControl(drawControl);
+            setTimeout(function() {
+                var rb = document.querySelector('.leaflet-draw-draw-rectangle');
+                if (rb) rb.click();
+            }, 50);
+        });
+
+        document.getElementById('deleteBtn').addEventListener('click', function() {
+            drawnItems.clearLayers();
+            puzzleLayer.clearLayers();
+            holderLayer.clearLayers();
+            coords = null;
+            pieces = [];
+            updateStatus();
+            updateSendState();
+            saveState();
+        });
+
+        document.getElementById('lengthInput').addEventListener('input', function() { regeneratePuzzle(); saveState(); });
+        document.getElementById('widthInput').addEventListener('input', function() { regeneratePuzzle(); saveState(); });
+
+        document.getElementById('rowsInput').addEventListener('input', function() { regeneratePuzzle(); saveState(); });
+        document.getElementById('colsInput').addEventListener('input', function() { regeneratePuzzle(); saveState(); });
+        document.getElementById('tabSizeInput').addEventListener('input', function() { regeneratePuzzle(); saveState(); });
+        document.getElementById('jitterInput').addEventListener('input', function() { regeneratePuzzle(); saveState(); });
+        document.getElementById('puzzleCornerRadiusInput').addEventListener('input', function() { regeneratePuzzle(); saveState(); });
+        document.getElementById('puzzleNameInput').addEventListener('input', saveState);
+        document.getElementById('toleranceInput').addEventListener('input', saveState);
+
+        document.getElementById('holderEnabled').addEventListener('change', function() {
+            updateHolderVisibility();
+            updateHolderOutline();
+            updateHolderTextPreview();
+            saveState();
+        });
+        document.getElementById('holderWallWidthInput').addEventListener('input', function() { updateHolderOutline(); saveState(); });
+        document.getElementById('holderCornerRadiusInput').addEventListener('input', function() { updateHolderOutline(); saveState(); });
+        document.getElementById('holderTextInput').addEventListener('input', function() { updateHolderOutline(); updateHolderTextPreview(); saveState(); });
+        document.getElementById('holderFontSelect').addEventListener('change', function() { updateHolderTextPreview(); saveState(); });
+        document.getElementById('holderTextSizeInput').addEventListener('input', function() { updateHolderTextPreview(); saveState(); });
+
+        map.on(L.Draw.Event.CREATED, function(e) {
+            var layer = e.layer;
+            drawnItems.clearLayers();
+            puzzleLayer.clearLayers();
+            var b = layer.getBounds();
+            coords = { north: b.getNorth(), south: b.getSouth(), east: b.getEast(), west: b.getWest() };
+            layer.setStyle({ color: '#E97826', weight: 3, opacity: 1, fill: true, fillOpacity: 0.15 });
+            drawnItems.addLayer(layer);
+            bindLiveEdit(layer);
+            regeneratePuzzle();
+            saveState();
+        });
+
+        map.on(L.Draw.Event.EDITED, function(e) {
+            e.layers.eachLayer(function(layer) {
+                var b = layer.getBounds();
+                coords = { north: b.getNorth(), south: b.getSouth(), east: b.getEast(), west: b.getWest() };
+                layer.editing.enable();
+            });
+            regeneratePuzzle();
+            saveState();
+        });
+
+        document.getElementById('send').onclick = function() {
+            if (!coords && gpxPaths.length === 0) return;
+            // bbox/pieces are sent relative to the PUZZLE's own true
+            // footprint (isoToPuzzleSpace/puzzleGeoBbox), not the raw drawn
+            // rectangle -- see the comment on isoToPuzzleSpace for why.
+            var sendGeo = coords ? computePuzzleGeometry(coords) : null;
+            var payload = {
+                name: document.getElementById('puzzleNameInput').value || '',
+                bbox: coords ? puzzleGeoBbox(coords, sendGeo.frac) : null,
+                pieces: pieces.map(function(p) { return { row: p.row, col: p.col, points: p.puzzlePoints }; }),
+                rows: parseInt(document.getElementById('rowsInput').value) || 1,
+                cols: parseInt(document.getElementById('colsInput').value) || 1,
+                tolerance: parseFloat(document.getElementById('toleranceInput').value) || 0,
+                puzzleCornerRadius: parseFloat(document.getElementById('puzzleCornerRadiusInput').value) || 0,
+                gpx_paths: gpxPaths,
+                holder: {
+                    enabled: document.getElementById('holderEnabled').checked,
+                    text: document.getElementById('holderTextInput').value || '',
+                    wallWidth: parseFloat(document.getElementById('holderWallWidthInput').value) || 4,
+                    cornerRadius: parseFloat(document.getElementById('holderCornerRadiusInput').value) || 0,
+                    font: document.getElementById('holderFontSelect').value || '',
+                    textSize: parseFloat(document.getElementById('holderTextSizeInput').value) || 0
+                }
+            };
+            document.getElementById('send').disabled = true;
+            document.getElementById('status').textContent = 'Sending to Blender...';
+            fetch('http://127.0.0.1:' + PORT + '/confirm', {
+                method: 'POST',
+                mode: 'cors',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+            .then(function() { window.close(); })
+            .catch(function() {
+                alert('Could not connect to Blender. Ensure the addon is running.');
+                updateSendState();
+                updateStatus();
+            });
+        };
+
+        updateHolderTextPreview();
+        restoreState();
+    </script>
+</body>
+</html>

@@ -2,7 +2,6 @@
 operators_pe.py
 utils_pe.py
 **/assets/puzzles.blend
-map_picker.py
 map_picker.html
 
 # Build/dev files

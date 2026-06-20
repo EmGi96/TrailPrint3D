@@ -114,10 +114,8 @@ class TP3D_PT_generate(bpy.types.Panel):
                 if temp.PREMIUMVERSION:
                     #pass
                     col.operator("tp3d.map_picker", text=_("Multi Tile Configurator"), icon='WORLD')
-                    col.operator("tp3d.puzzle_picker", text=_("Puzzle Generator"), icon='MOD_BOOLEAN')
                 else:
                     col.operator("tp3d.terrain_dummy", text=_("Multi Tile Configurator"), icon='WORLD')
-                    col.operator("tp3d.terrain_dummy", text=_("Puzzle Generator"), icon='MOD_BOOLEAN')
             else:
                 # Files
                 box = layout.box()
@@ -333,20 +331,20 @@ class TP3D_PT_advanced(bpy.types.Panel):
                 box.operator("tp3d.terrain_dummy", text=_("Pin on City"), icon="LOCKED")
 
         # --- SPECIAL ---
-        if temp.PREMIUMVERSION:
-            layout.prop(props, "show_special", icon="TRIA_DOWN" if props.show_special else "TRIA_RIGHT", emboss=False)
-            if props.show_special:
-                box = layout.box()
+        layout.prop(props, "show_special", icon="TRIA_DOWN" if props.show_special else "TRIA_RIGHT", emboss=False)
+        if props.show_special:
+            box = layout.box()
+            box.operator("tp3d.puzzle_configurator", text=_("Puzzle Generator"), icon='MOD_BOOLEAN')
+
+            box.separator(factor=0.5)
+            if temp.PREMIUMVERSION:
                 col = box.column(align=True)
                 col.prop(props, "specialBlendFile")
                 col.prop(props, "specialCollectionName", text="Collection")
                 if props.specialBlendFile == "puzzles.blend":
                     box.operator("tp3d.append_collection", text=_("Import + Generate"), icon="IMPORT")
                 box.operator("tp3d.append_collection_blank", text=_("Import Blank"), icon="IMPORT")
-        else:
-            layout.prop(props, "show_special", icon="LOCKED", emboss=False)
-            if props.show_special:
-                box = layout.box()
+            else:
                 col = box.column()
                 col.label(text=_("Exclusive for Patreon Supporters"), icon='FUND')
                 col.label(text=_("- Use Special Manual crafted Handtemplates"))

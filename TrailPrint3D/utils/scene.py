@@ -16,23 +16,36 @@ def transform_MapObject(obj, newX, newY):
     obj.location.y += newY
 
 
-def zoom_camera_to_selected(obj):
-    if obj is None:
+def zoom_camera_to_objects(objs):
+    """Select every object in *objs* and zoom the 3D viewport to fit all of
+    them -- the multi-object counterpart of zoom_camera_to_selected, for
+    results made of several separate objects (e.g. puzzle pieces) where
+    fitting to just one would zoom in too far and miss the rest."""
+    objs = [o for o in (objs or []) if o is not None]
+    if not objs:
         return
     try:
-        obj.select_set  # raises ReferenceError if the object was freed
+        objs[0].select_set  # raises ReferenceError if the object was freed
     except ReferenceError:
         return
 
     bpy.ops.object.select_all(action='DESELECT')
-
-    obj.select_set(True)  # Select the object
+    for o in objs:
+        try:
+            o.select_set(True)
+        except ReferenceError:
+            continue
+    bpy.context.view_layer.objects.active = objs[0]
 
     area = [area for area in bpy.context.screen.areas if area.type == "VIEW_3D"][0]
     region = area.regions[-1]
 
     with bpy.context.temp_override(area=area, region=region):
         bpy.ops.view3d.view_selected(use_all_regions=False)
+
+
+def zoom_camera_to_selected(obj):
+    zoom_camera_to_objects([obj])
 
 
 def set_origin_to_3d_cursor(tobj=None):
@@ -43,6 +56,29 @@ def set_origin_to_3d_cursor(tobj=None):
 
     bpy.context.view_layer.objects.active = tobj
     tobj.select_set(True)
+    bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
+
+
+def set_origin_to_3d_cursor_objects(objs):
+    """Select every object in *objs* and set ALL their origins to the 3D
+    cursor in one call -- the multi-object counterpart of
+    set_origin_to_3d_cursor, for results made of several separate objects
+    (e.g. puzzle pieces), matching the pattern zoom_camera_to_objects uses."""
+    objs = [o for o in (objs or []) if o is not None]
+    if not objs:
+        return
+    try:
+        objs[0].select_set  # raises ReferenceError if the object was freed
+    except ReferenceError:
+        return
+
+    bpy.ops.object.select_all(action='DESELECT')
+    for o in objs:
+        try:
+            o.select_set(True)
+        except ReferenceError:
+            continue
+    bpy.context.view_layer.objects.active = objs[0]
     bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
 
 def set_origin_to_geometry(tobj=None):
@@ -316,6 +352,11 @@ def remove_objects(objects):
         # viewport context, so it will raise RuntimeError in background/headless mode.
         bpy.ops.object.select_all(action='DESELECT')
         for obj in objects:
+            # select_set() is a no-op on a hidden object -- it never reaches
+            # context.selected_objects, so bpy.ops.object.delete() silently
+            # skips it. Unhide right before deleting to avoid that.
+            if obj.hide_get():
+                obj.hide_set(False)
             obj.select_set(True)
         bpy.ops.object.delete()
     except RuntimeError:

@@ -115,9 +115,9 @@ from . import props
 from . import progress
 from . import utils
 try:
-    from . import map_picker
+    from . import picker_server
 except ImportError:
-    map_picker = None
+    picker_server = None
 from . import operators
 from . import panels
 from . import export
@@ -167,6 +167,7 @@ classes = [
     operators.TP3D_OT_install_update,
     operators.TP3D_OT_remake_buildings,
     operators.TP3D_OT_remake_roads,
+    operators.TP3D_OT_puzzle_configurator,
 ]
 
 _PREMIUM_CLASS_NAMES = [

@@ -7,6 +7,9 @@ import bpy # type: ignore
 import os
 import math
 import time
+import json
+import pathlib
+import threading
 
 import bmesh # type: ignore
 from mathutils import Quaternion, Vector, bvhtree, Euler # type: ignore
@@ -14,6 +17,7 @@ from mathutils import Quaternion, Vector, bvhtree, Euler # type: ignore
 from . import constants as const
 from . import utils
 from . import addon_preferences
+from . import progress as _progress
 
 from bpy.props import StringProperty # type: ignore
 
@@ -1885,4 +1889,396 @@ class TP3D_OT_remake_roads(bpy.types.Operator):
         writeMetadata(roads, type="ROADS")
 
         self.report({'INFO'}, "Roads regenerated.")
+        return {'FINISHED'}
+
+
+# ---------------------------------------------------------------------------
+# Map/puzzle picker shared helpers
+#
+# Used by TP3D_OT_puzzle_configurator below (free) and by TP3D_OT_map_picker in
+# operators_pe.py (premium) -- kept here so the free puzzle generator doesn't
+# need to import anything from the premium-only module.
+# ---------------------------------------------------------------------------
+
+def _collect_existing_maps():
+    """Gather geographic bounds of MAP objects already in the scene, so the
+    map picker can draw them on the 2D map for reference.
+
+    Prefers the exact edge_south/north/west/east bounds stored by the picker
+    flow itself; falls back to reprojecting the object's world-space bounding
+    box using its own stored Horizontal Scale, for maps created through other
+    flows (address search, Extend, etc.) that never recorded edge_* bounds.
+    """
+    maps = []
+    for obj in bpy.context.scene.objects:
+        if obj.get("Object type") != "MAP" and obj.get("objType") != "MAP":
+            continue
+
+        shape = "hexagon" if obj.get("Shape") == "HEXAGON" else "rectangle"
+
+        if all(k in obj for k in ("edge_south", "edge_north", "edge_west", "edge_east")):
+            bounds = {
+                "north": obj["edge_north"], "south": obj["edge_south"],
+                "east": obj["edge_east"], "west": obj["edge_west"],
+            }
+        else:
+            scale_hor = obj.get("Horizontal Scale") or bpy.context.scene.tp3d.sScaleHor
+            half_w = obj.dimensions.x / 2
+            half_h = obj.dimensions.y / 2
+            if shape == "hexagon" and half_h > 0:
+                # The picker's hex renderer (and the edge_* bounds picker-created
+                # tiles store) treats half-height as the hexagon's vertex radius,
+                # but a regular hexagon's tight bounding-box height is only
+                # cos(30°) of that radius — its width hits the radius exactly at
+                # the left/right vertices, but its height only reaches the
+                # shallower top/bottom vertices. Without this correction the
+                # reconstructed hexagon renders visibly squashed north-south.
+                half_h /= math.cos(math.radians(30))
+            if not scale_hor or half_w <= 0 or half_h <= 0:
+                continue
+            cx, cy, _ = obj.matrix_world.translation
+            R = const.R
+
+            def lon_of(x):
+                return math.degrees(x / (R * scale_hor))
+
+            def lat_of(y):
+                return math.degrees(2 * math.atan(math.exp(y / (R * scale_hor))) - math.pi / 2)
+
+            bounds = {
+                "north": lat_of(cy + half_h), "south": lat_of(cy - half_h),
+                "east": lon_of(cx + half_w), "west": lon_of(cx - half_w),
+            }
+
+        maps.append({
+            "shape": shape, "bounds": bounds, "name": obj.name,
+            "scaleHor": obj.get("Horizontal Scale"),
+            "additionalExtrusion": obj.get("AdditionalExtrusion"),
+        })
+    return maps
+
+
+def _collect_existing_trails():
+    """Gather geographic paths of trail curves already in the scene, so the
+    map picker can show them for reference instead of re-sending/duplicating
+    them every time a new tile is generated nearby.
+
+    Matches the same "_Trail" name convention _ctfs_handle_trail() searches
+    for (utils/generation.py) — the raw imported/generated trail curve, not
+    the per-tile intersected "_TRAIL_n" mesh pieces carved out of it.
+    """
+    trails = []
+    for obj in bpy.context.scene.objects:
+        if obj.type != 'CURVE' or "_Trail" not in obj.name:
+            continue
+        mat = obj.matrix_world
+        pts = []
+        for spline in obj.data.splines:
+            points = spline.points if spline.points else spline.bezier_points
+            for p in points:
+                world = mat @ Vector((p.co[0], p.co[1], p.co[2]))
+                lat, lon = utils.convert_to_geo(world.x, world.y)
+                pts.append([lat, lon])
+        if len(pts) >= 2:
+            trails.append({"name": obj.name, "points": pts})
+    return trails
+
+
+def _bounds_adjacent(a, b, eps=1e-6):
+    """True if AABBs *a* and *b* (each {north, south, east, west}) overlap or
+    merely share an edge/corner, within a small float tolerance."""
+    return (a["west"] <= b["east"] + eps and a["east"] >= b["west"] - eps and
+            a["south"] <= b["north"] + eps and a["north"] >= b["south"] - eps)
+
+
+def _generate_trails(context, gpx_paths, overlay, progress_start, progress_end):
+    """Generate one trail curve per GPX path, using whatever map setup
+    (scale, position, extrusion) is already active in the scene.
+
+    Returns the list of created trail objects (GPX paths that failed to
+    produce a curve are skipped). Module-level (not a method) since it
+    doesn't use `self` -- shared by TP3D_OT_map_picker and
+    TP3D_OT_puzzle_configurator.
+    """
+    props = context.scene.tp3d
+    n_trails = len(gpx_paths)
+    overlay.update(progress_start, "Generating trails…", f"{n_trails} trail(s) to process…")
+    initial_gpx = bpy.context.scene.tp3d.get('file_path', None)
+    props.file_path = gpx_paths[0]
+
+    materials = ["TRAIL", "YELLOW"]
+    trails = []
+    for i, paths in enumerate(gpx_paths):
+        trail_pct = progress_start + (i / n_trails) * (progress_end - progress_start)
+        overlay.update(trail_pct, "Generating trails…", f"Trail {i + 1}/{n_trails}…")
+        bpy.context.scene.tp3d.file_path = paths
+        trail_obj = utils.generateJustTrail(material=materials[i % 2])
+        if trail_obj is not None:
+            trails.append(trail_obj)
+        overlay.add_completed_step(f"Trail {i + 1}/{n_trails} — done")
+
+    bpy.context.scene.tp3d.file_path = initial_gpx
+    return trails
+
+
+class TP3D_OT_puzzle_configurator(bpy.types.Operator):
+    bl_idname = "tp3d.puzzle_configurator"
+    bl_label = "Puzzle Generator"
+    bl_description = (
+        "Open an interactive map — draw a rectangle and choose rows/columns, "
+        "then Send to Blender to generate an interlocking jigsaw puzzle map"
+    )
+    bl_options = {'REGISTER', 'UNDO'}
+
+    _timer = None
+    _result_path: str = ""
+    _server = None
+
+    def modal(self, context, event):
+        if event.type != 'TIMER':
+            return {'PASS_THROUGH'}
+
+        rp = pathlib.Path(self._result_path)
+        if not (rp.exists() and rp.stat().st_size > 0):
+            return {'PASS_THROUGH'}
+
+        try:
+            data = json.loads(rp.read_text(encoding='utf-8'))
+            self._apply_puzzle_result(context, data)
+        except Exception as exc:
+            import traceback
+            traceback.print_exc()
+            self.report({'ERROR'}, f"Puzzle generator: {exc}")
+        finally:
+            try:
+                rp.unlink()
+            except Exception:
+                pass
+            self._cleanup(context)
+
+        return {'FINISHED'}
+
+    def invoke(self, context, event):
+        import tempfile
+        from . import picker_server as mp
+
+        self._result_path = str(
+            pathlib.Path(tempfile.gettempdir()) / 'trailprint_puzzlepicker.json'
+        )
+        rp = pathlib.Path(self._result_path)
+        if rp.exists():
+            rp.unlink()
+
+        html_path = pathlib.Path(__file__).parent / 'puzzleGenerator.html'
+        self._server = mp.start_picker(
+            self._result_path,
+            existing_maps=_collect_existing_maps(),
+            existing_trails=_collect_existing_trails(),
+            obj_size=context.scene.tp3d.objSize,
+            html_path=html_path,
+        )
+
+        wm = context.window_manager
+        self._timer = wm.event_timer_add(0.5, window=context.window)
+        wm.modal_handler_add(self)
+        self.report({'INFO'}, "Puzzle generator open — draw a rectangle then click Send to Blender")
+        return {'RUNNING_MODAL'}
+
+    def _apply_puzzle_result(self, context, data):
+        """Build the puzzle's base terrain tile, merge any trails into it,
+        then cut it into jigsaw puzzle pieces.
+
+        Deliberately does NOT mirror TP3D_OT_map_picker._apply_result's
+        multi-segment/tile-spacing/adjacent-scale-locking logic -- a puzzle
+        is always exactly one fresh standalone rectangle, so this reuses the
+        same lower-level calls (create_rectangle, createTerrainFromSelected,
+        _generate_trails, merge_active_with_map) directly rather than
+        refactoring that larger, already-working method.
+        """
+        from .utils.geo import convert_to_neutral_coordinates
+
+        props = context.scene.tp3d
+        overlay = _progress.ProgressOverlay.get()
+        overlay.start()
+        _progress.WarningsOverlay.clear()
+        start_time = time.time()
+
+        bbox = data.get('bbox')
+        pieces = data.get('pieces') or []
+        gpx_paths = data.get('gpx_paths', [])
+        tolerance = float(data.get('tolerance', 0.3) or 0.3)
+        puzzle_corner_radius = float(data.get('puzzleCornerRadius') or 0)
+        rows_n = int(data.get('rows') or 0)
+        cols_n = int(data.get('cols') or 0)
+        puzzle_name = (data.get('name') or '').strip() or f"{rows_n}-{cols_n}_Puzzle"
+
+        if not bbox or not pieces:
+            self.report({'WARNING'}, "Nothing to generate — draw a rectangle first")
+            overlay.finish()
+            return
+
+        south, north = bbox['south'], bbox['north']
+        west, east = bbox['west'], bbox['east']
+
+        props.shape = 'SQUARE'
+
+        overlay.update(0.05, "Creating base tile…", "Building terrain…")
+        # sScaleHor must be set BEFORE the convert_to_blender_coordinates calls
+        # below, since that function reads it -- mirrors _apply_result, which
+        # derives the scale from the unscaled convert_to_neutral_coordinates
+        # extent first, then sets sScaleHor, and only then computes actual
+        # placement. Getting this order backwards (computing tile_w/h with
+        # whatever sScaleHor was left over from a previous generation, then
+        # fixing sScaleHor afterward) is what put the tile in the wrong place.
+        #
+        # The drawn rectangle (bbox) is always used exactly as drawn -- the
+        # picker's Length/Width only confine which sub-area of it the jigsaw
+        # GRID covers (baked into each piece's normalized points client-side),
+        # they don't affect the actual generated tile's size/scale at all.
+        nx1, ny1, _ = convert_to_neutral_coordinates(south, west, 0, 0)
+        nx2, ny2, _ = convert_to_neutral_coordinates(north, east, 0, 0)
+        neutral_extent = max(abs(nx2 - nx1), abs(ny2 - ny1))
+        fixed_scale = props.objSize / neutral_extent if neutral_extent > 0 else 1.0
+        bpy.context.scene.tp3d["sScaleHor"] = fixed_scale
+
+        x1, y1, _ = utils.convert_to_blender_coordinates(south, west, 0, 0)
+        x2, y2, _ = utils.convert_to_blender_coordinates(north, east, 0, 0)
+        tile_w, tile_h = abs(x2 - x1), abs(y2 - y1)
+        center_x, center_y = (x1 + x2) / 2, (y1 + y2) / 2
+
+        blank = utils.create_rectangle(tile_w, tile_h, props.num_subdivisions)
+        # cut_into_puzzle_pieces names every piece "{terrain_obj.name}_piece_{row}_{col}" --
+        # renaming the blank here is what gets the puzzle's chosen name onto
+        # every generated piece without touching that naming logic itself.
+        blank.name = puzzle_name
+        blank["objSize"] = max(tile_w, tile_h)
+        blank["Shape"] = "SQUARE"
+        blank["objType"] = "MAP"
+        blank["edge_south"], blank["edge_north"] = south, north
+        blank["edge_west"], blank["edge_east"] = west, east
+        blank.location = (center_x, center_y, 0)
+
+        # createTerrainFromSelected reads sAdditionalExtrusion/sAutoScale from
+        # the scene rather than computing them itself (unless indipendendTiles
+        # is on) -- _apply_result always pre-fetches elevation and sets these
+        # before calling it; skipping this step left whatever stale values a
+        # PREVIOUS generation left on the scene, which is what was making
+        # every piece's base way thicker than minThickness instead of sitting
+        # on it.
+        bpy.context.view_layer.objects.active = blank
+        bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
+        overlay.update(0.06, "Fetching Elevation", "Querying elevation API…")
+        overlay.set_fetch_progress('elevation', 0.0)
+
+        # This fetch (not createTerrainFromSelected's later one) is where the
+        # real API querying happens -- it runs at full target resolution, not
+        # a cheap coarse proxy (see _apply_puzzle_result's docstring history),
+        # so it's the step that actually needs live progress. createTerrainFromSelected
+        # re-fetches the same bounds/resolution afterward, which just hits the
+        # on-disk cache (elevation.py's cache key is geographic bounds + subdivision
+        # count, not object identity) and returns instantly without ever calling
+        # its own progress_cb -- so without this, all the real wait time sat behind
+        # a static "Analyzing terrain…" message instead of moving progress.
+        def _puzzle_elev_progress(pct):
+            t = pct / 100.0
+            overlay.update(0.06 + t * (0.20 - 0.06), "Fetching Elevation", f"{pct}% complete…",
+                           sub_percent=t, sub_label="Elevation tiles")
+            overlay.set_fetch_progress('elevation', t)
+
+        preview_elevations, preview_diff = utils.get_tile_elevation(blank, progress_cb=_puzzle_elev_progress)
+        overlay.sub_percent = None
+
+        if props.fixedElevationScale:
+            auto_scale = 10 / (preview_diff / 1000) if preview_diff > 0 else 10
+        else:
+            auto_scale = fixed_scale
+        props.sAutoScale = auto_scale
+
+        overlay.update(0.22, "Analyzing terrain…", "Calculating elevation range…")
+        lowest_z = 1000
+        highest_z = 0
+        obj_matrix = blank.matrix_world
+        for i, vert in enumerate(blank.data.vertices):
+            world_co = obj_matrix @ vert.co
+            vert_lat, _ = utils.convert_to_geo(world_co.x, world_co.y)
+            merc = 1 / math.cos(math.radians(vert_lat))
+            val = preview_elevations[i] / 1000 * props.scaleElevation * auto_scale * merc
+            lowest_z = min(lowest_z, val)
+            highest_z = max(highest_z, val)
+        props.sAdditionalExtrusion = lowest_z
+
+        overlay.add_completed_step(f"Preview elevation — z {lowest_z:.1f}–{highest_z:.1f}")
+
+        bpy.ops.object.select_all(action='DESELECT')
+        blank.select_set(True)
+        bpy.context.view_layer.objects.active = blank
+        # skip_bottom_recess: a puzzle blank is always a fresh single tile
+        # with additionalExtrusion locked to its OWN lowest point (set just
+        # above), not an older neighbor's -- there's no seam to protect, so
+        # any shortfall the recess check would catch is just float-precision
+        # noise between this step's lowest_z and createTerrainFromSelected's
+        # own re-derived one, not a real need to dig into the bottom.
+        utils.createTerrainFromSelected(manage_overlay=False, skip_bottom_recess=True)
+
+        overlay.update(0.6, "Cutting puzzle pieces…", f"{len(pieces)} piece(s)…")
+        piece_objs = utils.cut_into_puzzle_pieces(blank, pieces, tolerance)
+
+        if gpx_paths:
+            # Merge trails into the individual PIECES, not the single tile
+            # before cutting -- merge_active_with_map's non-single-color-mode
+            # path builds a separate trail-decal object intersected against
+            # whatever map object it's given; merging into the one big tile
+            # before the cut produced a decal that was never cut apart along
+            # the jigsaw lines at all. Same bbox-overlap-per-tile pattern the
+            # regular multi-tile map picker uses, so a trail spanning several
+            # pieces correctly gets merged into each one it crosses.
+            overlay.update(0.85, "Generating trails…", f"{len(gpx_paths)} trail(s)…")
+            trails = _generate_trails(context, gpx_paths, overlay, 0.85, 0.95)
+            for trail_obj in trails:
+                for piece_obj in piece_objs:
+                    if utils.is_bbox_overlapping(trail_obj, piece_obj):
+                        utils.merge_active_with_map(piece_obj, trail_obj)
+            #remove_objects(trails)
+
+        holder_obj = None
+        holder_data = data.get('holder') or {}
+        if holder_data.get('enabled'):
+            overlay.update(0.97, "Generating holder…", "")
+            holder_obj = utils.build_puzzle_holder(
+                piece_objs,
+                text=holder_data.get('text', ''),
+                wall_width=float(holder_data.get('wallWidth') or 4.0),
+                corner_radius=float(holder_data.get('cornerRadius') or 0),
+                pocket_corner_radius=puzzle_corner_radius,
+                font=holder_data.get('font', ''),
+                text_size_mm=float(holder_data.get('textSize') or 0) or None,
+            )
+            if holder_obj is not None:
+                holder_obj.name = f"{puzzle_name}_Holder"
+
+        try:
+            utils.set_origin_to_3d_cursor_objects(piece_objs)
+        except (ReferenceError, AttributeError, IndexError):
+            pass
+
+        try:
+            utils.zoom_camera_to_objects(piece_objs + ([holder_obj] if holder_obj is not None else []))
+        except (ReferenceError, AttributeError, IndexError):
+            pass
+
+        bpy.context.scene.tp3d["o_time"] = f"Script ran for {time.time() - start_time:.0f} seconds"
+        overlay.finish()
+        _progress.WarningsOverlay.get().show()
+        self.report({'INFO'}, f"Generated {len(piece_objs)} puzzle piece(s)" + (" + holder" if holder_obj is not None else ""))
+
+    def _cleanup(self, context):
+        wm = context.window_manager
+        if self._timer:
+            wm.event_timer_remove(self._timer)
+            self._timer = None
+        if self._server:
+            threading.Thread(target=self._server.shutdown, daemon=True).start()
+            self._server = None
+
+    def execute(self, context):
         return {'FINISHED'}
