@@ -1,3 +1,9 @@
+<!--
+  Copyright (C) 2026 EmGi.
+
+  You are free to modify it under the terms of the GNU General Public
+  License as published by the Free Software Foundation.
+-->
 <!DOCTYPE html>
 <html>
 <head>
@@ -275,7 +281,7 @@
         }
 
         function saveState() {
-            // Unlike map_picker.html, gpxPaths/gpxNames ARE persisted here --
+            // Unlike multitile_configurator.html, gpxPaths/gpxNames ARE persisted here --
             // the puzzle page caches the selected trails across reopens
             // instead of treating GPX import as session-only. The server
             // still has the uploaded temp files on disk at gpxPaths[i], so
@@ -804,7 +810,7 @@
             this.value = '';
             if (!files.length) return;
             // Wait for every file in this batch to finish, then fit to
-            // gpxLayer's combined bounds exactly once (see map_picker.html
+            // gpxLayer's combined bounds exactly once (see multitile_configurator.html
             // for why per-file fitBounds is wrong with multiple files).
             var pending = files.length;
             files.forEach(function(file) {

@@ -7,6 +7,7 @@ import bpy
 from bpy.props import FloatProperty, IntProperty, StringProperty, BoolProperty, EnumProperty, PointerProperty
 from . import utils
 from . import constants as const
+from . import temp
 
 
 from bpy.app.translations import pgettext_iface as _ #For Translation of Text Required
@@ -25,6 +26,28 @@ def shape_callback(self,context):
     #    except:
     #        pass
     pass
+
+
+def get_special_blend_items(self, context):
+    # puzzles.blend itself (the hand-crafted jigsaw/sliding-puzzle templates)
+    # stays Premium-exclusive and is stripped from free builds by build.py --
+    # unlike the interactive Puzzle Generator, which is free. Items must be a
+    # callback (not a static default) so this list can change per-build.
+    #
+    # Dynamic-items EnumProperty can't take an explicit `default=` -- Blender
+    # always initializes to whichever item comes first here. Putting
+    # puzzles.blend first for Premium preserves the original default; free
+    # builds fall back to holder.blend since puzzles.blend isn't an option.
+    if temp.PREMIUMVERSION:
+        return [
+            ("puzzles.blend", "Jigzaw/Sliding Puzzles", "global"),
+            ("holder.blend", "Map Holder", "Latitudes -60 to 60"),
+            ("connectors.blend", "Map Connectors", "Continental USA, Hawaii, parts of Alaska"),
+        ]
+    return [
+        ("holder.blend", "Map Holder", "Latitudes -60 to 60"),
+        ("connectors.blend", "Map Connectors", "Continental USA, Hawaii, parts of Alaska"),
+    ]
 
 def generation_mode_update(self, context):
     self.use_multi_generation = (self.generation_mode == 'MULTI')
@@ -390,12 +413,7 @@ class TP3D_PG_properties(bpy.types.PropertyGroup):
     specialBlendFile: EnumProperty(
         name="Category",
         description= _("Choose what you want to import"),
-        items=[
-            ("holder.blend", "Map Holder", "Latitudes -60 to 60"),
-            ("puzzles.blend","Jigzaw/Sliding Puzzles","global"),
-            ("connectors.blend","Map Connectors","Continental USA, Hawaii, parts of Alaska"),
-        ],
-        default = "puzzles.blend",
+        items=get_special_blend_items,
         update = utils.loadCollections
 
     )# type: ignore

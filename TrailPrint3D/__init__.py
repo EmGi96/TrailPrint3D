@@ -92,7 +92,7 @@ Version 3.0
 bl_info = {
     "name": "TrailPrint3D",
     "author": "EmGi",
-    "version": (3, 0, 8),
+    "version": (3, 1, 0),
     "blender": (4, 5, 0),
     "location": "View3D > Sidebar > TrailPrint3D",
     "description": "Create 3D Printable Miniature Maps of your Adventures",
@@ -168,6 +168,9 @@ classes = [
     operators.TP3D_OT_remake_buildings,
     operators.TP3D_OT_remake_roads,
     operators.TP3D_OT_puzzle_configurator,
+    operators.TP3D_OT_special_collection,
+    operators.TP3D_OT_append_collection,
+    operators.TP3D_OT_append_collection_blank,
 ]
 
 _PREMIUM_CLASS_NAMES = [
@@ -179,9 +182,6 @@ _PREMIUM_CLASS_NAMES = [
     "TP3D_OT_from_center_generation",
     "TP3D_OT_from_center_generation_with_trail",
     "TP3D_OT_2point_generation",
-    "TP3D_OT_special_collection",
-    "TP3D_OT_append_collection",
-    "TP3D_OT_append_collection_blank",
     "TP3D_OT_create_blank",
     "TP3D_OT_extend_tile",
     "TP3D_OT_import_height_map",

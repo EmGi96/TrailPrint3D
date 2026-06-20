@@ -7,6 +7,7 @@ import bpy
 
 from . import temp
 from . import updater
+from . import constants as const
 
 from bpy.app.translations import pgettext_iface as _ #For Translation of Text Required
 
@@ -37,10 +38,14 @@ class TP3D_PT_generate(bpy.types.Panel):
         row = layout.row(align=True)
         row.operator("tp3d.open_website", text=_("Patreon"), icon='FUND')
         row.operator("tp3d.join_discord", text=_("Discord"), icon='URL')
+        # Version comes from constants.ADDON_VERSION at runtime rather than being
+        # baked into this string -- keeps the label (and its translations)
+        # untouched by version bumps; only constants.py needs patching.
+        version_str = ".".join(str(x) for x in const.ADDON_VERSION)
         if temp.PREMIUMVERSION:
-            layout.label(text=_("Created by: EmGi  |  Premium v3.08"), icon='INFO')
+            layout.label(text=_("Created by: EmGi  |  Premium v") + version_str, icon='INFO')
         else:
-            layout.label(text=_("Created by: EmGi  |  v3.08"), icon='INFO')
+            layout.label(text=_("Created by: EmGi  |  v") + version_str, icon='INFO')
         layout.separator()
 
         # --- Generation mode toggle (3 columns) ---
@@ -337,18 +342,12 @@ class TP3D_PT_advanced(bpy.types.Panel):
             box.operator("tp3d.puzzle_configurator", text=_("Puzzle Generator"), icon='MOD_BOOLEAN')
 
             box.separator(factor=0.5)
-            if temp.PREMIUMVERSION:
-                col = box.column(align=True)
-                col.prop(props, "specialBlendFile")
-                col.prop(props, "specialCollectionName", text="Collection")
-                if props.specialBlendFile == "puzzles.blend":
-                    box.operator("tp3d.append_collection", text=_("Import + Generate"), icon="IMPORT")
-                box.operator("tp3d.append_collection_blank", text=_("Import Blank"), icon="IMPORT")
-            else:
-                col = box.column()
-                col.label(text=_("Exclusive for Patreon Supporters"), icon='FUND')
-                col.label(text=_("- Use Special Manual crafted Handtemplates"))
-                col.label(text=_("- e.G Jigzaw Puzzle, Sliding Puzzle of your Map"))
+            col = box.column(align=True)
+            col.prop(props, "specialBlendFile")
+            col.prop(props, "specialCollectionName", text="Collection")
+            if props.specialBlendFile == "puzzles.blend":
+                box.operator("tp3d.append_collection", text=_("Import + Generate"), icon="IMPORT")
+            box.operator("tp3d.append_collection_blank", text=_("Import Blank"), icon="IMPORT")
 
         # --- POST PROCESS ---
         layout.prop(props, "show_postProcess", icon="TRIA_DOWN" if props.show_postProcess else "TRIA_RIGHT", emboss=False)

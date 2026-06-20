@@ -184,8 +184,8 @@ translations_dict = {
         # --- New in v3.0 ---
         ("*", "Patreon"): "Patreon",
         ("*", "Discord"): "Discord",
-        ("*", "Created by: EmGi  |  Premium v3.08"): "Erstellt von: EmGi  |  Premium v3.08",
-        ("*", "Created by: EmGi  |  v3.08"): "Erstellt von: EmGi  |  v3.08",
+        ("*", "Created by: EmGi  |  Premium v"): "Erstellt von: EmGi  |  Premium v",
+        ("*", "Created by: EmGi  |  v"): "Erstellt von: EmGi  |  v",
         ("*", "Rectangle"): "Rechteck",
         ("*", "Rectangular map"): "Rechteckige Karte",
         ("*", "Generate (Center + Radius)"): "Generieren (Mittelpunkt + Radius)",
@@ -613,8 +613,8 @@ translations_dict = {
         # --- New in v3.0 ---
         ("*", "Patreon"): "Patreon",
         ("*", "Discord"): "Discord",
-        ("*", "Created by: EmGi  |  Premium v3.08"): "作者：EmGi  |  高级版 v3.08",
-        ("*", "Created by: EmGi  |  v3.08"): "作者：EmGi  |  v3.08",
+        ("*", "Created by: EmGi  |  Premium v"): "作者：EmGi  |  高级版 v",
+        ("*", "Created by: EmGi  |  v"): "作者：EmGi  |  v",
         ("*", "Rectangle"): "矩形",
         ("*", "Rectangular map"): "矩形地图",
         ("*", "Generate (Center + Radius)"): "生成（中心点 + 半径）",
@@ -993,8 +993,8 @@ translations_dict = {
         # --- New in v3.0 ---
         ("*", "Patreon"): "Patreon",
         ("*", "Discord"): "Discord",
-        ("*", "Created by: EmGi  |  Premium v3.08"): "Создано: EmGi  |  Premium v3.08",
-        ("*", "Created by: EmGi  |  v3.08"): "Создано: EmGi  |  v3.08",
+        ("*", "Created by: EmGi  |  Premium v"): "Создано: EmGi  |  Premium v",
+        ("*", "Created by: EmGi  |  v"): "Создано: EmGi  |  v",
         ("*", "Rectangle"): "Прямоугольник",
         ("*", "Rectangular map"): "Прямоугольная карта",
         ("*", "Generate (Center + Radius)"): "Создать (центр + радиус)",

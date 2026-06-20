@@ -16,7 +16,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 
-_HTML_PATH = pathlib.Path(__file__).parent / 'map_picker.html'
+_HTML_PATH = pathlib.Path(__file__).parent / 'multitile_configurator.html'
 
 
 _PREFERRED_PORT = 27373
@@ -292,7 +292,7 @@ def start_picker(result_path: str, existing_maps: list | None = None, existing_t
     scene; served on GET /get_existing_trails so the page can draw them for
     reference instead of re-importing/re-sending them as new GPX trails.
 
-    *html_path*, if given, serves that HTML file instead of map_picker.html
+    *html_path*, if given, serves that HTML file instead of multitile_configurator.html
     (e.g. puzzleGenerator.html) -- the rest of this server (GPX upload, state
     save/restore, existing-maps/trails reference data, /confirm) is schema-
     agnostic, so other picker pages can reuse it as-is. State is persisted to
@@ -308,7 +308,7 @@ def start_picker(result_path: str, existing_maps: list | None = None, existing_t
         _active_server = None
 
     html_path = pathlib.Path(html_path) if html_path else _HTML_PATH
-    # Keep the original state filename for map_picker.html itself (exact
+    # Keep the original state filename for multitile_configurator.html itself (exact
     # backward compatibility); other pages get their own, keyed by filename,
     # so two different picker pages never clobber each other's saved state.
     state_path = (

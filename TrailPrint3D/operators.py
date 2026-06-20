@@ -2218,10 +2218,30 @@ class TP3D_OT_puzzle_configurator(bpy.types.Operator):
         # any shortfall the recess check would catch is just float-precision
         # noise between this step's lowest_z and createTerrainFromSelected's
         # own re-derived one, not a real need to dig into the bottom.
+        #
+        # Snapshot the object set beforehand so any overlay-element objects
+        # createTerrainFromSelected creates (roads/buildings/forest/water/etc.,
+        # only built as their own SEPARATE objects -- elementMode != "PAINT" --
+        # rather than painted onto blank's own mesh) can be identified
+        # afterward and cut into the puzzle pieces below too. Without this,
+        # those elements never get cut along the jigsaw lines at all and end
+        # up as one whole overlay spanning every piece.
+        _pre_existing_objs = {o.name for o in bpy.data.objects}
         utils.createTerrainFromSelected(manage_overlay=False, skip_bottom_recess=True)
 
+        _overlay_element_types = {
+            "WATER", "FOREST", "SCREE", "CITY", "GREENSPACE", "FARMLAND",
+            "GLACIER", "BUILDINGS", "ROADS",
+        }
+        element_objs = [
+            o for o in bpy.data.objects
+            if o.name not in _pre_existing_objs
+            and o.type == 'MESH'
+            and (o.get("Object type") in _overlay_element_types or o.get("_tp3d_is_ocean"))
+        ]
+
         overlay.update(0.6, "Cutting puzzle pieces…", f"{len(pieces)} piece(s)…")
-        piece_objs = utils.cut_into_puzzle_pieces(blank, pieces, tolerance)
+        piece_objs = utils.cut_into_puzzle_pieces(blank, pieces, tolerance, extra_objects=element_objs)
 
         if gpx_paths:
             # Merge trails into the individual PIECES, not the single tile
@@ -2281,4 +2301,130 @@ class TP3D_OT_puzzle_configurator(bpy.types.Operator):
             self._server = None
 
     def execute(self, context):
+        return {'FINISHED'}
+
+
+class TP3D_OT_special_collection(bpy.types.Operator):
+    bl_idname = "tp3d.special_collection"
+    bl_label = "Update"
+    bl_description = "Update the Special Collection"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+
+
+        utils.loadCollections(self,context)
+
+        return {'FINISHED'}
+
+
+class TP3D_OT_append_collection(bpy.types.Operator):
+    bl_idname = "tp3d.append_collection"
+    bl_label = "import"
+    bl_description = "Import the object from the Collection"
+    bl_options = {'REGISTER', 'UNDO'}
+
+
+    def execute(self, context):
+
+        overlay = _progress.ProgressOverlay.get()
+        overlay.start()
+        _progress.WarningsOverlay.clear()
+
+        #Set the Mapsize to the Size in the Collection name
+        collection_name = bpy.context.scene.tp3d.specialCollectionName
+        collection = bpy.data.collections.get(collection_name)
+        parts = collection_name.split("_")
+        for part in parts[1:]:          # everything after a "_"
+            num = part.split("mm")[0]   # take what's before "mm"
+            if "mm" in part and num.replace(".", "", 1).isdigit():
+                bpy.context.scene.tp3d.objSize = int(num)
+                break
+
+        #Set flags depending on Multi_generation value
+        multi = bpy.context.scene.tp3d.use_multi_generation
+        if multi == False:
+            flags = utils._GEN_FLAGS[10]
+        else:
+            flags = utils._GEN_FLAGS[11]
+
+        props = utils._rg_validate_inputs(flags)
+        singleColorMode = props['singleColorMode']
+
+        coord_data = utils._rg_load_coordinates(flags, props)
+
+        coordinates, separate_paths, coordinates2, _ = coord_data
+
+        print(f"Coord data: {coordinates}")
+        scaleHor = utils.calculate_scale(props['size'], coordinates, 10)
+        bpy.context.scene.tp3d["sScaleHor"] = scaleHor
+
+
+        #Convert to Blender coordinates and find map center ---
+        overlay.update(0.24, "Coordinate Conversion", "Converting to Blender space…")
+        blender_coords = [
+            utils.convert_to_blender_coordinates(lat, lon, ele, timestamp)
+            for lat, lon, ele, timestamp in coordinates
+        ]
+        blender_coords_separate = []
+        if "separate_paths" in flags or len(separate_paths) > 1:
+            blender_coords_separate = [
+                [utils.convert_to_blender_coordinates(lat, lon, ele, timestamp) for lat, lon, ele, timestamp in path]
+                for path in separate_paths
+            ]
+        min_x = min(p[0] for p in blender_coords)
+        max_x = max(p[0] for p in blender_coords)
+        min_y = min(p[1] for p in blender_coords)
+        max_y = max(p[1] for p in blender_coords)
+        centerx = (max_x - min_x) / 2 + min_x
+        centery = (max_y - min_y) / 2 + min_y
+        bpy.context.scene.tp3d["o_centerx"] = centerx
+        bpy.context.scene.tp3d["o_centery"] = centery
+
+        # --- Phase 7: Remove previously generated objects at the same location ---
+        overlay.update(0.28, "Scene Cleanup", "Removing previous objects…")
+        xOff = props['xTerrainOffset']
+        yOff = props['yTerrainOffset']
+        target_2d        = Vector((centerx, centery))
+        target_2d_offset = Vector((centerx + xOff, centery + yOff))
+        for obs in bpy.data.objects:
+            obj_2d        = Vector((obs.location.x, obs.location.y))
+            obj_2d_offset = obj_2d
+            if "xTerrainOffset" in obs.keys() or "yTerrainOffset" in obs.keys():
+                obj_2d_offset = Vector((obs.location.x - obs["xTerrainOffset"], obs.location.y - obs["yTerrainOffset"]))
+            if (obj_2d - target_2d).length <= 0.1 or (obj_2d - target_2d_offset).length <= 0.1:
+                bpy.data.objects.remove(obs, do_unlink=True)
+            elif (obj_2d_offset - target_2d).length <= 0.1 or (obj_2d_offset - target_2d_offset).length <= 0.1:
+                bpy.data.objects.remove(obs, do_unlink=True)
+        bpy.ops.object.select_all(action='DESELECT')
+
+        #utils.appendCollection()
+        if bpy.context.scene.tp3d.generation_mode == 'GENERATION':
+            utils.runGeneration(20)
+        elif bpy.context.scene.tp3d.generation_mode == 'MULTI':
+            utils.runGeneration(21)
+
+        currentMap = bpy.context.scene.tp3d.currentMap
+        currentTrail = bpy.context.scene.tp3d.currentTrail
+
+        #utils.merge_with_map(currentMap, currentTrail, False, False)
+
+        #utils.remove_objects(currentTrail)
+
+
+
+
+
+
+        return {'FINISHED'}
+
+
+class TP3D_OT_append_collection_blank(bpy.types.Operator):
+    bl_idname = "tp3d.append_collection_blank"
+    bl_label = "import blank"
+    bl_description = "Import the collection without generating the map"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        utils.appendCollection()
         return {'FINISHED'}
