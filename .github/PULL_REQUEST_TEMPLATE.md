@@ -20,6 +20,6 @@ Closes #<!-- issue number, if any -->
 
 ## Checklist
 
-- [ ] I tested this in Blender 5.0 or newer
+- [ ] I tested this in Blender 5.1 or newer
 - [ ] I haven't broken any existing features I'm aware of
 - [ ] New or changed behaviour is reflected in the README (if relevant)

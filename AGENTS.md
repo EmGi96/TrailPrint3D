@@ -1,6 +1,6 @@
 # TrailPrint3D — Agent Coding Instructions
 
-This is a **Blender 4.5+ Python addon** using the Blender Extensions platform. Apply every rule in this file when reading or writing any `.py` file inside `TrailPrint3D/`.
+This is a **Blender 5.1+ Python addon** using the Blender Extensions platform. Apply every rule in this file when reading or writing any `.py` file inside `TrailPrint3D/`.
 
 ---
 

@@ -1,11 +1,11 @@
 schema_version = "1.0.0"
 id = "trailprint3d"
-version = "3.0.8"
+version = "3.1.0"
 name = "TrailPrint3D"
 tagline = "Create 3D Printable Miniature Maps of your Adventures"
 maintainer = "EmGi"
 type = "add-on"
-blender_version_min = "4.5.0"
+blender_version_min = "5.1.0"
 license = [
   "SPDX:GPL-3.0-or-later",
 ]

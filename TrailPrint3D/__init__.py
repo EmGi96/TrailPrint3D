@@ -93,7 +93,7 @@ bl_info = {
     "name": "TrailPrint3D",
     "author": "EmGi",
     "version": (3, 1, 0),
-    "blender": (4, 5, 0),
+    "blender": (5, 1, 0),
     "location": "View3D > Sidebar > TrailPrint3D",
     "description": "Create 3D Printable Miniature Maps of your Adventures",
     "warning": "",

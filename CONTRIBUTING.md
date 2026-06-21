@@ -41,7 +41,7 @@ Thanks for wanting to help! Here's everything you need to know.
    ```bash
    git checkout -b fix/my-bug-description
    ```
-2. Make your changes and test them in **Blender 5.0 or newer**.
+2. Make your changes and test them in **Blender 5.1 or newer**.
 3. Push your branch and open a PR against `main`.
 4. Fill in the PR template — especially the "How was it tested?" section.
 
