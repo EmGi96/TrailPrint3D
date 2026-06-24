@@ -494,31 +494,42 @@ def RaycastCurveToMesh(curve_obj, mesh_obj):
         # Fill gaps from the nearest point along the spline that DID hit --
         # carried forward first, then backward (covers a run of misses at
         # the very start of the spline, before any hit has happened yet).
-        last_hit = None
-        for i, h in enumerate(hits):
-            if h is not None:
-                last_hit = h
-            elif last_hit is not None:
-                hits[i] = last_hit
-        next_hit = None
-        for i in range(len(hits) - 1, -1, -1):
-            if hits[i] is not None:
-                next_hit = hits[i]
-            elif next_hit is not None:
-                hits[i] = next_hit
+        # Only the HEIGHT is borrowed from that neighbour, not its full
+        # position -- copying the whole hit vector collapsed every point in
+        # a miss run onto that one neighbour's x/y.
+        filled_z = [h.z if h is not None else None for h in hits]
+        last_z = None
+        for i, z in enumerate(filled_z):
+            if z is not None:
+                last_z = z
+            elif last_z is not None:
+                filled_z[i] = last_z
+        next_z = None
+        for i in range(len(filled_z) - 1, -1, -1):
+            if filled_z[i] is not None:
+                next_z = filled_z[i]
+            elif next_z is not None:
+                filled_z[i] = next_z
 
         # Second pass: apply. If literally nothing on this spline ever hit
         # (no terrain below it at all), restore each point to where it
         # started rather than leaving it stranded 1000 units up in the air.
-        for point, local_hit, orig in zip(points, hits, originals):
-            if local_hit is None:
-                point.co = orig - offset if spline.type == 'BEZIER' else (orig.x, orig.y, orig.z - offset.z, 1.0)
+        for point, local_hit, orig, z in zip(points, hits, originals, filled_z):
+            if local_hit is not None:
+                if spline.type == 'BEZIER':
+                    point.co = local_hit
+                    point.handle_left_type = point.handle_right_type = 'AUTO'
+                else:
+                    point.co = (local_hit.x, local_hit.y, local_hit.z, 1.0)
                 continue
-            if spline.type == 'BEZIER':
-                point.co = local_hit
+
+            if z is None:
+                point.co = orig - offset if spline.type == 'BEZIER' else (orig.x, orig.y, orig.z - offset.z, 1.0)
+            elif spline.type == 'BEZIER':
+                point.co = Vector((orig.x, orig.y, z))
                 point.handle_left_type = point.handle_right_type = 'AUTO'
             else:
-                point.co = (local_hit.x, local_hit.y, local_hit.z, 1.0)
+                point.co = (orig.x, orig.y, z, 1.0)
 
     bpy.context.view_layer.objects.active = curve_obj
     bpy.ops.object.mode_set(mode='EDIT')
@@ -614,47 +625,55 @@ def RaycastCurveToAnyMesh(curve_obj, offset_z=1000.0, smooth_after=True):
                 else:
                     reason = f"normal.z={hit_result[2].z:.2f} (not upward)"
                 hit_obj_name = hit_obj.name if hit_obj else None
-                print(f"[TP3D raycast] point {len(hits)} at ({co_world.x:.1f},{co_world.y:.1f}) rejected: "
-                      f"{reason}, hit_object={hit_obj_name}, hit_z={hit_result[1].z if hit_result[0] else 'n/a'}")
             hits.append(curve_world_inv @ hit_result[1] if hit_ok else None)
-
-        rejected_indices = [i for i, h in enumerate(hits) if h is None]
 
         # Fill gaps from the nearest point along the spline that DID hit --
         # carried forward first, then backward (covers a run of misses at
         # the very start of the spline, before any hit has happened yet).
-        last_hit = None
-        for i, h in enumerate(hits):
-            if h is not None:
-                last_hit = h
-            elif last_hit is not None:
-                hits[i] = last_hit
-        next_hit = None
-        for i in range(len(hits) - 1, -1, -1):
-            if hits[i] is not None:
-                next_hit = hits[i]
-            elif next_hit is not None:
-                hits[i] = next_hit
-
-        for i in rejected_indices:
-            filled_z = hits[i].z if hits[i] is not None else None
-            print(f"[TP3D raycast] point {i} rejected -> filled with z={filled_z}")
+        # Only the HEIGHT is borrowed from that neighbour, not its full
+        # position -- copying the whole hit vector collapsed every point in
+        # a miss run onto that one neighbour's x/y (e.g. when a long trail
+        # only clips the edge of a much smaller map tile, almost every point
+        # misses and they all landed on the same single spot).
+        filled_z = [h.z if h is not None else None for h in hits]
+        last_z = None
+        for i, z in enumerate(filled_z):
+            if z is not None:
+                last_z = z
+            elif last_z is not None:
+                filled_z[i] = last_z
+        next_z = None
+        for i in range(len(filled_z) - 1, -1, -1):
+            if filled_z[i] is not None:
+                next_z = filled_z[i]
+            elif next_z is not None:
+                filled_z[i] = next_z
 
         # Second pass: apply. If literally nothing on this spline ever hit
         # (no terrain below it at all), restore each point to where it
         # started rather than leaving it stranded offset_z units up.
         for i, point in enumerate(points):
             local_hit = hits[i]
-            if local_hit is None:
+            if local_hit is not None:
+                if spline.type == 'BEZIER':
+                    point.co = local_hit
+                    # keep handles auto to get a reasonable shape; alternatively compute
+                    point.handle_left_type = point.handle_right_type = 'AUTO'
+                else:
+                    point.co = (local_hit.x, local_hit.y, local_hit.z, ws[i])
+                continue
+
+            z = filled_z[i]
+            if z is None:
                 point.co = originals[i] - offset if spline.type == 'BEZIER' else \
                     (originals[i].x, originals[i].y, originals[i].z - offset.z, ws[i])
-                continue
-            if spline.type == 'BEZIER':
-                point.co = local_hit
-                # keep handles auto to get a reasonable shape; alternatively compute
+            elif spline.type == 'BEZIER':
+                orig = originals[i]
+                point.co = Vector((orig.x, orig.y, z))
                 point.handle_left_type = point.handle_right_type = 'AUTO'
             else:
-                point.co = (local_hit.x, local_hit.y, local_hit.z, ws[i])
+                orig = originals[i]
+                point.co = (orig.x, orig.y, z, ws[i])
 
     # optional smoothing (go into edit mode, smooth, come back)
     if smooth_after:
@@ -1703,11 +1722,23 @@ def single_color_mode_curve(crv, map, keepTolTrail = False, cutDepth = 2, projec
         # even after cleanup it's safer not to risk MANIFOLD's silent no-op
         # on the one boolean we directly control. It's tiny, so the slower
         # EXACT solver costs nothing noticeable here.
-        boolean_operation(map, crv_thick, 'DIFFERENCE', solver='EXACT')
+        #boolean_operation(map, crv_thick, 'DIFFERENCE', solver='EXACT')
+        boolean_operation(map, crv_thick, 'DIFFERENCE')
 
     if not keepTolTrail:
         if crv_thick is not None:
-            bpy.data.objects.remove(crv_thick, do_unlink=True)
+            if bpy.app.debug:
+                # DEBUG ONLY: keep the groove-carving solid around (parked in
+                # its own collection) instead of deleting it, so a map that
+                # comes out empty after the DIFFERENCE above can be inspected
+                # -- e.g. a non-manifold/pinch-point crv_thick is the known
+                # cause (see docs/roads-shapely-approach.md).
+                debug_coll = g2d.debug_collection("TP3D_Debug_GrooveCutters")
+                for coll in list(crv_thick.users_collection):
+                    coll.objects.unlink(crv_thick)
+                debug_coll.objects.link(crv_thick)
+            else:
+                bpy.data.objects.remove(crv_thick, do_unlink=True)
         return (crv, None)
     return (crv, crv_thick)
 

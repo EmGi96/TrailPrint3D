@@ -201,15 +201,21 @@ def separate_duplicate_xy(coordinates, offset=0.05, threshold=0.01):
 
         x, y, z = point[0], point[1], point[2]
 
-        for prev in accepted:
-            dx = x - prev[0]
-            dy = y - prev[1]
-            dz = z - prev[2]
-            if math.sqrt(dx*dx + dy*dy + dz*dz) < threshold:
-                point[1] += offset
-                point[2] += offset
-                break
+        # Keep bumping by another offset and re-checking against every
+        # accepted point until clear -- a single fixed-offset nudge sends
+        # every duplicate of the same earlier point to the identical new
+        # spot, just re-collapsing them onto each other instead of
+        # separating them.
+        bump = 0
+        while any(
+            math.sqrt((x - prev[0])**2 + (y - prev[1])**2 + (z - prev[2])**2) < threshold
+            for prev in accepted
+        ):
+            bump += 1
+            y = point[1] + bump * offset
+            z = point[2] + bump * offset
 
+        point[1], point[2] = y, z
         accepted.append((point[0], point[1], point[2]))
 
     return coordinates
