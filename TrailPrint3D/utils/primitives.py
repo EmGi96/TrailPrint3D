@@ -347,6 +347,12 @@ def create_circle(radius, num_subdivisions = 1, name = "Circle", num_segments=64
     _t = time.time()
     bpy.ops.mesh.fill_grid()
 
+    # fill_grid winding is indeterminate on a flat disk — ensure normals point up
+    bm = bmesh.from_edit_mesh(mesh)
+    bm.normal_update()
+    if bm.faces and sum(f.normal.z for f in bm.faces) / len(bm.faces) < 0:
+        bpy.ops.mesh.flip_normals()
+
     _sub_iters = num_subdivisions - 3
     if _sub_iters > 0:
         cuts = 2 ** _sub_iters - 1
@@ -410,6 +416,12 @@ def create_ellipse(radius, num_subdivisions = 1, name = "Ellipse", aspect_ratio 
     bpy.ops.mesh.select_all(action='SELECT')
     _t = time.time()
     bpy.ops.mesh.fill_grid()
+
+    # fill_grid winding is indeterminate on a flat disk — ensure normals point up
+    bm = bmesh.from_edit_mesh(mesh)
+    bm.normal_update()
+    if bm.faces and sum(f.normal.z for f in bm.faces) / len(bm.faces) < 0:
+        bpy.ops.mesh.flip_normals()
 
     _sub_iters = num_subdivisions - 3
     if _sub_iters > 0:
