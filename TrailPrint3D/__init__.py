@@ -203,10 +203,11 @@ def startup_function(scene, dummy = None):
 
     export.is_3mf_extension_installed()
 
-    if temp.PREMIUMVERSION:
-        updater.start_premium_check()
-    else:
-        updater.start_check()
+    if const.ENABLE_UPDATE_CHECKER:
+        if temp.PREMIUMVERSION:
+            updater.start_premium_check()
+        else:
+            updater.start_check()
 
     #utils.load_myproperties_from_csv(bpy.context.scene.preset_list)
 
