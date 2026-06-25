@@ -26,6 +26,9 @@ def export_to_STL(zobj, force="STL"):
     exportPath = bpy.context.scene.tp3d.get('export_path', None)
     if not exportPath:
         exportPath = addon_preferences.get_prefs().default_export_folder
+    if not exportPath:
+        _progress.WarningsOverlay.add_warning("Export folder not set — please set an export path", "error")
+        return
     bpy.ops.object.select_all(action='DESELECT')
     zobj.select_set(True)
     bpy.context.view_layer.objects.active = zobj
@@ -51,6 +54,9 @@ def export_selected_to_STL(force="STL"):
     exportPath = bpy.context.scene.tp3d.get('export_path', None)
     if not exportPath:
         exportPath = addon_preferences.get_prefs().default_export_folder
+    if not exportPath:
+        _progress.WarningsOverlay.add_warning("Export folder not set — please set an export path", "error")
+        return {'FINISHED'}
     selected_objects = bpy.context.selected_objects
     active_obj = bpy.context.active_object
 
@@ -92,6 +98,9 @@ def export_selected_to_3mf():
     exportPath = bpy.context.scene.tp3d.get('export_path', "")
     if not exportPath:
         exportPath = addon_preferences.get_prefs().default_export_folder
+    if not exportPath:
+        _progress.WarningsOverlay.add_warning("Export folder not set — please set an export path", "error")
+        return {'FINISHED'}
     selected_objects = bpy.context.selected_objects
 
     if not selected_objects:
