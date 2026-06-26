@@ -505,6 +505,15 @@ class TP3D_PT_advanced(bpy.types.Panel):
             col.operator("wm.url_open", text=_("OpenStreetMap contributors — water, forests, city data"), icon='URL').url = "https://www.openstreetmap.org/copyright"
             col.operator("wm.url_open", text=_("Mapzen Terrain Tiles — terrain (OSM, NASA SRTM, USGS)"), icon='URL').url = "https://registry.opendata.aws/terrain-tiles/"
             col.operator("wm.url_open", text=_("OpenTopography — elevation (Global DEM)"), icon='URL').url = "https://opentopography.org/"
+            col.separator(factor=0.8)
+            disclaimer = box.column(align=True)
+            disclaimer.scale_y = 0.75
+            disclaimer.label(text=_("TrailPrint3D itself may be used commercially."), icon='NONE')
+            disclaimer.label(text=_("Data obtained through the add-on (such as OpenStreetMap"), icon='NONE')
+            disclaimer.label(text=_("or other providers) is subject to the respective"), icon='NONE')
+            disclaimer.label(text=_("provider's license and terms, which may include"), icon='NONE')
+            disclaimer.label(text=_("attribution or other requirements. Users are"), icon='NONE')
+            disclaimer.label(text=_("responsible for ensuring compliance with those terms."), icon='NONE')
 
 
 class TP3D_PT_shapes(bpy.types.Panel):

@@ -803,7 +803,12 @@ def _rg_apply_single_color_mode(obj, curveObjs, terrain, props):
                 boolean_operation(elem_obj, tcrv)
 
     if thickerCurves:
-        remove_objects(thickerCurves)
+        if bpy.app.debug:
+            obj_size = props.get('size', 100)
+            for tcrv in thickerCurves:
+                tcrv.location.x += obj_size
+        else:
+            remove_objects(thickerCurves)
 
 
 def _rg_assign_materials_and_export(obj, curveObjs, textobj, plateobj, props, buggyDataset, start_time, exportformat, elements=None):
