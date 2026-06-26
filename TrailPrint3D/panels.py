@@ -500,10 +500,11 @@ class TP3D_PT_advanced(bpy.types.Panel):
         if props.show_attribution:
             box = layout.box()
             col = box.column(align=True)
-            col.label(text=_("Elevation data from OpenTopoData, using the SRTM and other datasets."))
-            col.label(text=_("Elevation data from Open-Elevation, based on Shuttle Radar Topography Mission (SRTM) data © NASA."))
-            col.label(text=_("Water, Forests, City data © OpenStreetMap contributors"))
-            col.label(text=_("Terrain data from Mapzen, based on data © OpenStreetMap contributors, NASA SRTM, and USGS."))
+            col.operator("wm.url_open", text=_("OpenTopoData — elevation (SRTM and other datasets)"), icon='URL').url = "https://www.opentopodata.org/"
+            col.operator("wm.url_open", text=_("Open-Elevation — elevation (SRTM © NASA)"), icon='URL').url = "https://open-elevation.com/"
+            col.operator("wm.url_open", text=_("OpenStreetMap contributors — water, forests, city data"), icon='URL').url = "https://www.openstreetmap.org/copyright"
+            col.operator("wm.url_open", text=_("Mapzen Terrain Tiles — terrain (OSM, NASA SRTM, USGS)"), icon='URL').url = "https://registry.opendata.aws/terrain-tiles/"
+            col.operator("wm.url_open", text=_("OpenTopography — elevation (Global DEM)"), icon='URL').url = "https://opentopography.org/"
 
 
 class TP3D_PT_shapes(bpy.types.Panel):

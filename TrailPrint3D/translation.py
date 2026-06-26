@@ -32,10 +32,11 @@ translations_dict = {
         ("*", "If you hosted your own Version of Opentopodata:"): "Falls du deine eigene Version von Opentopodata hostest",
         ("*", "Elements (Water,forest,...) runs on the Overpass API"): "Elemente (Wasser, Wald,...) nutzen die Overpass API",
         ("*", "Get Input Settings of Selected Generate Map"): "Zeige die Eingabeparameter der ausgewählten Karte an",
-        ("*", "Elevation data from OpenTopoData, using the SRTM and other datasets."): "Höhendaten von OpenTopoData, unter Verwendung des SRTM-Datensatzes und anderer Datensätze",
-        ("*", "Elevation data from Open-Elevation, based on Shuttle Radar Topography Mission (SRTM) data © NASA."): "Höhendaten von Open-Elevation, basierend auf Daten der Shuttle Radar Topography Mission (SRTM) © NASA.",
-        ("*", "Water, Forests, City data © OpenStreetMap contributors"): "Wasser-, Wald- und Stadtdaten © OpenStreetMap-Mitwirkende",
-        ("*", "Terrain data from Mapzen, based on data © OpenStreetMap contributors, NASA SRTM, and USGS."): "Geländedaten von Mapzen, basierend auf Daten © OpenStreetMap-Mitwirkende, NASA SRTM und USGS.",
+        ("*", "OpenTopoData — elevation (SRTM and other datasets)"): "OpenTopoData — Höhendaten (SRTM und weitere Datensätze)",
+        ("*", "Open-Elevation — elevation (SRTM © NASA)"): "Open-Elevation — Höhendaten (SRTM © NASA)",
+        ("*", "OpenStreetMap contributors — water, forests, city data"): "OpenStreetMap-Mitwirkende — Wasser, Wald, Stadtdaten",
+        ("*", "Mapzen Terrain Tiles — terrain (OSM, NASA SRTM, USGS)"): "Mapzen Terrain Tiles — Geländedaten (OSM, NASA SRTM, USGS)",
+        ("*", "OpenTopography — elevation (Global DEM)"): "OpenTopography — Höhendaten (Globales DEM)",
         ("*", "Show what Settings were used to Generate this Object (With Map object Selected)"): "Zeige die Einstellungen an, die zum Generieren dieses Objekts verwendet wurden (Karte ausgewählt).",
         ("*", "No active object."): "kein Objekt ausgewählt",
         ("*", "No custom properties found. Please Select a Map"): "Keine eigenschaften gefunden. Bitte eine Karte auswählen",
@@ -412,14 +413,11 @@ translations_dict = {
         ("*", "Elements (Water,forest,...) runs on the Overpass API"): "元素（水、森林等）使用 Overpass API",
         ("*", "Get Input Settings of Selected Generate Map"): "获取所选地图的生成设置",
 
-        ("*", "Elevation data from OpenTopoData, using the SRTM and other datasets."):
-            "高程数据来自 OpenTopoData，使用 SRTM 及其他数据集",
-        ("*", "Elevation data from Open-Elevation, based on Shuttle Radar Topography Mission (SRTM) data © NASA."):
-            "高程数据来自 Open-Elevation，基于 NASA 的 SRTM 数据",
-        ("*", "Water, Forests, City data © OpenStreetMap contributors"):
-            "水域、森林、城市数据 © OpenStreetMap 贡献者",
-        ("*", "Terrain data from Mapzen, based on data © OpenStreetMap contributors, NASA SRTM, and USGS."):
-            "地形数据来自 Mapzen，基于 OpenStreetMap、NASA SRTM 和 USGS 数据",
+        ("*", "OpenTopoData — elevation (SRTM and other datasets)"): "OpenTopoData — 高程数据（SRTM 及其他数据集）",
+        ("*", "Open-Elevation — elevation (SRTM © NASA)"): "Open-Elevation — 高程数据（SRTM © NASA）",
+        ("*", "OpenStreetMap contributors — water, forests, city data"): "OpenStreetMap 贡献者 — 水域、森林、城市数据",
+        ("*", "Mapzen Terrain Tiles — terrain (OSM, NASA SRTM, USGS)"): "Mapzen Terrain Tiles — 地形数据（OSM、NASA SRTM、USGS）",
+        ("*", "OpenTopography — elevation (Global DEM)"): "OpenTopography — 高程数据（全球 DEM）",
 
         ("*", "Show what Settings were used to Generate this Object (With Map object Selected)"):
             "显示生成该对象时使用的设置（需选中地图对象）",
@@ -833,14 +831,11 @@ translations_dict = {
         ("*", "If you hosted your own Version of Opentopodata:"): "Если вы используете собственную версию Opentopodata:",
         ("*", "Elements (Water,forest,...) runs on the Overpass API"): "Элементы (вода, лес...) используют Overpass API",
         ("*", "Get Input Settings of Selected Generate Map"): "Показать настройки генерации выбранной карты",
-        ("*", "Elevation data from OpenTopoData, using the SRTM and other datasets."):
-            "Данные высот от OpenTopoData, на основе набора данных SRTM и других.",
-        ("*", "Elevation data from Open-Elevation, based on Shuttle Radar Topography Mission (SRTM) data © NASA."):
-            "Данные высот от Open-Elevation, основаны на данных NASA SRTM.",
-        ("*", "Water, Forests, City data © OpenStreetMap contributors"):
-            "Данные о воде, лесах и городах © участники OpenStreetMap",
-        ("*", "Terrain data from Mapzen, based on data © OpenStreetMap contributors, NASA SRTM, and USGS."):
-            "Данные о рельефе от Mapzen, основаны на данных © OpenStreetMap, NASA SRTM и USGS.",
+        ("*", "OpenTopoData — elevation (SRTM and other datasets)"): "OpenTopoData — высотные данные (SRTM и другие наборы)",
+        ("*", "Open-Elevation — elevation (SRTM © NASA)"): "Open-Elevation — высотные данные (SRTM © NASA)",
+        ("*", "OpenStreetMap contributors — water, forests, city data"): "Участники OpenStreetMap — вода, леса, городские данные",
+        ("*", "Mapzen Terrain Tiles — terrain (OSM, NASA SRTM, USGS)"): "Mapzen Terrain Tiles — рельеф (OSM, NASA SRTM, USGS)",
+        ("*", "OpenTopography — elevation (Global DEM)"): "OpenTopography — высотные данные (Global DEM)",
         ("*", "Show what Settings were used to Generate this Object (With Map object Selected)"):
             "Показать настройки, использованные для генерации этого объекта (выберите объект карты)",
         ("*", "No active object."): "Нет активного объекта.",
