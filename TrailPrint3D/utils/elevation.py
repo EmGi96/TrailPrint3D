@@ -171,7 +171,7 @@ def get_elevation_openTopoData(coords, lenv = 0, pointsDone = 0, progress_cb=Non
             progress_cb(100)
         return elevations
 
-    batch_size = 10
+    batch_size = 100
     progress_intervals = set(range(5, 101, 5))
     total_to_fetch = len(coords_to_fetch)
     for i in range(0, total_to_fetch, batch_size):
@@ -522,18 +522,46 @@ def get_elevation_Mapterhorn(coords, lenv=0, pointsDone=0, zoom=10, progress_cb=
             progress_intervals.discard(percent_complete)
             if progress_cb:
                 progress_cb(percent_complete)
+
+        # Mapterhorn only has zoom 13+ tiles for select regions; fall back to zoom 12 (global) on 404.
+        tile_path = None
+        actual_zoom = zoom
+        actual_xtile, actual_ytile = xtile, ytile
+        while actual_zoom >= 12:
+            try:
+                tile_path = fetch_mapterhorn_tile_path(actual_zoom, actual_xtile, actual_ytile)
+                break
+            except requests.HTTPError as e:
+                if e.response is not None and e.response.status_code == 404 and actual_zoom > 12:
+                    actual_zoom -= 1
+                    sample_lat = idx_lat_lon_list[0][1]
+                    sample_lon = idx_lat_lon_list[0][2]
+                    actual_xtile, actual_ytile = lonlat_to_tilexy(sample_lon, sample_lat, actual_zoom)
+                    continue
+                print(f"Failed to fetch Mapterhorn tile {actual_zoom}/{actual_xtile}/{actual_ytile}: {e}")
+                break
+            except Exception as e:
+                print(f"Failed to fetch Mapterhorn tile {actual_zoom}/{actual_xtile}/{actual_ytile}: {e}")
+                break
+
+        if tile_path is None:
+            invalidElevations += len(idx_lat_lon_list)
+            for idx, _, _ in idx_lat_lon_list:
+                elevations[idx] = 0
+            continue
+
         try:
-            tile_path = fetch_mapterhorn_tile_path(zoom, xtile, ytile)
             rgb_array = parse_webp_rgb_data(tile_path)
         except Exception as e:
-            print(f"Failed to fetch or parse Mapterhorn tile {zoom}/{xtile}/{ytile}: {e}")
+            print(f"Failed to parse Mapterhorn tile {actual_zoom}/{actual_xtile}/{actual_ytile}: {e}")
+            invalidElevations += len(idx_lat_lon_list)
             for idx, _, _ in idx_lat_lon_list:
                 elevations[idx] = 0
             continue
 
         for idx, lat, lon in idx_lat_lon_list:
             lat_rad = math.radians(lat)
-            n = 2.0 ** zoom
+            n = 2.0 ** actual_zoom
             px = int(((lon + 180.0) / 360.0 * n * ts) % ts)
             py = int(((1.0 - math.log(math.tan(lat_rad) + 1.0 / math.cos(lat_rad)) / math.pi) / 2.0 * n * ts) % ts)
             px = min(max(px, 0), ts - 1)
@@ -934,14 +962,20 @@ def get_tile_elevation(obj, progress_cb=None):
     save_elevation_cache()
 
     # Save results cache for future re-generations of the same map.
-    try:
-        os.makedirs(const.elevation_results_dir, exist_ok=True)
-        _n = len(elevations)
-        _packed = struct.pack("<I", _n) + struct.pack(f"<{_n}f", *elevations)
-        with open(_cache_path, "wb") as _f:
-            _f.write(zlib.compress(_packed, level=1))
-    except Exception as _e:
-        print(f"Elevation cache write error: {_e}")
+    # Skip if all elevations are zero — indicates a completely failed fetch.
+    _elev_min = min(elevations)
+    _elev_max = max(elevations)
+    if _elev_min == 0.0 and _elev_max == 0.0:
+        print("Elevation results are all zero — skipping cache write to avoid caching a failed fetch")
+    else:
+        try:
+            os.makedirs(const.elevation_results_dir, exist_ok=True)
+            _n = len(elevations)
+            _packed = struct.pack("<I", _n) + struct.pack(f"<{_n}f", *elevations)
+            with open(_cache_path, "wb") as _f:
+                _f.write(zlib.compress(_packed, level=1))
+        except Exception as _e:
+            print(f"Elevation cache write error: {_e}")
 
     lowestElevation = min(elevations)
     highestElevation = max(elevations)
