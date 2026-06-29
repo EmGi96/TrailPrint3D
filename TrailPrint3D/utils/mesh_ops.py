@@ -1693,7 +1693,7 @@ def single_color_mode_curve(crv, map, keepTolTrail = False, cutDepth = 2, projec
     # real map clips the tall prism down to (terrain top surface) above,
     # (bottom_z, flat) below -- exact, no sampling approximation, and bounded
     # by the map's true edges with no artificial wall.
-    remeshClearing(crv, 0.2, 0)
+    remeshClearing(crv, 0.2, 0, map)
     boolean_operation(crv, projectionObj, 'INTERSECT')
 
     if len(crv.data.vertices) == 0:
@@ -1724,7 +1724,7 @@ def single_color_mode_curve(crv, map, keepTolTrail = False, cutDepth = 2, projec
         bpy.ops.object.select_all(action='DESELECT')
         crv_thick.select_set(True)
         bpy.context.view_layer.objects.active = crv_thick
-        remeshClearing(crv_thick, 0.2, 0)
+        remeshClearing(crv_thick, 0.2, 0, map)
         #boolean_operation(map, crv_thick, 'DIFFERENCE', solver='EXACT')
         boolean_operation(map, crv_thick, 'DIFFERENCE')
 
@@ -1870,7 +1870,7 @@ def single_color_mode_mesh_wireframe(original, map, tolerance = None):
     return None
 
 
-def remeshClearing(obj, voxelSize2, tolerance):
+def remeshClearing(obj, voxelSize2, tolerance, map_obj=None):
 
 
     # Nothing valid to measure if the element is empty.
@@ -1989,11 +1989,17 @@ def remeshClearing(obj, voxelSize2, tolerance):
     bmesh.update_edit_mesh(obj.data)
     del bm  # discard before exiting edit mode to avoid the same issue
 
-    # Extrude upward by 30
+    if map_obj is not None and map_obj.data.vertices:
+        mw = map_obj.matrix_world
+        map_top_z = max((mw @ v.co).z for v in map_obj.data.vertices)
+        extrude_height = max(10.0, map_top_z - bottom_z + 2.0)
+    else:
+        extrude_height = 30.0
+
     bpy.ops.mesh.select_mode(type='FACE')
     bpy.ops.mesh.select_all(action='SELECT')
     bpy.ops.mesh.extrude_region_move(
-        TRANSFORM_OT_translate={"value": (0, 0, 30)}
+        TRANSFORM_OT_translate={"value": (0, 0, extrude_height)}
     )
     bpy.ops.object.mode_set(mode='OBJECT')
 

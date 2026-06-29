@@ -702,11 +702,12 @@ def _rg_apply_single_color_mode(obj, curveObjs, terrain, props):
                 bpy.ops.object.select_all(action='DESELECT')
                 tcrv.select_set(True)
                 bpy.context.view_layer.objects.active = tcrv
-            for i in range(len(survivingCurveObjs) - 1):
-                recalculateNormals(survivingCurveObjs[i + 1])
+            for i in range(len(thickerCurves)):
                 recalculateNormals(thickerCurves[i])
-                thickerCurves[i].scale = (1.01, 1.01, 1.01)
-                boolean_operation(survivingCurveObjs[i + 1], thickerCurves[i])
+                thickerCurves[i].location.z -= 0.001
+                for j in range(i + 1, len(survivingCurveObjs)):
+                    recalculateNormals(survivingCurveObjs[j])
+                    boolean_operation(survivingCurveObjs[j], thickerCurves[i])
 
     if props['elementMode'] == "SEPARATE" and 1 == 0:
         for i, key in enumerate(TERRAIN_PRIORITY_ORDER):

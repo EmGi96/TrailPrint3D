@@ -1516,7 +1516,7 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
             _ov.update(message=f"Roads: Remeshing roads for clean geometry")
             _ov.set_fetch_progress('roads', 0.75)
 
-        remeshClearing(roads, 0.2, 0)
+        remeshClearing(roads, 0.2, 0, map)
 
         if _ov.active:
             _ov.set_fetch_progress('roads', 0.90)
