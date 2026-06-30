@@ -1805,6 +1805,15 @@ def single_color_mode_mesh_wireframe(original, map, tolerance = None):
     # Record the z level of the bottom plane before wireframe
     bottom_z = min(v.co.z for v in obj.data.vertices)
 
+    mw_obj = obj.matrix_world
+    bottom_z_world = min((mw_obj @ v.co).z for v in obj.data.vertices)
+    if map is not None and map.data.vertices:
+        mw_map = map.matrix_world
+        map_top_z = max((mw_map @ v.co).z for v in map.data.vertices)
+        _extrude_height = max(10.0, map_top_z - bottom_z_world + 2.0)
+    else:
+        _extrude_height = 50.0
+
     # Apply Wireframe modifier with -tolerance as thickness
     wire = obj.modifiers.new(name="Wireframe", type='WIREFRAME')
     wire.thickness = -tolerance
@@ -1830,10 +1839,10 @@ def single_color_mode_mesh_wireframe(original, map, tolerance = None):
     bpy.ops.mesh.select_all(action='SELECT')
     bpy.ops.mesh.edge_face_add()
 
-    # Extrude upward by 50
+    # Extrude upward past the top of the map
     bpy.ops.mesh.select_all(action='SELECT')
     bpy.ops.mesh.extrude_region_move(
-        TRANSFORM_OT_translate={"value": (0, 0, 50)}
+        TRANSFORM_OT_translate={"value": (0, 0, _extrude_height)}
     )
     bpy.ops.object.mode_set(mode='OBJECT')
 
@@ -2050,7 +2059,12 @@ def single_color_mode_mesh_remesh(original, map, tolerance = None):
     # World-space bottom of the element: the prism floor (recess depth) sits here.
     mw = original.matrix_world
     bottom_z = min((mw @ v.co).z for v in original.data.vertices)
-    PRISM_HEIGHT = 30.0
+    if map is not None and map.data.vertices:
+        mw_map = map.matrix_world
+        map_top_z = max((mw_map @ v.co).z for v in map.data.vertices)
+        PRISM_HEIGHT = max(10.0, map_top_z - bottom_z + 2.0)
+    else:
+        PRISM_HEIGHT = 30.0
 
     # Earcut a flat cap (holes preserved) for every polygon part, then merge.
     caps = []
