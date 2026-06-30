@@ -105,14 +105,20 @@ def _fetch_all_kinds_parallel(kind_task_pairs, semaphore, settings=None, max_wor
     results = {kind: {} for kind, _ in kind_task_pairs}
     lock = threading.Lock()
 
+    total_tiles = len(tile_kinds)
+    tile_counter = [0]  # mutable cell shared across worker threads, guarded by `lock`
+
     def _fetch_tile(bbox, kinds):
+        with lock:
+            tile_counter[0] += 1
+            tile_progress = (tile_counter[0], total_tiles)
         # Acquire the shared semaphore before the network call (mirrors the
         # original _fetch_one pattern so the semaphore correctly caps the
         # number of concurrent live Overpass requests).
         if semaphore is not None:
             semaphore.acquire()
         try:
-            tile_result = fetch_osm_combined(bbox, kinds, settings=settings)
+            tile_result = fetch_osm_combined(bbox, kinds, settings=settings, tile_progress=tile_progress)
         except Exception as e:
             print(f"[_fetch_all_kinds_parallel] tile {bbox} failed: {e}")
             return

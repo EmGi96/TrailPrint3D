@@ -124,6 +124,11 @@ def fetch_osm_data(bbox, kind="WATER", max_cache_age_hours=720, return_cache_sta
         water_small_rivers = bool(bpy.context.scene.tp3d.col_wSmallRiversActive)
         water_big_rivers   = bool(bpy.context.scene.tp3d.col_wBigRiversActive)
 
+    # Small/minor waterways are expensive on large maps -- drop them above
+    # SMALL_RIVERS_MAXSIZE. Big (wikidata-tagged) rivers and ponds keep
+    # applying up to the regular WATER_MAXSIZE cap.
+    water_small_rivers = water_small_rivers and mapsize <= const.SMALL_RIVERS_MAXSIZE
+
     def get_cache_dir():
         path = const.overpass_cache_dir
         os.makedirs(path, exist_ok=True)
@@ -338,6 +343,7 @@ def _make_cache_path(bbox, kind, settings=None):
     """
     south, west, north, east = bbox
     if settings is not None:
+        mapsize            = settings.mapsize
         road_big           = settings.road_big
         road_med           = settings.road_med
         road_small         = settings.road_small
@@ -345,12 +351,17 @@ def _make_cache_path(bbox, kind, settings=None):
         water_small_rivers = settings.water_small_rivers
         water_big_rivers   = settings.water_big_rivers
     else:
+        mapsize            = bpy.context.scene.tp3d.sMapInKm
         road_big           = bool(bpy.context.scene.tp3d.el_sBigActive)
         road_med           = bool(bpy.context.scene.tp3d.el_sMedActive)
         road_small         = bool(bpy.context.scene.tp3d.el_sSmallActive)
         water_ponds        = bool(bpy.context.scene.tp3d.col_wPondsActive)
         water_small_rivers = bool(bpy.context.scene.tp3d.col_wSmallRiversActive)
         water_big_rivers   = bool(bpy.context.scene.tp3d.col_wBigRiversActive)
+
+    # Keep in sync with the same gate in fetch_osm_data / _build_union_query
+    # so the cache key matches whatever was actually queried.
+    water_small_rivers = water_small_rivers and mapsize <= const.SMALL_RIVERS_MAXSIZE
 
     cache_kind = kind
     if kind == "STREETS":
@@ -391,6 +402,11 @@ def _build_union_query(south, west, north, east, kinds, settings=None):
         water_ponds        = bool(bpy.context.scene.tp3d.col_wPondsActive)
         water_small_rivers = bool(bpy.context.scene.tp3d.col_wSmallRiversActive)
         water_big_rivers   = bool(bpy.context.scene.tp3d.col_wBigRiversActive)
+
+    # Small/minor waterways are expensive on large maps -- drop them above
+    # SMALL_RIVERS_MAXSIZE. Big (wikidata-tagged) rivers and ponds keep
+    # applying up to the regular WATER_MAXSIZE cap.
+    water_small_rivers = water_small_rivers and mapsize <= const.SMALL_RIVERS_MAXSIZE
 
     filters = []
 
@@ -596,7 +612,7 @@ def _classify_element(element, active_kinds, settings=None):
 
 
 def fetch_osm_combined(bbox, kinds, settings=None, semaphore=None,
-                       max_cache_age_hours=720):
+                       max_cache_age_hours=720, tile_progress=None):
     """Fetch all requested OSM kinds for one tile bbox in a single Overpass request.
 
     Cache is checked per-kind first.  Only cache-miss kinds are bundled into
@@ -612,6 +628,9 @@ def fetch_osm_combined(bbox, kinds, settings=None, semaphore=None,
     semaphore : optional threading.Semaphore — acquired only during the
                 network request so that cache-only calls never contend
     max_cache_age_hours : freshness threshold for the per-kind cache files
+    tile_progress : optional (index, total) tuple — this tile's 1-based
+                position among all tiles in the current batch, used only to
+                annotate the console log (e.g. "(5/43)")
 
     Returns
     -------
@@ -657,7 +676,8 @@ def fetch_osm_combined(bbox, kinds, settings=None, semaphore=None,
         return result
 
     overpass_url = "https://overpass-api.de/api/interpreter"
-    print(f"[fetch_osm_combined] requesting {missing} for bbox {(south, west, north, east)}")
+    progress_suffix = f"  ({tile_progress[0]}/{tile_progress[1]})" if tile_progress else ""
+    print(f"[fetch_osm_combined] requesting {missing} for bbox {(south, west, north, east)}{progress_suffix}")
 
     # ── 3. Network request (hold semaphore only here) ─────────────────────
     if semaphore is not None:

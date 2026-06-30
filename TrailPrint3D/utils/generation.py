@@ -418,7 +418,7 @@ def _rg_start_osm_prefetch(tp3d, map_km):
         _active_kind_tasks.append(("BUILDINGS", _tile_tasks))
     if any([tp3d.el_sBigActive, tp3d.el_sMedActive, tp3d.el_sSmallActive]) and map_km <= const.ROADS_MAXSIZE:
         _active_kind_tasks.append(("STREETS", _tile_tasks))
-    if tp3d.el_oActive == 1:
+    if tp3d.el_oActive == 1 and map_km <= const.COASTLINE_MAXSIZE:
         _active_kind_tasks.append(("COASTLINE", _tile_tasks))
     if not _active_kind_tasks:
         return None, {}
@@ -478,7 +478,7 @@ def _rg_build_terrain_elements(obj, scaleHor, curveObj=None, phase_start=0.83, p
     _ELEM_PHASE_END   = phase_end
     _active_elem_flags = (
         [flag for _, flag, size, _, _ in COLORING_ELEMENTS if (flag(tp3d) if callable(flag) else getattr(tp3d, flag) == 1) and map_km <= size]
-        + (['_ocean']    if tp3d.el_oActive == 1 else [])
+        + (['_ocean']    if tp3d.el_oActive == 1 and map_km <= const.COASTLINE_MAXSIZE else [])
         + (['_buildings'] if tp3d.el_bActive == 1 and map_km <= const.BUILDINGS_MAXSIZE else [])
         + (['_roads']    if any([tp3d.el_sBigActive, tp3d.el_sMedActive, tp3d.el_sSmallActive]) and map_km <= const.ROADS_MAXSIZE else [])
     )
@@ -497,7 +497,7 @@ def _rg_build_terrain_elements(obj, scaleHor, curveObj=None, phase_start=0.83, p
         (tp3d.col_wPondsActive or tp3d.col_wSmallRiversActive or tp3d.col_wBigRiversActive)
         and map_km <= const.WATER_MAXSIZE
     )
-    _ocean_active = tp3d.el_oActive == 1
+    _ocean_active = tp3d.el_oActive == 1 and map_km <= const.COASTLINE_MAXSIZE
     _water_ocean_combined = _water_feat_active and _ocean_active
 
     # --------------------------------------------------
@@ -555,7 +555,7 @@ def _rg_build_terrain_elements(obj, scaleHor, curveObj=None, phase_start=0.83, p
             _ov.set_fetch_ready('buildings')
         if any([tp3d.el_sBigActive, tp3d.el_sMedActive, tp3d.el_sSmallActive]) and map_km <= const.ROADS_MAXSIZE and _all_prefetched.get('STREETS'):
             _ov.set_fetch_ready('roads')
-        if tp3d.el_oActive == 1 and _all_prefetched.get('COASTLINE'):
+        if tp3d.el_oActive == 1 and map_km <= const.COASTLINE_MAXSIZE and _all_prefetched.get('COASTLINE'):
             _ov.set_fetch_ready('water')
 
     terrain = {}
@@ -592,30 +592,34 @@ def _rg_build_terrain_elements(obj, scaleHor, curveObj=None, phase_start=0.83, p
 
 
     # --------------------------------------------------
-    # Ocean — unique creation logic, no size cap.
+    # Ocean — unique creation logic.
     # --------------------------------------------------
     terrain['ocean'] = None
     if tp3d.el_oActive == 1:
-        _advance_elem_progress("Ocean", "Creating ocean…")
-        _ov.set_fetch_progress('water', 0.5 if _water_feat_active else 0.0)
-        print("Create Ocean")
-        _coastline_tiles = _all_prefetched.get("COASTLINE", {})
-        terrain['ocean'] = createOcean(_coastline_tiles, scaleHor, obj)
-        if terrain['ocean'] is not None:
-            _ov.set_fetch_done('water', success=True)
-        elif _water_ocean_combined:
-            # No coastline nearby (or it failed to build) -- that's normal for
-            # an inland map, not a failure. Fall back to the water-features
-            # chip's own result instead of marking the combined chip red just
-            # because there's no ocean in this area.
-            if _water_result is _COLORING_EMPTY:
-                _ov.set_fetch_empty('water')
-            elif _water_result is _COLORING_FILTERED:
-                _ov.set_fetch_filtered('water')
+        if map_km <= const.COASTLINE_MAXSIZE:
+            _advance_elem_progress("Ocean", "Creating ocean…")
+            _ov.set_fetch_progress('water', 0.5 if _water_feat_active else 0.0)
+            print("Create Ocean")
+            _coastline_tiles = _all_prefetched.get("COASTLINE", {})
+            terrain['ocean'] = createOcean(_coastline_tiles, scaleHor, obj)
+            if terrain['ocean'] is not None:
+                _ov.set_fetch_done('water', success=True)
+            elif _water_ocean_combined:
+                # No coastline nearby (or it failed to build) -- that's normal for
+                # an inland map, not a failure. Fall back to the water-features
+                # chip's own result instead of marking the combined chip red just
+                # because there's no ocean in this area.
+                if _water_result is _COLORING_EMPTY:
+                    _ov.set_fetch_empty('water')
+                elif _water_result is _COLORING_FILTERED:
+                    _ov.set_fetch_filtered('water')
+                else:
+                    _ov.set_fetch_done('water', success=_water_result is not None)
             else:
-                _ov.set_fetch_done('water', success=_water_result is not None)
+                _ov.set_fetch_done('water', success=False)
         else:
-            _ov.set_fetch_done('water', success=False)
+            print(f"INFO: MAP IS TOO BIG FOR COASTLINE (< {const.COASTLINE_MAXSIZE}km required)")
+            _progress.WarningsOverlay.add_warning("Map too big for Ocean/Coastline layer.", "warn")
 
     print("Base elements Created")
 
@@ -1005,7 +1009,7 @@ def build_fetch_items(map_km=None):
         if key == 'water':
             water_feats = ((tp3d.col_wPondsActive or tp3d.col_wSmallRiversActive
                             or tp3d.col_wBigRiversActive) and map_km <= const.WATER_MAXSIZE)
-            active = water_feats or (tp3d.el_oActive == 1)
+            active = water_feats or (tp3d.el_oActive == 1 and map_km <= const.COASTLINE_MAXSIZE)
             max_size = None
         elif key == 'roads':
             active = any([tp3d.el_sBigActive, tp3d.el_sMedActive, tp3d.el_sSmallActive])
