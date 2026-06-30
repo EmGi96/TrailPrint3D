@@ -396,7 +396,7 @@ def _rg_start_osm_prefetch(tp3d, map_km):
         for k in range(_tile_lats)
         for l in range(_tile_lons)
     ]
-    _semaphore = threading.Semaphore(2)  # max 2 concurrent live Overpass requests
+    _semaphore = threading.Semaphore(1)  # max 1 concurrent live Overpass request (avoid 429s on the public instance)
     _fetch_settings = OsmFetchSettings(
         disable_cache       = tp3d.disableCache,
         api_retries         = tp3d.apiRetries,
@@ -517,7 +517,7 @@ def _rg_build_terrain_elements(obj, scaleHor, curveObj=None, phase_start=0.83, p
             for k in range(_tile_lats)
             for l in range(_tile_lons)
         ]
-        _overpass_semaphore = threading.Semaphore(2)  # max 2 concurrent live Overpass requests
+        _overpass_semaphore = threading.Semaphore(1)  # max 1 concurrent live Overpass request (avoid 429s on the public instance)
         _fetch_settings = OsmFetchSettings(
             disable_cache       = tp3d.disableCache,
             api_retries         = tp3d.apiRetries,

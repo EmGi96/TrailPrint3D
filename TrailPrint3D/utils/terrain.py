@@ -25,7 +25,7 @@ def _fetch_tiles_parallel(tasks, kind, semaphore, settings=None, max_workers=4):
     tasks      : list of (south, west, north, east) bbox tuples
     kind       : OSM feature kind string ('WATER', 'FOREST', …)
     semaphore  : threading.Semaphore — limits concurrent live requests to the
-                 Overpass API (callers typically use Semaphore(2))
+                 Overpass API (callers typically use Semaphore(1))
     settings   : OsmFetchSettings snapshot read on the main thread before this
                  function is called.  Passed through to fetch_osm_data so that
                  worker threads never touch bpy.context.
@@ -78,7 +78,7 @@ def _fetch_all_kinds_parallel(kind_task_pairs, semaphore, settings=None, max_wor
     number of concurrent Overpass connections, avoiding rate-limit errors.
 
     The shared *semaphore* still caps the number of live Overpass requests
-    (callers use Semaphore(2)); because each tile now maps to exactly one
+    (callers use Semaphore(1)); because each tile now maps to exactly one
     request, the semaphore is acquired only during the actual network call.
 
     Parameters
