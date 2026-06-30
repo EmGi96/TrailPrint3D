@@ -527,7 +527,7 @@ def get_elevation_Mapterhorn(coords, lenv=0, pointsDone=0, zoom=10, progress_cb=
         tile_path = None
         actual_zoom = zoom
         actual_xtile, actual_ytile = xtile, ytile
-        while actual_zoom >= 12:
+        while True:
             try:
                 tile_path = fetch_mapterhorn_tile_path(actual_zoom, actual_xtile, actual_ytile)
                 break
@@ -813,7 +813,7 @@ def fix_invalid_elevations(elevations):
     def is_invalid(e):
         if e < -500 or e > 9000:
             return True
-        if std > 0 and abs(e - mean) > 4 * std:
+        if std > 0 and abs(e - mean) > 8 * std:
             return True
         return False
 
@@ -912,7 +912,10 @@ def get_tile_elevation(obj, progress_cb=None):
             elevations = list(struct.unpack_from(f"<{_n}f", _raw, 4))
             if len(elevations) == len(world_verts):
                 print(f"Elevation cache hit ({_n} verts) — skipping API fetch")
-                elevations, _fixed_count = fix_invalid_elevations(elevations)
+                if not bpy.context.scene.tp3d.disableElevationOutlierFix:
+                    elevations, _fixed_count = fix_invalid_elevations(elevations)
+                else:
+                    _fixed_count = 0
                 if _fixed_count > 0:
                     print(f"Fixed {_fixed_count} invalid cached elevation value(s)")
                     bpy.context.scene.tp3d.buggyDataset = 1
@@ -954,7 +957,10 @@ def get_tile_elevation(obj, progress_cb=None):
         # Free memory after processing chunk
         del chunk_elevations
 
-    elevations, _fixed_count = fix_invalid_elevations(elevations)
+    if not bpy.context.scene.tp3d.disableElevationOutlierFix:
+        elevations, _fixed_count = fix_invalid_elevations(elevations)
+    else:
+        _fixed_count = 0
     if _fixed_count > 0:
         print(f"Fixed {_fixed_count} invalid elevation value(s)")
         bpy.context.scene.tp3d.buggyDataset = 1

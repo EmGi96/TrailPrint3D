@@ -464,6 +464,7 @@ class TP3D_PT_advanced(bpy.types.Panel):
                 col = box.column(align=True)
                 col.prop(props, "disableCache")
                 col.prop(props, "ccacheSize")
+            box.prop(props, "disableElevationOutlierFix")
             box.separator(factor=0.5)
             box.label(text=_("Elements (Water,forest,...) runs on the Overpass API"))
             box.prop(props, "apiRetries")

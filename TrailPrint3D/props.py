@@ -304,6 +304,7 @@ class TP3D_PG_properties(bpy.types.PropertyGroup):
     tolerance: FloatProperty(name= _("SingleColorMode Tolerance"), default = 0.2, description="Tolerance of the Trail for the SingleColorMode") # type: ignore
     toleranceElements: FloatProperty(name= _("ToleranceElements"), default = 0.4, description= _("Tolerance of the Elements (Water, Forest) for the SingleColorMode")) # type: ignore
     disableCache: BoolProperty(name= _("disableCache"), default = False, description = _("Disable cache if you encounter random holes in your mesh")) # type: ignore
+    disableElevationOutlierFix: BoolProperty(name= _("Disable Buggy Elevation Fixes"), default = False, description = _("Disable automatic correction of statistically outlying elevation values. Enable this if a real peak/valley is being incorrectly flattened")) # type: ignore
     ccacheSize: IntProperty(name = _("Cache Size"), default = 50000, min = 0) # type: ignore
     indipendendTiles : BoolProperty(name= _("IndipendendTiles"), default = False, description = _("Tile minThickness is independent from other tiles")) # type: ignore
 
