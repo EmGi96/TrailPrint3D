@@ -371,7 +371,7 @@ class TP3D_PG_properties(bpy.types.PropertyGroup):
     )# type: ignore
 
     show_create_settings: BoolProperty(name=_("General Settings"), default=True) # type: ignore
-
+    show_terrain_files: BoolProperty(name=_("Files"), default=True) # type: ignore
     show_export: BoolProperty(name=_("Export"), default=True) # type: ignore
     disable_auto_export: BoolProperty(name=_("Disable Auto Export"), default=False, description=_("Don't automatically export files after generation")) # type: ignore
     disable_3mf_export: BoolProperty(name=_("Disable 3MF Export"), default=False, description=_("Don't use 3MF format even if the addon is installed")) # type: ignore

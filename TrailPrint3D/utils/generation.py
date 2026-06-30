@@ -837,21 +837,14 @@ def _rg_apply_single_color_mode(obj, curveObjs, terrain, props):
             remove_objects(thickerCurves)
 
 
-def _rg_assign_materials_and_export(obj, curveObjs, textobj, plateobj, props, buggyDataset, start_time, exportformat, elements=None):
-    """Assign trail/text materials, export all STL files, write metadata, and finalize."""
+def _rg_assign_materials(obj, curveObjs, textobj, plateobj, props):
+    """Write metadata and assign materials to all generated objects."""
     from .metadata import writeMetadata  # deferred to avoid circular import at load time
-    from ..export import export_to_STL, export_selected_to_3mf, is_3mf_extension_installed  # deferred to avoid circular import at load time
-    from .elevation import load_counter  # deferred to avoid circular import at load time
-    from .scene import zoom_camera_to_selected  # deferred to avoid circular import at load time
 
-    if "shape" in props.keys():
-        shape = props['shape']
-    else:
-        shape = None
+    shape = props['shape'] if "shape" in props.keys() else None
 
     bpy.ops.object.select_all(action='DESELECT')
 
-    # Embed metadata into scene objects
     writeMetadata(obj, "MAP")
     if curveObjs:
         for tcrv in curveObjs:
@@ -861,7 +854,6 @@ def _rg_assign_materials_and_export(obj, curveObjs, textobj, plateobj, props, bu
             except ReferenceError:
                 pass
 
-    # Assign alternating TRAIL/YELLOW materials to trail curve segments
     if curveObjs:
         mats = "TRAIL"
         for tcrv in curveObjs:
@@ -874,7 +866,6 @@ def _rg_assign_materials_and_export(obj, curveObjs, textobj, plateobj, props, bu
             except ReferenceError:
                 pass
 
-    # Assign materials to text/plate objects (always, regardless of export settings)
     if shape in {"HEXAGON INNER TEXT", "HEXAGON OUTER TEXT", "OCTAGON OUTER TEXT", "HEXAGON FRONT TEXT", "MEDAL"} and textobj:
         mat_name = "TRAIL" if shape == "HEXAGON INNER TEXT" else "WHITE"
         mat = bpy.data.materials.get(mat_name)
@@ -888,7 +879,15 @@ def _rg_assign_materials_and_export(obj, curveObjs, textobj, plateobj, props, bu
         plateobj.data.materials.append(mat)
         writeMetadata(plateobj, type="PLATE")
 
-    # Export all geometry
+
+def _rg_export(obj, curveObjs, textobj, plateobj, props, buggyDataset, start_time, exportformat, elements=None):
+    """Export all geometry, update API counters, and zoom camera."""
+    from ..export import export_to_STL, export_selected_to_3mf, is_3mf_extension_installed  # deferred to avoid circular import at load time
+    from .elevation import load_counter  # deferred to avoid circular import at load time
+    from .scene import zoom_camera_to_selected  # deferred to avoid circular import at load time
+
+    shape = props['shape'] if "shape" in props.keys() else None
+
     tp3d_props = bpy.context.scene.tp3d
     if getattr(tp3d_props, 'disable_auto_export', False):
         print("Auto export disabled, skipping export")
@@ -896,7 +895,6 @@ def _rg_assign_materials_and_export(obj, curveObjs, textobj, plateobj, props, bu
 
     if is_3mf_extension_installed() and not getattr(tp3d_props, 'disable_3mf_export', False):
         print("Exporting to 3mf")
-        # Select all objects to export, then use the 3MF exporter
         if curveObjs:
             for tcrv in curveObjs:
                 try:
@@ -906,7 +904,6 @@ def _rg_assign_materials_and_export(obj, curveObjs, textobj, plateobj, props, bu
                     pass
         obj.select_set(True)
 
-        # Terrain elements in SEPARATE mode: select for export
         if elements and (props.get('elementMode') == "SEPARATE" or "SINGLECOLORMODE" in props.get('elementMode')):
             for elem_obj in elements.values():
                 if elem_obj and elem_obj.name in bpy.data.objects:
@@ -931,7 +928,6 @@ def _rg_assign_materials_and_export(obj, curveObjs, textobj, plateobj, props, bu
                 export_to_STL(tcrv, exportformat)
         export_to_STL(obj, exportformat)
 
-        # Terrain elements in SEPARATE mode: export individually
         if elements and props.get('elementMode') == "SEPARATE":
             for elem_obj in elements.values():
                 if elem_obj and elem_obj.name in bpy.data.objects:
@@ -943,10 +939,6 @@ def _rg_assign_materials_and_export(obj, curveObjs, textobj, plateobj, props, bu
         if shape in {"HEXAGON OUTER TEXT", "OCTAGON OUTER TEXT", "HEXAGON FRONT TEXT", "MEDAL"} and plateobj:
             export_to_STL(plateobj, exportformat)
 
-
-
-
-    # API counter update
     count_openTopoData, _dt1, count_openElevation, _dt2 = load_counter()
     tp3d = bpy.context.scene.tp3d
     tp3d["o_apiCounter_OpenTopoData"] = (
@@ -964,6 +956,8 @@ def _rg_assign_materials_and_export(obj, curveObjs, textobj, plateobj, props, bu
         _progress.WarningsOverlay.add_warning("API might have faulty DATA. Maybe try diffrent Resolution or API", "warn")
 
     zoom_camera_to_selected(obj)
+
+
 
 
 # ---------------------------------------------------------------------------
@@ -1470,9 +1464,8 @@ def runGeneration(type, locked_scale=None):
 
     # --- Phases 16-18: Assign materials, export, and finalize ---
     overlay.update(0.97, "Finalizing", "Exporting files...")
-    _rg_assign_materials_and_export(
-        obj, curveObjs, textobj, plateobj, props, buggyDataset, start_time, exportformat, elements
-    )
+    _rg_assign_materials(obj, curveObjs, textobj, plateobj, props)
+    _rg_export(obj, curveObjs, textobj, plateobj, props, buggyDataset, start_time, exportformat, elements)
     # Script duration
     end_time = time.time()
     duration = end_time - start_time
@@ -1910,9 +1903,7 @@ def createTerrainFromSelected(manage_overlay=True, skip_bottom_recess=False):
         if elementMode == "PAINT":
             exportformat = "OBJ"
 
-        _rg_assign_materials_and_export(
-            zobj, curveObjs, None, None, props, False, start_time, exportformat
-        )
+        _rg_assign_materials(zobj, curveObjs, None, None, props)
 
         #utils.export_to_STL(zobj)
 
@@ -1942,6 +1933,7 @@ def createTerrainFromSelected(manage_overlay=True, skip_bottom_recess=False):
     _elapsed = int(time.time() - overlay._start_time) if overlay._start_time else 0
     _m, _s = divmod(_elapsed, 60)
     overlay.add_completed_step(f"Done  —  {_m:02d}:{_s:02d} total")
+    _progress.WarningsOverlay.add_warning("Multi-tile maps are not exported automatically — please use the Export buttons to export your tiles manually.", "warn")
     if manage_overlay:
         overlay.finish()
         _progress.WarningsOverlay.get().show()
