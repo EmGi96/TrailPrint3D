@@ -1392,7 +1392,7 @@ def _build_ocean_mesh(open_chains, closed_loops, bbox_bl, tile):
     border_chains = []   # endpoints on the tile border -> bound ocean
     island_loops = []    # closed loops fully inside the tile
 
-    rdp_eps = getattr(bpy.context.scene.tp3d, 'el_oRdpEpsilon', 0.1)
+    rdp_eps = getattr(getattr(bpy.context.scene, 'tp3d', None), 'el_oRdpEpsilon', 0.1)
     if bpy.app.debug:
         print(f"    [ocean mesh] coastline RDP epsilon = {rdp_eps}")
 
@@ -1431,7 +1431,7 @@ def _build_ocean_mesh(open_chains, closed_loops, bbox_bl, tile):
             if len(simplified) >= 3:
                 island_loops.append(simplified)
 
-    tp3d_ctx = bpy.context.scene.tp3d
+    tp3d_ctx = getattr(bpy.context.scene, 'tp3d', None)
     min_area = getattr(tp3d_ctx, 'el_oMinIslandArea', 4.0)
 
     if bpy.app.debug:

@@ -12,6 +12,8 @@ Covers:
 
 Run with:
   blender --background --factory-startup --python-exit-code 1 -P tests/test_osm_pipeline.py
+  or
+  & "C:\Program Files\Blender Foundation\Blender 5.1\blender.exe" --background --factory-startup --python-exit-code 1 -P tests/test_osm_pipeline.py
 
 --python-exit-code 1 exits Blender with code 1 on any unhandled exception
 (including AssertionError), making failures visible to CI.
@@ -595,7 +597,7 @@ def test_real_overpass_classifier():
     import threading
     from TrailPrint3D.utils.osm import fetch_osm_combined, _classify_element
 
-    settings = _munich_settings()
+    settings = _munich_settings(disable_cache=False)
     result = fetch_osm_combined(
         _MUNICH_BBOX,
         ["STREETS", "WATER", "FOREST"],
@@ -615,11 +617,13 @@ def test_real_overpass_classifier():
             f"Kind {kind!r} has no ways or relations — classifier may have "
             f"dropped everything.  Check tag filters in _classify_element."
         )
-        # Spot-check: every classified way should round-trip through the
-        # classifier back to the same kind (no misclassification)
+        # Spot-check: every classified way that has tags should round-trip
+        # through the classifier back to the same kind. Tag-empty elements are
+        # geometry members included by the Overpass '>' recurse operator and
+        # are not expected to classify on their own.
         wrong = [
             e for e in ways
-            if _classify_element(e, [kind], settings) != kind
+            if e.get("tags") and _classify_element(e, [kind], settings) != kind
         ]
         assert not wrong, (
             f"{len(wrong)} element(s) in the {kind!r} bucket failed "
@@ -643,7 +647,7 @@ def test_fetch_all_kinds_fetches_every_kind():
     kinds = ["WATER", "FOREST", "SCREE"]
     kind_task_pairs = [(k, [bbox]) for k in kinds]
 
-    def _mock(b, ks, settings=None, semaphore=None):
+    def _mock(b, ks, settings=None, semaphore=None, tile_progress=None):
         return {k: ({"elements": []}, True) for k in ks}
 
     with patch("TrailPrint3D.utils.osm.fetch_osm_combined", _mock):
@@ -662,7 +666,7 @@ def test_fetch_all_kinds_failed_kind_excluded():
 
     bbox = (0.0, 0.0, 2.0, 2.0)
 
-    def _mock(b, ks, settings=None, semaphore=None):
+    def _mock(b, ks, settings=None, semaphore=None, tile_progress=None):
         # Return WATER but silently drop FOREST (simulate no matching elements)
         return {k: ({"elements": []}, False) for k in ks if k == "WATER"}
 
@@ -688,7 +692,7 @@ def test_fetch_all_kinds_actually_concurrent():
     tiles = [(float(i), float(i), float(i) + 1.0, float(i) + 1.0) for i in range(N_TILES)]
     kind_task_pairs = [("FOREST", tiles)]
 
-    def _mock(bbox, kinds, settings=None, semaphore=None):
+    def _mock(bbox, kinds, settings=None, semaphore=None, tile_progress=None):
         barrier.wait()   # all N_TILES threads must arrive here simultaneously
         return {k: ({"elements": []}, False) for k in kinds}
 
@@ -719,7 +723,7 @@ def test_fetch_all_kinds_semaphore_caps_concurrency():
     tiles = [(float(i), float(i), float(i) + 1.0, float(i) + 1.0) for i in range(6)]
     kind_task_pairs = [("FOREST", tiles)]
 
-    def _mock(bbox, kinds, settings=None, semaphore=None):
+    def _mock(bbox, kinds, settings=None, semaphore=None, tile_progress=None):
         # _fetch_tile holds the semaphore while calling us, so active count
         # directly reflects semaphore occupancy.
         with lock:
@@ -990,7 +994,7 @@ def test_real_coastline_stitch_and_polygon():
     from TrailPrint3D import constants as const
 
     settings = OsmFetchSettings(
-        disable_cache=True, api_retries=2, mapsize=10.0,
+        disable_cache=False, api_retries=2, mapsize=10.0,
         road_big=False, road_med=False, road_small=False,
         water_ponds=False, water_small_rivers=False, water_big_rivers=False,
     )

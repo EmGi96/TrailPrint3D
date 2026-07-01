@@ -35,7 +35,9 @@ def _parse_points(points, point_type):
         segcoords.append((lat, lon, elevation, timestamp))
         lowestElevation = min(lowestElevation, elevation)
 
-    bpy.context.scene.tp3d["o_verticesPath"] = f"{point_type} Path vertices: {len(segcoords)}"
+    tp3d = getattr(bpy.context.scene, 'tp3d', None)
+    if tp3d is not None:
+        tp3d["o_verticesPath"] = f"{point_type} Path vertices: {len(segcoords)}"
 
     return segcoords
 
