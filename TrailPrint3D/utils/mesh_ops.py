@@ -474,6 +474,13 @@ def RaycastCurveToMesh(curve_obj, mesh_obj):
         # wall -- producing an isolated steep spike, not a clean miss. Only
         # accept a hit whose surface normal points mostly upward (a true top
         # face); anything else is treated as a miss too.
+        #
+        # Threshold is 0.1 (not 0.5): jigsaw walls are truly vertical
+        # (normal.z ≈ 0) so 0.1 still catches them, but 0.5 incorrectly
+        # rejected steep terrain at high elevation scales — at elev scale 5
+        # a real-world 20° slope appears as ~64°, normal.z ≈ 0.44 < 0.5,
+        # causing valid hits to be discarded and replaced with the last-valid
+        # Z, which produced flat plateaus followed by sudden vertical steps.
         hits = []
         originals = []
         for point in points:
@@ -487,7 +494,7 @@ def RaycastCurveToMesh(curve_obj, mesh_obj):
             success, hit_loc, normal, face_index = eval_mesh_obj.ray_cast(co_local, direction_local)
             if success:
                 world_normal = (mesh_world.to_3x3() @ normal).normalized()
-                if world_normal.z < 0.5:
+                if world_normal.z < 0.1:
                     success = False
             hits.append(curve_world_inv @ (mesh_world @ hit_loc) if success else None)
 
