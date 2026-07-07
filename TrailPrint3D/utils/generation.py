@@ -1215,12 +1215,12 @@ def runGeneration(type, locked_scale=None):
     blender_coords = separate_duplicate_xy(blender_coords, 0.05)
     if ("separate_paths" in flags or len(separate_paths) > 1) and "trail_map" not in flags:
         blender_coords_separate = [
-            separate_duplicate_xy(convert_to_blender_coordinates_batch(path), 0.05)
+            separate_duplicate_xy(simplify_curve(convert_to_blender_coordinates_batch(path), .12), 0.05)
             for path in separate_paths
         ]
     if separate_paths_by_file and "trail_map" not in flags:
         blender_coords_by_file = [
-            [separate_duplicate_xy(convert_to_blender_coordinates_batch(seg), 0.05) for seg in file_segs]
+            [separate_duplicate_xy(simplify_curve(convert_to_blender_coordinates_batch(seg), .12), 0.05) for seg in file_segs]
             for file_segs in separate_paths_by_file
         ]
 
