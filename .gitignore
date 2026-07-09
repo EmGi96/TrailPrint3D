@@ -13,3 +13,4 @@ build.py
 # Other cache
 __pycache__/
 .claude
+**/wheels/_extracted/

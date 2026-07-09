@@ -92,7 +92,7 @@ Version 3.0
 bl_info = {
     "name": "TrailPrint3D",
     "author": "EmGi",
-    "version": (3, 1, 1),
+    "version": (3, 1, 2),
     "blender": (5, 1, 0),
     "location": "View3D > Sidebar > TrailPrint3D",
     "description": "Create 3D Printable Miniature Maps of your Adventures",
@@ -105,6 +105,56 @@ bl_info = {
 
 import bpy
 import os
+import sys
+import platform
+
+def _bootstrap_wheels():
+    """Extract and load bundled wheels when Blender hasn't processed the manifest.
+
+    Blender only extracts wheels listed in blender_manifest.toml when the addon
+    is installed as an extension.  In dev mode (junction/symlink into scripts/addons)
+    we must extract them ourselves — .pyd C-extensions cannot be imported from
+    a zip on sys.path, they need real files on disk.
+    """
+    try:
+        import shapely  # noqa: F401
+        return  # already available via extension install
+    except ImportError:
+        pass
+
+    import zipfile
+
+    _addon_dir = os.path.dirname(__file__)
+    _wheels_dir = os.path.join(_addon_dir, "wheels")
+    if not os.path.isdir(_wheels_dir):
+        return
+
+    _machine = platform.machine().lower()
+    if sys.platform == "win32":
+        _tag = "win_amd64"
+    elif sys.platform == "darwin":
+        _tag = "macosx_11_0_arm64" if _machine == "arm64" else "macosx_11_0_x86_64"
+    else:
+        _tag = "manylinux_2_17_x86_64"
+
+    _extract_dir = os.path.join(_wheels_dir, "_extracted")
+    os.makedirs(_extract_dir, exist_ok=True)
+
+    for _whl in sorted(os.listdir(_wheels_dir)):
+        if _whl.endswith(".whl") and _tag in _whl:
+            _whl_path = os.path.join(_wheels_dir, _whl)
+            # Use the wheel filename (minus .whl) as a stamp so we re-extract
+            # if the wheel is updated.
+            _stamp = os.path.join(_extract_dir, _whl + ".stamp")
+            if not os.path.exists(_stamp):
+                with zipfile.ZipFile(_whl_path, "r") as _z:
+                    _z.extractall(_extract_dir)
+                open(_stamp, "w").close()
+
+    if _extract_dir not in sys.path:
+        sys.path.insert(0, _extract_dir)
+
+_bootstrap_wheels()
 
 from . import translation
 from . import constants as const
