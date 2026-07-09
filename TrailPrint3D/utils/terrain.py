@@ -4,7 +4,7 @@ import math
 import time
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from mathutils import Vector, bvhtree  # type: ignore
+from mathutils import Vector  # type: ignore
 from .. import progress as _progress
 
 _COLORING_EMPTY = object()
@@ -429,6 +429,20 @@ def coloring_main(map, kind="WATER", prefetched_tiles=None):
     if merged_object is None:
         return None
 
+    # Shift vertex coords so the object origin sits at the 3D cursor.
+    # Keeps vertex coordinates close to zero and avoids float32 precision
+    # artifacts when the map is far from the world origin.
+    import numpy as _np
+    _cursor = bpy.context.scene.cursor.location.copy()
+    _me = merged_object.data
+    _co = _np.empty(len(_me.vertices) * 3, dtype=_np.float32)
+    _me.vertices.foreach_get("co", _co)
+    _co = _co.reshape(-1, 3)
+    _co -= (_cursor.x, _cursor.y, _cursor.z)
+    _me.vertices.foreach_set("co", _co.ravel())
+    _me.update()
+    merged_object.location = _cursor
+
     # Tessellate_polygon produces upward-facing normals (CCW Shapely exterior → Z-up).
     # Flip them downward so the extruded prism intersects the terrain correctly.
     # NOTE: do NOT run remove_doubles here — merging near-coincident vertices from
@@ -480,12 +494,33 @@ def coloring_main(map, kind="WATER", prefetched_tiles=None):
         if _ov.active:
             _ov.update(message=f"{kind.capitalize()}: painting terrain faces")
 
-        print(f"PAINTING ({kind})")
+        _bm_mbd = bmesh.new()
+        _bm_mbd.from_mesh(merged_object.data)
+        bmesh.ops.remove_doubles(_bm_mbd, verts=_bm_mbd.verts[:], dist=1e-6)
+        _bm_mbd.to_mesh(merged_object.data)
+        _bm_mbd.free()
+
+
         _t_paint = time.time()
+
+
         color_map_faces_by_terrain(map, merged_object)
-        mesh_data = merged_object.data
-        bpy.data.objects.remove(merged_object, do_unlink=True)
-        bpy.data.meshes.remove(mesh_data)
+
+
+        print(f"PAINTING ({kind})")
+        if bpy.app.debug:
+            merged_object.location.x += 500.0
+            coll = bpy.data.collections.get("TP3D_Debug")
+            if coll is None:
+                coll = bpy.data.collections.new("TP3D_Debug")
+                bpy.context.scene.collection.children.link(coll)
+            for c in list(merged_object.users_collection):
+                c.objects.unlink(merged_object)
+            coll.objects.link(merged_object)
+        else:
+            mesh_data = merged_object.data
+            bpy.data.objects.remove(merged_object, do_unlink=True)
+            bpy.data.meshes.remove(mesh_data)
         print(f"  [coloring_main] PAINT total ({kind}): {time.time()-_t_paint:.3f}s")
         print(f"  [coloring_main] TOTAL ({kind}, PAINT): {time.time()-_t_color:.3f}s")
         return _COLORING_PAINTED
@@ -689,13 +724,15 @@ def coloring_main(map, kind="WATER", prefetched_tiles=None):
 
 def color_map_faces_by_terrain(map_obj, terrain_obj, up_threshold=0.05):
     """
-    Loops through every face of map_obj.
-    If face is facing upwards, raycasts upwards to see if terrain_obj is above.
-    If yes, colors the face with terrain_obj's material.
+    Colors faces of map_obj that fall inside the 2D XY footprint of terrain_obj.
 
-    up_threshold = dot(normal, Z) must be greater than this (0.5 ~ 60° angle limit).
+    Builds a Shapely polygon from the terrain object's XY projection and checks
+    each upward-facing map face center against it — no BVH or ray casting involved.
+
+    up_threshold = dot(normal, Z) must be greater than this value.
     """
     from .mesh_ops import recalculateNormals  # deferred to avoid circular import at load time
+    from . import geometry2d as _g2d
 
     if map_obj.type != 'MESH' or terrain_obj.type != 'MESH':
         print("Both inputs must be mesh objects.")
@@ -703,34 +740,21 @@ def color_map_faces_by_terrain(map_obj, terrain_obj, up_threshold=0.05):
 
     recalculateNormals(map_obj)
 
-    terrain_obj.location.z += 10
-    bpy.context.view_layer.update()
+    _t_footprint = time.time()
+    footprint = _g2d.footprint_with_holes(terrain_obj)
+    if footprint is None or footprint.is_empty:
+        print("  [color_faces] terrain footprint is empty — nothing to paint")
+        return
+    print(f"  [color_faces] footprint build: {time.time()-_t_footprint:.3f}s")
 
-    # Ensure both have mesh data
+    from shapely.prepared import prep as _prep
+    prepared = _prep(footprint)
+
     map_mesh = map_obj.data
- 
-
-    # Build bmesh for Map — read LOCAL mesh, transform centers to WORLD space via matrix_world
     bm = bmesh.new()
     bm.from_mesh(map_mesh)
     bm.faces.ensure_lookup_table()
     mw_map = map_obj.matrix_world
-
-    depsgraph = bpy.context.evaluated_depsgraph_get()
-    eval_obj = terrain_obj.evaluated_get(depsgraph)
-
-    eval_mesh = eval_obj.to_mesh()
-
-    # Build BVH in WORLD space by applying the cutter's matrix_world to each vertex
-    bm2 = bmesh.new()
-    bm2.from_mesh(eval_mesh)
-    mw_terrain = terrain_obj.matrix_world
-    for v in bm2.verts:
-        v.co = mw_terrain @ v.co
-
-    _t_bvh = time.time()
-    bvh = bvhtree.BVHTree.FromBMesh(bm2)
-    print(f"  [color_faces] BVH build: {time.time()-_t_bvh:.3f}s  ({len(bm2.faces)} terrain faces)")
 
     # Get or create a material for terrain color
     if terrain_obj.active_material:
@@ -739,7 +763,6 @@ def color_map_faces_by_terrain(map_obj, terrain_obj, up_threshold=0.05):
         mat = bpy.data.materials.new(name="TerrainColor")
         terrain_obj.data.materials.append(mat)
 
-    # Make sure Map has material slots
     if mat.name not in [m.name for m in map_mesh.materials if m is not None]:
         map_mesh.materials.append(mat)
     mat_index = map_mesh.materials.find(mat.name)
@@ -747,29 +770,19 @@ def color_map_faces_by_terrain(map_obj, terrain_obj, up_threshold=0.05):
     up = Vector((0, 0, 1))
     colored_count = 0
 
-    _t_raycast = time.time()
+    _t_loop = time.time()
+    from shapely.geometry import Point as _Point
     i = 0
     for i, f in enumerate(bm.faces):
-        normal = f.normal.normalized()
-        dot = normal.dot(up)
-        # Only consider faces facing upward
-        if dot > up_threshold:
-            center = mw_map @ f.calc_center_median()  # world space
-            center.z -= 5
-            loc, norm, idx, dist = bvh.ray_cast(center, up,200)
-
-            if loc is not None:
-                # Assign terrain material to this face
+        if f.normal.normalized().dot(up) > up_threshold:
+            center = mw_map @ f.calc_center_median()
+            if prepared.contains(_Point(center.x, center.y)):
                 f.material_index = mat_index
                 colored_count += 1
-    print(f"  [color_faces] ray-cast loop: {time.time()-_t_raycast:.3f}s  ({i+1} faces checked, {colored_count} colored)")
+    print(f"  [color_faces] loop: {time.time()-_t_loop:.3f}s  ({i+1} faces checked, {colored_count} colored)")
 
-    _t_sync = time.time()
     bm.to_mesh(map_mesh)
     bm.free()
-    bm2.free()
-    eval_obj.to_mesh_clear()
-    print(f"  [color_faces] bm.to_mesh sync: {time.time()-_t_sync:.3f}s")
     print(f"Colored {colored_count} faces on {map_obj.name} based on {terrain_obj.name}")
 
 

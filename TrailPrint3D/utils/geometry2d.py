@@ -463,20 +463,38 @@ def polygon_to_mesh(name, polygon):
             bm.free()
             mesh.update()
     else:
+        # No holes: still triangulate properly via earcut so the BVH gets
+        # real triangles rather than a single NGON that gets fan-tessellated
+        # incorrectly for concave river/ribbon polygons.
+        ext_xy = [(x, y) for x, y, _ in outer]
+        ec = _earcut_triangulate(ext_xy, [])
         mesh = bpy.data.meshes.new(name)
         tobj = bpy.data.objects.new(name, mesh)
         bpy.context.collection.objects.link(tobj)
-        bm = bmesh.new()
-        verts = [bm.verts.new(c) for c in outer]
-        try:
-            bm.faces.new(verts)
-        except ValueError:
+        if ec is not None:
+            verts2d, tris = ec
+            coords = [(x, y, 0.0) for x, y in verts2d]
+            mesh.from_pydata(coords, [], tris)
+            mesh.update()
+            bm = bmesh.new()
+            bm.from_mesh(mesh)
+            bmesh.ops.dissolve_degenerate(bm, dist=1e-6, edges=bm.edges[:])
+            bm.to_mesh(mesh)
             bm.free()
-            bpy.data.meshes.remove(mesh)
-            bpy.data.objects.remove(tobj, do_unlink=True)
-            return None
-        bm.to_mesh(mesh)
-        bm.free()
+            mesh.update()
+        else:
+            # earcut unavailable — fall back to single NGON (old behaviour)
+            bm = bmesh.new()
+            bm_verts = [bm.verts.new(c) for c in outer]
+            try:
+                bm.faces.new(bm_verts)
+            except ValueError:
+                bm.free()
+                bpy.data.meshes.remove(mesh)
+                bpy.data.objects.remove(tobj, do_unlink=True)
+                return None
+            bm.to_mesh(mesh)
+            bm.free()
 
     return tobj
 
