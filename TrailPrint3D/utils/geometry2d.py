@@ -26,9 +26,12 @@ try:
     from shapely.ops import unary_union, polygonize
     _HAS_SHAPELY = True
     _SHAPELY_MAJOR = int(_shapely_mod.__version__.split(".")[0])
-except ImportError:
+    _SHAPELY_IMPORT_ERROR = None
+except ImportError as _e:
     _HAS_SHAPELY = False
     _SHAPELY_MAJOR = 0
+    _SHAPELY_IMPORT_ERROR = _e
+    print(f"[TrailPrint3D] Shapely import failed: {_e!r}")
 
 try:
     import numpy as _np
@@ -52,6 +55,10 @@ if _HAS_SHAPELY and _SHAPELY_MAJOR < 2:
 
 def _require_shapely():
     if not _HAS_SHAPELY:
+        if _SHAPELY_IMPORT_ERROR is not None:
+            raise ImportError(
+                f"{_SHAPELY_ERR}\n(Underlying error: {_SHAPELY_IMPORT_ERROR})"
+            ) from _SHAPELY_IMPORT_ERROR
         raise ImportError(_SHAPELY_ERR)
 
 
