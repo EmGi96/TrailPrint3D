@@ -25,6 +25,30 @@
         #legend { position: absolute; bottom: 10px; right: 10px; z-index: 1000; background: rgba(26,26,26,0.85);
             border: 1px solid #444; border-radius: 4px; padding: 8px 10px; font-size: 11px; color: #eee;
             display: flex; flex-direction: column; gap: 5px; pointer-events: none; }
+        #coordSearch { position: absolute; top: 10px; right: 10px; z-index: 1000;
+            display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+        #coordSearchToggle { width: 32px; height: 32px; padding: 0; display: flex; align-items: center;
+            justify-content: center; background: rgba(26,26,26,0.85); color: #eee; border: 1px solid #444;
+            border-radius: 4px; cursor: pointer; }
+        #coordSearchToggle:hover { background: #444; border-color: #007bff; }
+        #coordSearchToggle.active { background: #007bff; border-color: #007bff; }
+        #coordSearchBody { display: none; flex-direction: column; gap: 8px; width: 190px;
+            background: rgba(26,26,26,0.85); border: 1px solid #444; border-radius: 4px;
+            padding: 8px 10px; font-size: 11px; color: #aaa; }
+        #coordSearchBody.open { display: flex; }
+        #coordSearchBody .coord-row { display: flex; gap: 4px; }
+        #coordSearchBody .coord-sep { text-align: center; color: #666; font-size: 10px; }
+        #coordSearchBody input[type=text] { flex: 1; min-width: 0; background: #2a2a2a; color: #eee;
+            border: 1px solid #444; border-radius: 4px; padding: 4px 6px; font-size: 12px; }
+        #coordSearchBody button { padding: 4px 8px; font-size: 12px; background: #333; color: #eee;
+            border: 1px solid #444; border-radius: 4px; cursor: pointer; font-weight: bold; flex-shrink: 0; }
+        #coordSearchBody button:hover { background: #444; border-color: #007bff; }
+        .leaflet-control-layers { background: rgba(26,26,26,0.9) !important; border: 1px solid #444 !important;
+            color: #eee !important; }
+        .leaflet-control-layers-toggle { filter: invert(1) brightness(1.5); }
+        .leaflet-control-layers-expanded { padding: 8px 10px !important; font-size: 12px; }
+        .leaflet-control-layers-selector { accent-color: #007bff; }
+        .leaflet-control-layers-separator { border-top: 1px solid #444 !important; }
         .legend-row { display: flex; align-items: center; gap: 6px; }
         .legend-swatch { width: 14px; height: 14px; border-radius: 2px; flex-shrink: 0; }
         .legend-swatch.line { width: 16px; height: 0; border-top: 2.5px dashed; background: none; border-radius: 0; }
@@ -175,6 +199,23 @@
         <button id="send" class="btn-send" disabled>Send to Blender</button>
     </div>
     <div id="map">
+        <div id="coordSearch">
+            <button id="coordSearchToggle" title="Go to location">
+                <svg viewBox="0 0 20 20" width="16" height="16" fill="currentColor"><path d="M10 1a6 6 0 00-6 6c0 4.5 6 12 6 12s6-7.5 6-12a6 6 0 00-6-6zm0 8.5A2.5 2.5 0 1110 4.5a2.5 2.5 0 010 5z"/></svg>
+            </button>
+            <div id="coordSearchBody">
+                <div class="coord-row">
+                    <input type="text" id="citySearchInput" placeholder="City name">
+                    <button id="citySearchBtn" title="Search city">🔍</button>
+                </div>
+                <div class="coord-sep">or lat / lon</div>
+                <div class="coord-row">
+                    <input type="text" id="latInput" placeholder="Lat">
+                    <input type="text" id="lonInput" placeholder="Lon">
+                    <button id="coordSearchBtn" title="Go to these coordinates">Go</button>
+                </div>
+            </div>
+        </div>
         <div id="drawActions">
             <button id="drawBtn" class="shape-btn icon-btn" title="Draw">
                 <svg viewBox="0 0 20 20" width="16" height="16" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-9.193 9.193-3.535.707.707-3.535 9.193-9.193z"/></svg>
@@ -194,7 +235,20 @@
     <script>
         var PORT = __PORT__;
         var map = L.map('map').setView([46.57, 7.98], 11);
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png').addTo(map);
+
+        var baseLayers = {
+            'Voyager': L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+                attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+            }),
+            'Satellite': L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+                attribution: 'Tiles &copy; Esri'
+            }),
+            'OpenStreetMap': L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; OpenStreetMap contributors'
+            })
+        };
+        baseLayers['Voyager'].addTo(map);
+        L.control.layers(baseLayers, null, { position: 'bottomleft' }).addTo(map);
 
         var drawnItems = new L.FeatureGroup();
         map.addLayer(drawnItems);
@@ -209,6 +263,81 @@
         var pieces = [];         // current jigsaw pieces: [{row, col, points: [[x,y],...]}, ...]
         var gpxPaths = [];
         var gpxNames = [];
+
+        // ── Go-to-location panel ────────────────────────────────────────────
+        // Collapsed to a single pin-icon button by default; expands to a
+        // small panel offering either a city-name lookup (via Nominatim) or
+        // direct lat/lon entry.
+        var searchMarker = null;
+
+        document.getElementById('coordSearchToggle').addEventListener('click', function() {
+            var body = document.getElementById('coordSearchBody');
+            var open = body.classList.toggle('open');
+            this.classList.toggle('active', open);
+        });
+
+        function flyToMarker(lat, lon, zoom) {
+            if (searchMarker) map.removeLayer(searchMarker);
+            searchMarker = L.marker([lat, lon]).addTo(map);
+            map.flyTo([lat, lon], zoom);
+        }
+
+        function goToCoords() {
+            var latInput = document.getElementById('latInput');
+            var lonInput = document.getElementById('lonInput');
+            var lat = parseFloat(latInput.value);
+            var lon = parseFloat(lonInput.value);
+            var latOk = !isNaN(lat) && lat >= -90 && lat <= 90;
+            var lonOk = !isNaN(lon) && lon >= -180 && lon <= 180;
+            latInput.style.borderColor = latOk ? '' : '#cc4444';
+            lonInput.style.borderColor = lonOk ? '' : '#cc4444';
+            if (!latOk || !lonOk) return;
+            flyToMarker(lat, lon, 15);
+        }
+
+        document.getElementById('coordSearchBtn').addEventListener('click', goToCoords);
+        ['latInput', 'lonInput'].forEach(function(id) {
+            var el = document.getElementById(id);
+            el.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') { e.preventDefault(); goToCoords(); }
+            });
+            el.addEventListener('input', function() { this.style.borderColor = ''; });
+        });
+
+        // City lookup uses OpenStreetMap's Nominatim geocoder -- free, no
+        // API key, CORS-enabled for browser fetches. Only fires on explicit
+        // user action (button/Enter), never as-you-type, to stay well
+        // within its usage policy.
+        function searchCity() {
+            var input = document.getElementById('citySearchInput');
+            var btn = document.getElementById('citySearchBtn');
+            var q = input.value.trim();
+            if (!q) return;
+            btn.disabled = true;
+            fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(q))
+                .then(function(r) { return r.json(); })
+                .then(function(results) {
+                    btn.disabled = false;
+                    if (!results || !results.length) {
+                        input.style.borderColor = '#cc4444';
+                        return;
+                    }
+                    input.style.borderColor = '';
+                    flyToMarker(parseFloat(results[0].lat), parseFloat(results[0].lon), 12);
+                })
+                .catch(function() {
+                    btn.disabled = false;
+                    input.style.borderColor = '#cc4444';
+                });
+        }
+
+        document.getElementById('citySearchBtn').addEventListener('click', searchCity);
+        document.getElementById('citySearchInput').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') { e.preventDefault(); searchCity(); }
+        });
+        document.getElementById('citySearchInput').addEventListener('input', function() {
+            this.style.borderColor = '';
+        });
 
         // ── Length/Width aspect-ratio fitting ───────────────────────────────
         // Matches utils/constants.py R and the unscaled Mercator projection
