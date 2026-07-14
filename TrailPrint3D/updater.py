@@ -19,6 +19,7 @@ _GITHUB_RELEASES_API_URL = (
 _latest_release_zip_url = None  # populated by _check_worker from the release asset URL
 _pending_install_zip = None     # set by download_and_install; consumed by _install_timer
 
+_NORMAL_VERSION_URL = "https://trailprint3d.com/normal_version.html"
 _PREMIUM_VERSION_URL = "https://trailprint3d.com/premium_version.html"
 _PATREON_URL = "https://www.patreon.com/c/EmGi3D"
 
@@ -59,7 +60,20 @@ def _check_worker():
             None,
         )
         _latest_release_zip_url = asset["browser_download_url"] if asset else None
-        status = "update_available" if ver > const.ADDON_VERSION else "up_to_date"
+
+        html_resp = requests.get(_NORMAL_VERSION_URL, timeout=10)
+        html_resp.raise_for_status()
+        html_ver, _ = _parse_version_page(html_resp.text)
+        if html_ver is None:
+            status = "error"
+            error_message = "Could not parse version from normal_version.html"
+            return
+
+        status = (
+            "update_available"
+            if ver > const.ADDON_VERSION and html_ver > const.ADDON_VERSION
+            else "up_to_date"
+        )
     except Exception as e:
         status = "error"
         error_message = str(e)
@@ -72,11 +86,11 @@ def start_check():
     threading.Thread(target=_check_worker, daemon=True).start()
 
 
-def _parse_premium_page(text):
+def _parse_version_page(text):
     """
-    premium_version.html holds the latest premium version number on its own
-    line (e.g. "3.1.0"), optionally followed by a line with a link to the
-    Patreon post announcing that update.
+    normal_version.html / premium_version.html hold the latest version number
+    on their own line (e.g. "3.1.0"), optionally followed by a line with a
+    link (e.g. to the Patreon post announcing that update).
     """
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
     if not lines:
@@ -94,7 +108,7 @@ def _check_premium_worker():
     try:
         resp = requests.get(_PREMIUM_VERSION_URL, timeout=10)
         resp.raise_for_status()
-        ver, post_url = _parse_premium_page(resp.text)
+        ver, post_url = _parse_version_page(resp.text)
         if ver is None:
             premium_status = "error"
             premium_error_message = "Could not parse version from premium_version.html"
