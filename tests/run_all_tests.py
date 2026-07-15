@@ -17,6 +17,7 @@ _TEST_FILES = [
     "test_geo_elevation.py",
     "test_gpx.py",
     "test_osm_pipeline.py",
+    "test_updater.py",
 ]
 
 total_passed = 0
