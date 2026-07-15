@@ -16,29 +16,77 @@ import bpy      # type: ignore
 import bmesh    # type: ignore
 from mathutils import Vector  # type: ignore
 
-try:
-    import shapely as _shapely_mod
-    from shapely.geometry import (
-        Polygon, MultiPolygon, LineString, MultiLineString, GeometryCollection,
-    )
-    from shapely.validation import make_valid as _make_valid_compat
-    from shapely import make_valid as _make_valid_v2
-    from shapely.ops import unary_union, polygonize
-    _HAS_SHAPELY = True
-    _SHAPELY_MAJOR = int(_shapely_mod.__version__.split(".")[0])
-    _SHAPELY_IMPORT_ERROR = None
-except ImportError as _e:
-    _HAS_SHAPELY = False
-    _SHAPELY_MAJOR = 0
-    _SHAPELY_IMPORT_ERROR = _e
-    print(f"[TrailPrint3D] Shapely import failed: {_e!r}")
+from typing import Any
 
+# These values are overwritten by _load_shapely() on success.
+_HAS_SHAPELY: bool = False
+_SHAPELY_MAJOR: int = 0
+_SHAPELY_IMPORT_ERROR: Exception | None = None
+_shapely: Any = None  # the shapely module, stored for set_precision etc.
+Polygon: Any = None
+MultiPolygon: Any = None
+LineString: Any = None
+MultiLineString: Any = None
+GeometryCollection: Any = None
+_make_valid_compat: Any = None
+_make_valid_v2: Any = None
+unary_union: Any = None
+polygonize: Any = None
+
+def _load_shapely():
+    """Attempt to import Shapely and populate module-level globals.
+
+    Returns True on success, False on ImportError (which is stored in
+    ``_SHAPELY_IMPORT_ERROR`` for later reporting).
+    """
+    global _HAS_SHAPELY, _SHAPELY_MAJOR, _SHAPELY_IMPORT_ERROR, _shapely
+    global Polygon, MultiPolygon, LineString, MultiLineString, GeometryCollection
+    global _make_valid_compat, _make_valid_v2, unary_union, polygonize
+    try:
+        import shapely as _shapely_mod
+        from shapely.geometry import (
+            Polygon as _P, MultiPolygon as _MP,
+            LineString as _LS, MultiLineString as _MLS,
+            GeometryCollection as _GC,
+        )
+        from shapely.validation import make_valid as _mvc
+        from shapely import make_valid as _mv2
+        from shapely.ops import unary_union as _uu, polygonize as _pg
+
+        Polygon = _P
+        MultiPolygon = _MP
+        LineString = _LS
+        MultiLineString = _MLS
+        GeometryCollection = _GC
+        _make_valid_compat = _mvc
+        _make_valid_v2 = _mv2
+        unary_union = _uu
+        polygonize = _pg
+        _shapely = _shapely_mod
+        _HAS_SHAPELY = True
+        _SHAPELY_MAJOR = int(_shapely_mod.__version__.split(".")[0])
+        _SHAPELY_IMPORT_ERROR = None
+        return True
+    except ImportError as _e:
+        _HAS_SHAPELY = False
+        _SHAPELY_MAJOR = 0
+        _SHAPELY_IMPORT_ERROR = _e
+        return False
+
+
+_load_shapely()
+if not _HAS_SHAPELY:
+    print(f"[TrailPrint3D] Shapely import failed: {_SHAPELY_IMPORT_ERROR!r}")
+
+_np = None
+_earcut = None
+_HAS_EARCUT = False
 try:
     import numpy as _np
     import mapbox_earcut as _earcut
     _HAS_EARCUT = True
 except ImportError:
-    _HAS_EARCUT = False
+    pass
 
 _SHAPELY_ERR = (
     "TrailPrint3D requires Shapely 2.x. "
@@ -46,7 +94,7 @@ _SHAPELY_ERR = (
 )
 if _HAS_SHAPELY and _SHAPELY_MAJOR < 2:
     print(
-        f"[TrailPrint3D] WARNING: Shapely {_shapely_mod.__version__} loaded "
+        f"[TrailPrint3D] WARNING: Shapely {_shapely.__version__} loaded "
         "(expected 2.x from bundled wheel). "
         "Ocean/OSM geometry may be degraded. "
         "Check that the addon zip was installed correctly."
@@ -54,12 +102,32 @@ if _HAS_SHAPELY and _SHAPELY_MAJOR < 2:
 
 
 def _require_shapely():
-    if not _HAS_SHAPELY:
-        if _SHAPELY_IMPORT_ERROR is not None:
-            raise ImportError(
-                f"{_SHAPELY_ERR}\n(Underlying error: {_SHAPELY_IMPORT_ERROR})"
-            ) from _SHAPELY_IMPORT_ERROR
-        raise ImportError(_SHAPELY_ERR)
+    """Ensure Shapely is available, retrying a live import if the static flag
+    is False.
+
+    The static ``_HAS_SHAPELY`` flag is set once at module-import time.  On
+    first install the wheel may not yet be importable at that moment.
+    Rather than forcing the user to restart Blender, this function retries via
+    ``_load_shapely()`` each time it is called while the flag is still False
+    and promotes all module-level globals on success.
+    """
+    if _HAS_SHAPELY:
+        return
+
+    # Static check failed — attempt a live re-import now that the wheel may
+    # have been extracted / released by AV since this module was first loaded.
+    if _load_shapely():
+        print(
+            "[TrailPrint3D] Shapely loaded on retry (was unavailable at "
+            "module-import time)."
+        )
+        return
+
+    if _SHAPELY_IMPORT_ERROR is not None:
+        raise ImportError(
+            f"{_SHAPELY_ERR}\n(Underlying error: {_SHAPELY_IMPORT_ERROR})"
+        ) from _SHAPELY_IMPORT_ERROR
+    raise ImportError(_SHAPELY_ERR)
 
 
 # ---------------------------------------------------------------------------
@@ -197,13 +265,13 @@ def polylines_to_ribbon(coords_list, half_width, cap_style="round",
     if precision:
         # Snap input vertices to a grid; this is the single biggest buffer
         # speed-up for dense networks (collapses near-coincident street nodes).
-        merged = _shapely_mod.set_precision(merged, precision)
+        merged = _shapely.set_precision(merged, precision)
     buf = merged.buffer(half_width, quad_segs=quad_segs,
                         cap_style=cap_style, join_style=join_style)
     if buf.is_empty:
         return None
     if precision:
-        buf = _shapely_mod.set_precision(buf, precision)
+        buf = _shapely.set_precision(buf, precision)
         if buf.is_empty:
             return None
     return validate(buf)
