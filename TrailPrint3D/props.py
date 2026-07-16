@@ -397,10 +397,16 @@ class TP3D_PG_properties(bpy.types.PropertyGroup):
         items=[
             ('FROMPLANE', _("From Selected"), "Generate the Map from a Flat Plane"),
             ('FROMCENTER', _("Center + Radius"), "Generate the Map from a Point coordinate and a Radius"),
-            ('2POINTS', _("2 Points"), "Generate the Map from 2 Coordinates")
+            ('2POINTS', _("2 Points"), "Generate the Map from 2 Coordinates"),
+            ('GEOJSON', _("GeoJSON Boundary"), "Generate the Map clipped to a GeoJSON polygon boundary"),
         ],
         default='FROMPLANE'
     )# type: ignore
+
+    geojsonFilePath: StringProperty(name=_("GeoJSON File"), default="", description=_("Path to the imported .geojson boundary file"), subtype='FILE_PATH') # type: ignore
+    geojsonSimplifyTolerance: FloatProperty(name=_("Simplify Tolerance"), default=0.1, min=0.0, soft_max=5.0, precision=3, description=_("Douglas-Peucker simplification tolerance (map units) applied to the imported boundary. Higher = fewer points but can introduce self-intersections on convoluted borders. Set to 0 to disable simplification.")) # type: ignore
+    geojsonPointCount: IntProperty(name=_("Boundary Points"), default=0, description=_("Number of points in the boundary after simplification (read-only, set after import)")) # type: ignore
+    geojsonAreaKm: FloatProperty(name=_("Detected Area"), default=0.0, description=_("Real-world size of the imported boundary in km (read-only, set after import)")) # type: ignore
 
     jMapLat: FloatProperty(name="Latitude", default = 49.00) # type: ignore
     jMapLon: FloatProperty(name="Longitude", default = 9.00) # type: ignore

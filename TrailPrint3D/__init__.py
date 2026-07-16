@@ -270,6 +270,8 @@ _PREMIUM_CLASS_NAMES = [
     "TP3D_OT_from_center_generation",
     "TP3D_OT_from_center_generation_with_trail",
     "TP3D_OT_2point_generation",
+    "TP3D_OT_pick_geojson_file",
+    "TP3D_OT_geojson_generation",
     "TP3D_OT_create_blank",
     "TP3D_OT_extend_tile",
     "TP3D_OT_import_height_map",

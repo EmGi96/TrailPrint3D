@@ -88,6 +88,8 @@ class TP3D_PT_generate(bpy.types.Panel):
                     col.operator("tp3d.terrain", text=_("Generate from Blank"), icon="OBJECT_DATA")
                 elif props.mapmode == '2POINTS':
                     col.operator("tp3d.2point_generation", text=_("Generate (2 Corner Points)"), icon='DISC')
+                elif props.mapmode == 'GEOJSON':
+                    col.operator("tp3d.geojson_generation", text=_("Generate (GeoJSON Boundary)"), icon='DISC')
             else:
                 col.operator("tp3d.terrain_dummy", text=_("Generate Terrain"), icon="LOCKED")
 
@@ -119,6 +121,12 @@ class TP3D_PT_generate(bpy.types.Panel):
                         row = boxer.row(align=True)
                         row.prop(props, "jMapLat2")
                         row.prop(props, "jMapLon2")
+                    elif props.mapmode == "GEOJSON":
+                        boxer.operator("tp3d.pick_geojson_file", text=_("Import GeoJSON…"), icon="IMPORT")
+                        if props.geojsonFilePath:
+                            boxer.label(text=props.geojsonFilePath.rsplit("\\", 1)[-1].rsplit("/", 1)[-1], icon="FILE")
+                            boxer.label(text=f"{props.geojsonPointCount} {_('points')}  —  ~{props.geojsonAreaKm:.0f} km")
+                        boxer.prop(props, "geojsonSimplifyTolerance")
                     box.separator(factor=0.5)
                     col = box.column(align=True)
                     col.operator("tp3d.merge_with_map", text=_("Merge with Map"), icon="AUTOMERGE_OFF")

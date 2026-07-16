@@ -15,6 +15,7 @@ _TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
 
 _TEST_FILES = [
     "test_geo_elevation.py",
+    "test_geojson_import.py",
     "test_gpx.py",
     "test_osm_pipeline.py",
     "test_updater.py",
