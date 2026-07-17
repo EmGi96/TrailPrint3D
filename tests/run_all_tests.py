@@ -20,6 +20,12 @@ _TEST_FILES = [
     "test_updater.py",
 ]
 
+# test_generation_pipeline.py is intentionally excluded from this aggregate
+# run: it hits real network (MapTerhorn + Overpass) on every scenario and is
+# noticeably slower, so it's meant to be run on its own, not bundled in with
+# the fast/offline suite here:
+#   blender --background --factory-startup --python-exit-code 1 -P tests/test_generation_pipeline.py
+
 total_passed = 0
 total_failed = 0
 results = []
