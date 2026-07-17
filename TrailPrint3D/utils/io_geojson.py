@@ -130,17 +130,29 @@ def build_tile_from_polygon(polygon_lonlat, obj_size, num_subdivisions, name="Ge
     Derives scene.tp3d.sScaleHor from the polygon's own bounding box and
     *obj_size* (mm) -- the same COORDINATES-mode formula every other mapmode
     uses (utils.geo.calculate_scale) -- then projects every vertex to Blender
-    space, simplifies (map-unit tolerance, same convention as
-    el_oRdpEpsilon), and earcut-triangulates the boundary via
-    geometry2d.polygon_to_mesh(). The result's interior is then subdivided
-    (mirroring create_circle/create_hexagon's own post-fill subdivide step)
-    so elevation draping has more than just the boundary ring to sample.
+    space and simplifies (map-unit tolerance, same convention as
+    el_oRdpEpsilon).
+
+    The terrain mesh itself is a regular grid (primitives.create_rectangle,
+    the same well-shaped, evenly-subdivided primitive create_hexagon/
+    create_circle use), clipped down to the polygon's exact outline via a
+    boolean INTERSECT against a solid prism cut from the polygon. Earcut-
+    triangulating the real boundary directly (the first approach tried here)
+    produces long sliver triangles on a complex, concave real-world border --
+    up to 45:1 aspect ratio on a real French departement boundary -- which
+    fan out into visible spikes once each vertex gets its own independent
+    elevation sample. Clipping a regular grid instead keeps that well-shaped
+    topology through the whole interior, with only the boundary ring
+    affected by the cut -- the same technique already proven for jigsaw
+    pieces in mesh_ops.cut_into_puzzle_pieces().
 
     Returns the new tagged "MAP" tile object (selected + active), or None on
     a degenerate/empty polygon.
     """
     from .geo import convert_to_neutral_coordinates, convert_to_blender_coordinates, convert_to_geo  # deferred to avoid circular import at load time
     from .elevation import compute_and_store_tile_bounds, get_tile_elevation  # deferred to avoid circular import at load time
+    from .primitives import create_rectangle  # deferred to avoid circular import at load time
+    from . import mesh_ops  # deferred to avoid circular import at load time
 
     tp3d = bpy.context.scene.tp3d
 
@@ -166,25 +178,55 @@ def build_tile_from_polygon(polygon_lonlat, obj_size, num_subdivisions, name="Ge
     projected = g2d.Polygon(ext_xy, holes_xy)
     projected = g2d.validate(projected)
     projected = simplify_boundary(projected, simplify_tolerance)
-
-    tile = g2d.polygon_to_mesh(name, projected)
-    if tile is None:
+    if projected is None or projected.is_empty:
         return None
 
-    # Add interior vertices so elevation draping isn't limited to the
-    # boundary ring -- mirrors create_circle/create_hexagon's own
-    # post-fill subdivide step (primitives.py).
-    _sub_iters = num_subdivisions - 3
-    if _sub_iters > 0:
-        cuts = 2 ** _sub_iters - 1
-        bm = bmesh.new()
-        bm.from_mesh(tile.data)
-        bmesh.ops.subdivide_edges(bm, edges=list(bm.edges), cuts=cuts, use_grid_fill=True)
-        bm.to_mesh(tile.data)
-        bm.free()
-        tile.data.update()
+    px1, py1, px2, py2 = projected.bounds
+    grid_w, grid_h = px2 - px1, py2 - py1
+    if grid_w <= 0 or grid_h <= 0:
+        return None
 
-    # earcut's winding isn't guaranteed to face up -- flip if the average
+    tile = create_rectangle(grid_w, grid_h, num_subdivisions, name)
+    tile.location = ((px1 + px2) / 2, (py1 + py2) / 2, 0)
+    bpy.context.view_layer.objects.active = tile
+    bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
+
+    # Solid cutter prism from the (simplified) polygon -- generously tall so
+    # it fully spans the still-flat (z=0) grid regardless of scale.
+    cutter_verts, cutter_faces = [], []
+    for part in g2d.iter_polygons(projected):
+        mesh_ops._extrude_flat_polygon(g2d, part, -50.0, 50.0, cutter_verts, cutter_faces)
+    if not cutter_verts:
+        bpy.data.objects.remove(tile, do_unlink=True)
+        return None
+
+    cutter_mesh = bpy.data.meshes.new(f"{name}_cutter")
+    cutter_mesh.from_pydata(cutter_verts, [], cutter_faces)
+    cutter_mesh.update()
+    mesh_ops._clean_solid_mesh(cutter_mesh)
+    cutter_obj = bpy.data.objects.new(cutter_mesh.name, cutter_mesh)
+    bpy.context.collection.objects.link(cutter_obj)
+
+    # EXACT (not MANIFOLD): the cutter, extruded from a real-world border,
+    # can still be non-manifold even after _clean_solid_mesh -- MANIFOLD
+    # silently no-ops on non-manifold input (same failure mode documented in
+    # mesh_ops.intersectWithTile), leaving the grid uncropped.
+    mesh_ops.boolean_operation(tile, cutter_obj, 'INTERSECT', solver='EXACT')
+    bpy.data.objects.remove(cutter_obj, do_unlink=True)
+
+    if len(tile.data.vertices) == 0:
+        bpy.data.objects.remove(tile, do_unlink=True)
+        return None
+
+    # The cut line can leave a handful of needle-thin sliver faces right at
+    # the boundary ring (wherever the polygon edge grazes a grid line at a
+    # shallow angle) -- collapse those before elevation is sampled, or each
+    # sliver's far-apart vertices can still catch wildly different heights
+    # and show up as a tiny spike. Same cleanup already used on the cutter
+    # itself (mesh_ops._clean_solid_mesh).
+    mesh_ops._clean_solid_mesh(tile.data, dist=1e-3)
+
+    # The boolean can leave normals inconsistent -- flip if the average
     # normal points down (same check create_circle runs after fill_grid).
     bm = bmesh.new()
     bm.from_mesh(tile.data)
