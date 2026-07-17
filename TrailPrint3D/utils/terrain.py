@@ -698,13 +698,18 @@ def coloring_main(map, kind="WATER", prefetched_tiles=None):
     bm.to_mesh(merged_object.data)
     bm.free()
 
+    # Set the active object before switching modes -- mode_set requires one,
+    # and whatever was active from the split_loose/merge_objects steps above
+    # can be a dangling reference (e.g. the last col_Area-filtered-out object
+    # that got deleted), which makes this poll() fail with "Context missing
+    # active object" whenever exactly one water/element body survives.
+    bpy.context.view_layer.objects.active = merged_object
     bpy.ops.object.mode_set(mode="OBJECT")
 
     if "SINGLECOLORMODE" not in elementMode:
         merged_object.location.z += 0.2
     merged_object.name = name + "_" + kind
 
-    bpy.context.view_layer.objects.active = merged_object
     merged_object.select_set(True)
 
     writeMetadata(merged_object, kind)
