@@ -928,7 +928,7 @@ def _rg_export(obj, curveObjs, textobj, plateobj, props, buggyDataset, start_tim
                 export_to_STL(tcrv, exportformat)
         export_to_STL(obj, exportformat)
 
-        if elements and props.get('elementMode') == "SEPARATE":
+        if elements and (props.get('elementMode') == "SEPARATE" or "SINGLECOLORMODE" in props.get('elementMode')):
             for elem_obj in elements.values():
                 if elem_obj and elem_obj.name in bpy.data.objects:
                     export_to_STL(elem_obj, exportformat)
@@ -1079,7 +1079,11 @@ def runGeneration(type, locked_scale=None):
         return
     start_time = props['start_time']
     buggyDataset = 0
-    exportformat = "STL"
+    # PAINT mode bakes terrain-element colors as per-face materials on a single
+    # mesh; STL cannot store material data at all, so PAINT-mode maps must be
+    # exported as OBJ to keep the colors. Mirrors the equivalent computation in
+    # terrain.coloring_main().
+    exportformat = "OBJ" if props['elementMode'] == "PAINT" else "STL"
 
     overlay.add_completed_step("Inputs validated")
 
