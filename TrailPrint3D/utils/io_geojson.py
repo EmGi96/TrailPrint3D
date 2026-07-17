@@ -33,6 +33,14 @@ def _polygon_from_coords(coords):
     return g2d.Polygon(exterior, holes)
 
 
+def count_boundary_points(polygon):
+    """Total exterior-ring point count across every part of a Polygon or
+    MultiPolygon (mainland + islands), for UI display -- mirrors how
+    build_tile_from_polygon iterates every part via geometry2d.iter_polygons.
+    """
+    return sum(len(part.exterior.coords) - 1 for part in g2d.iter_polygons(polygon))
+
+
 def _geometry_to_polygons(geometry):
     geom_type = geometry.get("type")
     if geom_type == "Polygon":
@@ -42,8 +50,20 @@ def _geometry_to_polygons(geometry):
     return []
 
 
+def _polygon_or_multipolygon(parts):
+    """Normalize a list of Shapely Polygons back into a single Polygon (if
+    only one part) or a MultiPolygon (if several) -- the canonical shape
+    every function in this module expects to receive/return, so mainland +
+    island parts all survive as one geometry rather than picking a winner.
+    """
+    if len(parts) == 1:
+        return parts[0]
+    return g2d.MultiPolygon(parts)
+
+
 def read_geojson_file(filepath):
-    """Parse a .geojson/.json file into a single validated Shapely Polygon.
+    """Parse a .geojson/.json file into a validated Shapely Polygon or
+    MultiPolygon.
 
     Accepts a bare Polygon/MultiPolygon geometry, a Feature, or a
     FeatureCollection (coordinates are lon/lat degrees, per the GeoJSON
@@ -51,11 +71,11 @@ def read_geojson_file(filepath):
     KeyError, ValueError) -- callers wrap this in try/except and surface the
     error, same contract as io_gpx.read_gpx().
 
-    If the file contains more than one polygon part (a MultiPolygon, or a
-    FeatureCollection with several polygon features), the largest by area is
-    kept and a warning is raised through WarningsOverlay about the rest --
-    multi-part boundaries (islands, exclaves) aren't supported as multiple
-    tiles yet.
+    Every polygon part found (a MultiPolygon, or a FeatureCollection with
+    several polygon features -- e.g. a coastal departement's mainland plus
+    its islands) is kept; downstream code (build_tile_from_polygon) builds
+    one tile whose mesh has a separate disconnected piece per part, correctly
+    positioned relative to each other.
     """
     g2d._require_shapely()
 
@@ -93,21 +113,13 @@ def read_geojson_file(filepath):
     if not parts:
         raise ValueError("GeoJSON contains no usable polygon area")
 
-    if len(parts) > 1:
-        from .. import progress as _progress  # deferred to avoid circular import at load time
-        dropped = len(parts) - 1
-        _progress.WarningsOverlay.add_warning(
-            f"GeoJSON had {len(parts)} separate polygon parts — using the largest "
-            f"and dropping {dropped} smaller part(s) (islands/exclaves aren't supported yet).",
-            "warn",
-        )
-
-    return max(parts, key=lambda p: p.area)
+    return _polygon_or_multipolygon(parts)
 
 
 def simplify_boundary(polygon, tolerance):
     """Simplify *polygon* (Douglas-Peucker) by *tolerance*, in whatever units
-    the polygon's own coordinates are in.
+    the polygon's own coordinates are in. Works on a Polygon or MultiPolygon
+    alike, keeping every part (mainland + islands).
 
     Falls back to the unsimplified polygon if simplification breaks validity
     -- the same self-intersection risk already flagged in the el_oRdpEpsilon
@@ -121,7 +133,7 @@ def simplify_boundary(polygon, tolerance):
     parts = list(g2d.iter_polygons(simplified))
     if not parts:
         return polygon
-    return max(parts, key=lambda p: p.area)
+    return _polygon_or_multipolygon(parts)
 
 
 def build_tile_from_polygon(polygon_lonlat, obj_size, num_subdivisions, name="GeoJSON", simplify_tolerance=0.1):
@@ -172,10 +184,18 @@ def build_tile_from_polygon(polygon_lonlat, obj_size, num_subdivisions, name="Ge
             pts.append((x, y))
         return pts
 
-    ext_xy = _project_ring(polygon_lonlat.exterior.coords)
-    holes_xy = [_project_ring(interior.coords) for interior in polygon_lonlat.interiors]
+    def _project_part(part):
+        ext_xy = _project_ring(part.exterior.coords)
+        holes_xy = [_project_ring(interior.coords) for interior in part.interiors]
+        return g2d.Polygon(ext_xy, holes_xy)
 
-    projected = g2d.Polygon(ext_xy, holes_xy)
+    # A MultiPolygon (mainland + islands) projects to one Blender-space part
+    # per input part -- iter_polygons/_extrude_flat_polygon further down
+    # already iterate over every part of a MultiPolygon transparently, so no
+    # other step needs to know how many separate landmasses there are.
+    parts_lonlat = list(polygon_lonlat.geoms) if isinstance(polygon_lonlat, g2d.MultiPolygon) else [polygon_lonlat]
+    projected_parts = [_project_part(part) for part in parts_lonlat]
+    projected = projected_parts[0] if len(projected_parts) == 1 else g2d.MultiPolygon(projected_parts)
     projected = g2d.validate(projected)
     projected = simplify_boundary(projected, simplify_tolerance)
     if projected is None or projected.is_empty:

@@ -108,7 +108,9 @@ def test_bare_geometry_top_level():
     assert abs(polys[0].area - 16.0) < 1e-9, f"expected area 16.0, got {polys[0].area}"
 
 
-def test_feature_collection_picks_largest():
+def test_feature_collection_keeps_all_parts():
+    # Mainland + island: both separate polygon parts must survive as one
+    # MultiPolygon, not get reduced to just the larger one.
     import tempfile
     from TrailPrint3D.utils.io_geojson import read_geojson_file
     fc = {
@@ -125,9 +127,29 @@ def test_feature_collection_picks_largest():
         tmp_path = f.name
     try:
         result = read_geojson_file(tmp_path)
-        assert abs(result.area - 100.0) < 1e-6, f"expected the larger (10x10) polygon, got area={result.area}"
+        assert result.geom_type == "MultiPolygon", f"expected MultiPolygon (2 parts kept), got {result.geom_type}"
+        assert len(result.geoms) == 2, f"expected 2 parts, got {len(result.geoms)}"
+        assert abs(result.area - 101.0) < 1e-6, f"expected combined area 1+100=101, got area={result.area}"
     finally:
         os.unlink(tmp_path)
+
+
+def test_multipolygon_parts_are_individually_valid():
+    # geometry2d.iter_polygons (what build_tile_from_polygon's cutter-building
+    # loop relies on) must yield both parts intact, each independently valid --
+    # the full mainland+island -> disconnected-mesh path is covered manually
+    # (see the island verification run in this session) rather than here,
+    # since it needs the addon registered (bpy.context.scene.tp3d), which the
+    # rest of this test suite deliberately avoids requiring.
+    from TrailPrint3D.utils import geometry2d as g2d
+
+    mainland = g2d.xy_ring_to_polygon([(6.0, 45.4), (6.2, 45.4), (6.2, 45.6), (6.0, 45.6)])
+    island = g2d.xy_ring_to_polygon([(6.5, 45.45), (6.6, 45.45), (6.6, 45.55), (6.5, 45.55)])
+    multi = g2d.MultiPolygon([mainland, island])
+
+    parts = list(g2d.iter_polygons(multi))
+    assert len(parts) == 2, f"expected 2 parts out of iter_polygons, got {len(parts)}"
+    assert all(p.is_valid and not p.is_empty for p in parts), "every part must be valid and non-empty"
 
 
 # ---------------------------------------------------------------------------
@@ -249,7 +271,8 @@ if __name__ == "__main__":
     _run("structure: no holes in the sample boundary",        test_no_holes_in_source)
 
     _run("top-level: bare Polygon geometry",                  test_bare_geometry_top_level)
-    _run("top-level: FeatureCollection picks the largest",    test_feature_collection_picks_largest)
+    _run("top-level: FeatureCollection keeps all parts",      test_feature_collection_keeps_all_parts)
+    _run("top-level: MultiPolygon parts are individually valid", test_multipolygon_parts_are_individually_valid)
 
     _run("simplify: reduces point count, stays valid",        test_simplify_reduces_point_count_and_stays_valid)
     _run("simplify: zero tolerance is a no-op",                test_simplify_zero_tolerance_is_noop)
