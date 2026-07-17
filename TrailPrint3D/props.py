@@ -403,7 +403,7 @@ class TP3D_PG_properties(bpy.types.PropertyGroup):
         default='FROMPLANE'
     )# type: ignore
 
-    geojsonFilePath: StringProperty(name=_("GeoJSON File"), default="", description=_("Path to the imported .geojson boundary file"), subtype='FILE_PATH') # type: ignore
+    geojsonFilePath: StringProperty(name=_("GeoJSON File"), default="", description=_("Path(s) to the imported .geojson boundary file(s), \"|\"-joined when more than one was selected")) # type: ignore
     geojsonSimplifyTolerance: FloatProperty(name=_("Simplify Tolerance"), default=0.1, min=0.0, soft_max=5.0, precision=3, description=_("Douglas-Peucker simplification tolerance (map units) applied to the imported boundary. Higher = fewer points but can introduce self-intersections on convoluted borders. Set to 0 to disable simplification.")) # type: ignore
     geojsonPointCount: IntProperty(name=_("Boundary Points"), default=0, description=_("Number of points in the boundary after simplification (read-only, set after import)")) # type: ignore
     geojsonAreaKm: FloatProperty(name=_("Detected Area"), default=0.0, description=_("Real-world size of the imported boundary in km (read-only, set after import)")) # type: ignore

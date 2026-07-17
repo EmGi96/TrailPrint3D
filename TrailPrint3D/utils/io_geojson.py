@@ -61,27 +61,11 @@ def _polygon_or_multipolygon(parts):
     return g2d.MultiPolygon(parts)
 
 
-def read_geojson_file(filepath):
-    """Parse a .geojson/.json file into a validated Shapely Polygon or
-    MultiPolygon.
-
-    Accepts a bare Polygon/MultiPolygon geometry, a Feature, or a
-    FeatureCollection (coordinates are lon/lat degrees, per the GeoJSON
-    spec). Raises on malformed input (OSError, json.JSONDecodeError,
-    KeyError, ValueError) -- callers wrap this in try/except and surface the
-    error, same contract as io_gpx.read_gpx().
-
-    Every polygon part found (a MultiPolygon, or a FeatureCollection with
-    several polygon features -- e.g. a coastal departement's mainland plus
-    its islands) is kept; downstream code (build_tile_from_polygon) builds
-    one tile whose mesh has a separate disconnected piece per part, correctly
-    positioned relative to each other.
+def _extract_polygons_from_geojson(data):
+    """Parse one already-loaded GeoJSON dict into a flat list of raw Shapely
+    Polygons (no union/validate yet) -- accepts a bare Polygon/MultiPolygon
+    geometry, a Feature, or a FeatureCollection.
     """
-    g2d._require_shapely()
-
-    with open(filepath, "r", encoding="utf-8") as f:
-        data = json.load(f)
-
     polygons = []
 
     def _collect(node):
@@ -102,18 +86,70 @@ def read_geojson_file(filepath):
         # -- a boundary import only cares about area geometry.
 
     _collect(data)
+    return polygons
 
+
+def _finalize_polygons(polygons, source_desc="file"):
+    """Union, validate, and normalize a flat list of raw polygon parts into
+    the canonical Polygon/MultiPolygon shape every function in this module
+    expects. Shared tail end of read_geojson_file/read_geojson_files.
+    """
     if not polygons:
-        raise ValueError("No Polygon/MultiPolygon geometry found in file")
+        raise ValueError(f"No Polygon/MultiPolygon geometry found in {source_desc}")
 
     merged = g2d.union(polygons) if len(polygons) > 1 else polygons[0]
     merged = g2d.validate(merged)
 
     parts = list(g2d.iter_polygons(merged))
     if not parts:
-        raise ValueError("GeoJSON contains no usable polygon area")
+        raise ValueError(f"{source_desc} contains no usable polygon area")
 
     return _polygon_or_multipolygon(parts)
+
+
+def read_geojson_file(filepath):
+    """Parse a .geojson/.json file into a validated Shapely Polygon or
+    MultiPolygon.
+
+    Accepts a bare Polygon/MultiPolygon geometry, a Feature, or a
+    FeatureCollection (coordinates are lon/lat degrees, per the GeoJSON
+    spec). Raises on malformed input (OSError, json.JSONDecodeError,
+    KeyError, ValueError) -- callers wrap this in try/except and surface the
+    error, same contract as io_gpx.read_gpx().
+
+    Every polygon part found (a MultiPolygon, or a FeatureCollection with
+    several polygon features -- e.g. a coastal departement's mainland plus
+    its islands) is kept; downstream code (build_tile_from_polygon) builds
+    one tile whose mesh has a separate disconnected piece per part, correctly
+    positioned relative to each other.
+    """
+    g2d._require_shapely()
+    with open(filepath, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    return _finalize_polygons(_extract_polygons_from_geojson(data), source_desc="file")
+
+
+def read_geojson_files(filepaths):
+    """Parse and merge multiple .geojson/.json files into one boundary.
+
+    Combines every polygon part from every file (e.g. two neighbouring
+    departements) through the same union+validate step read_geojson_file
+    uses for multiple parts within one file. Boundaries that share an exact
+    edge fuse into a single seamless Polygon; boundaries whose source data
+    doesn't align perfectly at the seam fall back to a MultiPolygon with
+    every part kept, same as the islands/exclaves case rather than failing.
+    """
+    g2d._require_shapely()
+    if not filepaths:
+        raise ValueError("No GeoJSON files given")
+
+    all_polygons = []
+    for filepath in filepaths:
+        with open(filepath, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        all_polygons.extend(_extract_polygons_from_geojson(data))
+
+    return _finalize_polygons(all_polygons, source_desc=f"{len(filepaths)} file(s)")
 
 
 def simplify_boundary(polygon, tolerance):

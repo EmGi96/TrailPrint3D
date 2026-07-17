@@ -134,6 +134,34 @@ def test_feature_collection_keeps_all_parts():
         os.unlink(tmp_path)
 
 
+def test_read_geojson_files_fuses_adjacent_boundaries():
+    # Two files sharing an exact edge (like two neighbouring departements)
+    # must merge into ONE seamless Polygon, not stay as two separate parts.
+    import tempfile
+    from TrailPrint3D.utils.io_geojson import read_geojson_files
+    left = {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]]}
+    right = {"type": "Polygon", "coordinates": [[[1, 0], [2, 0], [2, 1], [1, 1], [1, 0]]]}
+    paths = []
+    try:
+        for geom in (left, right):
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".geojson", delete=False, encoding="utf-8") as f:
+                json.dump(geom, f)
+                paths.append(f.name)
+        result = read_geojson_files(paths)
+        assert result.geom_type == "Polygon", f"expected a single fused Polygon, got {result.geom_type}"
+        assert abs(result.area - 2.0) < 1e-9, f"expected fused area 2.0, got {result.area}"
+    finally:
+        for p in paths:
+            os.unlink(p)
+
+
+def test_read_geojson_files_single_file_matches_read_geojson_file():
+    from TrailPrint3D.utils.io_geojson import read_geojson_file, read_geojson_files
+    single = read_geojson_file(_SAVOIE)
+    via_multi = read_geojson_files([_SAVOIE])
+    assert single.equals(via_multi), "a 1-element read_geojson_files() call must match read_geojson_file()"
+
+
 def test_multipolygon_parts_are_individually_valid():
     # geometry2d.iter_polygons (what build_tile_from_polygon's cutter-building
     # loop relies on) must yield both parts intact, each independently valid --
@@ -273,6 +301,9 @@ if __name__ == "__main__":
     _run("top-level: bare Polygon geometry",                  test_bare_geometry_top_level)
     _run("top-level: FeatureCollection keeps all parts",      test_feature_collection_keeps_all_parts)
     _run("top-level: MultiPolygon parts are individually valid", test_multipolygon_parts_are_individually_valid)
+
+    _run("multi-file: adjacent boundaries fuse into one",     test_read_geojson_files_fuses_adjacent_boundaries)
+    _run("multi-file: single file matches read_geojson_file", test_read_geojson_files_single_file_matches_read_geojson_file)
 
     _run("simplify: reduces point count, stays valid",        test_simplify_reduces_point_count_and_stays_valid)
     _run("simplify: zero tolerance is a no-op",                test_simplify_zero_tolerance_is_noop)

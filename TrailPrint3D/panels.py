@@ -124,7 +124,8 @@ class TP3D_PT_generate(bpy.types.Panel):
                     elif props.mapmode == "GEOJSON":
                         boxer.operator("tp3d.pick_geojson_file", text=_("Import GeoJSON…"), icon="IMPORT")
                         if props.geojsonFilePath:
-                            boxer.label(text=props.geojsonFilePath.rsplit("\\", 1)[-1].rsplit("/", 1)[-1], icon="FILE")
+                            for _path in props.geojsonFilePath.split("|"):
+                                boxer.label(text=_path.rsplit("\\", 1)[-1].rsplit("/", 1)[-1], icon="FILE")
                             boxer.label(text=f"{props.geojsonPointCount} {_('points')}  —  ~{props.geojsonAreaKm:.0f} km")
                         boxer.prop(props, "geojsonSimplifyTolerance")
                     box.separator(factor=0.5)
