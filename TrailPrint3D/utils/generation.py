@@ -25,6 +25,7 @@ def _rg_validate_inputs(flags):
     is toggled closed before returning None).
     """
     from .scene import show_message_box  # deferred to avoid circular import at load time
+    from ..props import get_effective_shape  # deferred to avoid circular import at load time
 
     start_time = time.time()
     for i in range(30):
@@ -38,7 +39,7 @@ def _rg_validate_inputs(flags):
     gpx_file_path      = tp3d.get('file_path', None)
     gpx_chain_path     = tp3d.get('chain_path', None)
     exportPath         = tp3d.get('export_path', None)
-    shape              = tp3d.shape
+    shape              = get_effective_shape(tp3d)
     name               = tp3d.get('trailName', "")
     size               = tp3d.get('objSize', 100)
     scaleElevation     = tp3d.get('scaleElevation', 1)
@@ -321,7 +322,7 @@ def _rg_create_map_object(flags, props, modelname, centerx, centery):
             MapObject = create_heart(size / 2, num_subdivisions, modelname)
         elif shape in {"OCTAGON", "OCTAGON OUTER TEXT"}:
             MapObject = create_octagon(size / 2, num_subdivisions, modelname)
-        elif shape in {"CIRCLE", "MEDAL"}:
+        elif shape in {"CIRCLE", "CIRCLE OUTER TEXT"}:
             MapObject = create_circle(size / 2, num_subdivisions, modelname)
         elif shape == "ELLIPSE":
             ratio = bpy.context.scene.tp3d.ellipseRatio
@@ -866,14 +867,14 @@ def _rg_assign_materials(obj, curveObjs, textobj, plateobj, props):
             except ReferenceError:
                 pass
 
-    if shape in {"HEXAGON INNER TEXT", "HEXAGON OUTER TEXT", "OCTAGON OUTER TEXT", "HEXAGON FRONT TEXT", "MEDAL"} and textobj:
+    if shape in {"HEXAGON INNER TEXT", "HEXAGON OUTER TEXT", "OCTAGON OUTER TEXT", "HEXAGON FRONT TEXT", "CIRCLE OUTER TEXT"} and textobj:
         mat_name = "TRAIL" if shape == "HEXAGON INNER TEXT" else "WHITE"
         mat = bpy.data.materials.get(mat_name)
         textobj.data.materials.clear()
         textobj.data.materials.append(mat)
         writeMetadata(textobj, type="TEXT")
 
-    if shape in {"HEXAGON OUTER TEXT", "OCTAGON OUTER TEXT", "HEXAGON FRONT TEXT", "MEDAL"} and plateobj:
+    if shape in {"HEXAGON OUTER TEXT", "OCTAGON OUTER TEXT", "HEXAGON FRONT TEXT", "CIRCLE OUTER TEXT"} and plateobj:
         mat = bpy.data.materials.get("BLACK")
         plateobj.data.materials.clear()
         plateobj.data.materials.append(mat)
@@ -914,10 +915,10 @@ def _rg_export(obj, curveObjs, textobj, plateobj, props, buggyDataset, start_tim
                 if elem_obj and elem_obj.name in bpy.data.objects:
                     elem_obj.select_set(True)
 
-        if shape in {"HEXAGON INNER TEXT", "HEXAGON OUTER TEXT", "OCTAGON OUTER TEXT", "HEXAGON FRONT TEXT", "MEDAL"} and textobj:
+        if shape in {"HEXAGON INNER TEXT", "HEXAGON OUTER TEXT", "OCTAGON OUTER TEXT", "HEXAGON FRONT TEXT", "CIRCLE OUTER TEXT"} and textobj:
             textobj.select_set(True)
 
-        if shape in {"HEXAGON OUTER TEXT", "OCTAGON OUTER TEXT", "HEXAGON FRONT TEXT", "MEDAL"} and plateobj:
+        if shape in {"HEXAGON OUTER TEXT", "OCTAGON OUTER TEXT", "HEXAGON FRONT TEXT", "CIRCLE OUTER TEXT"} and plateobj:
             plateobj.select_set(True)
 
         export_selected_to_3mf()
@@ -933,10 +934,10 @@ def _rg_export(obj, curveObjs, textobj, plateobj, props, buggyDataset, start_tim
                 if elem_obj and elem_obj.name in bpy.data.objects:
                     export_to_STL(elem_obj, exportformat)
 
-        if shape in {"HEXAGON INNER TEXT", "HEXAGON OUTER TEXT", "OCTAGON OUTER TEXT", "HEXAGON FRONT TEXT", "MEDAL"} and textobj:
+        if shape in {"HEXAGON INNER TEXT", "HEXAGON OUTER TEXT", "OCTAGON OUTER TEXT", "HEXAGON FRONT TEXT", "CIRCLE OUTER TEXT"} and textobj:
             export_to_STL(textobj, exportformat)
 
-        if shape in {"HEXAGON OUTER TEXT", "OCTAGON OUTER TEXT", "HEXAGON FRONT TEXT", "MEDAL"} and plateobj:
+        if shape in {"HEXAGON OUTER TEXT", "OCTAGON OUTER TEXT", "HEXAGON FRONT TEXT", "CIRCLE OUTER TEXT"} and plateobj:
             export_to_STL(plateobj, exportformat)
 
     count_openTopoData, _dt1, count_openElevation, _dt2 = load_counter()
@@ -1458,21 +1459,21 @@ def runGeneration(type, locked_scale=None):
         elif shape == "HEXAGON FRONT TEXT":
             textobj, plateobj = HexagonFrontText()
             obj.location.z += plateThickness
-        elif shape == "MEDAL":
+        elif shape == "CIRCLE OUTER TEXT":
             textobj, plateobj = MedalText()
             obj.location.z += plateThickness
         else:
             pass  # BottomText() — currently disabled
 
     if ("TEXT" in shape and curveObjs is not None and "INNER TEXT" not in shape) or \
-       (shape == "MEDAL" and curveObjs is not None):
+       (shape == "CIRCLE OUTER TEXT" and curveObjs is not None):
         for tcrv in curveObjs:
             tcrv.location.z += plateThickness
 
     # Plate insert
     bpy.ops.object.select_all(action='DESELECT')
     dist = bpy.context.scene.tp3d.plateInsertValue
-    if shape in {"HEXAGON OUTER TEXT", "OCTAGON OUTER TEXT", "HEXAGON FRONT TEXT", "MEDAL"}:
+    if shape in {"HEXAGON OUTER TEXT", "OCTAGON OUTER TEXT", "HEXAGON FRONT TEXT", "CIRCLE OUTER TEXT"}:
         if plateobj and textobj:
             transform_MapObject(plateobj, props['xTerrainOffset'], props['yTerrainOffset'])
             transform_MapObject(textobj,  props['xTerrainOffset'], props['yTerrainOffset'])

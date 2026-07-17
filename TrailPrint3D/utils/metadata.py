@@ -7,12 +7,14 @@ def writeMetadata(obj, type = "MAP"):
     if obj is None:
         return
 
+    from ..props import get_effective_shape  # deferred to avoid circular import at load time
+
     if type == "MAP":
         obj["Object type"] = type
         obj["Addon"] = const.ADDON_NAME
         obj["Version"] = const.ADDON_VERSION
 
-        obj["Shape"] = bpy.context.scene.tp3d.shape
+        obj["Shape"] = get_effective_shape(bpy.context.scene.tp3d)
         obj["Resolution"] = bpy.context.scene.tp3d.num_subdivisions
         obj["Elevation Scale"] = bpy.context.scene.tp3d.scaleElevation
         obj["objSize"] = bpy.context.scene.tp3d.objSize
@@ -163,7 +165,7 @@ def writeMetadata(obj, type = "MAP"):
         obj["Object type"] = type
         obj["Addon"] = const.ADDON_NAME
         obj["Version"] = const.ADDON_VERSION
-        obj["Shape"] = bpy.context.scene.tp3d.shape
+        obj["Shape"] = get_effective_shape(bpy.context.scene.tp3d)
         obj["textFont"] = bpy.context.scene.tp3d.textFont
         obj["textSize"] = bpy.context.scene.tp3d.textSize
         obj["text1"] = bpy.context.scene.tp3d.textfield1
@@ -187,7 +189,7 @@ def writeMetadata(obj, type = "MAP"):
         obj["Object type"] = type
         obj["Addon"] = const.ADDON_NAME
         obj["Version"] = const.ADDON_VERSION
-        obj["Shape"] = bpy.context.scene.tp3d.shape
+        obj["Shape"] = get_effective_shape(bpy.context.scene.tp3d)
         obj["textFont"] = bpy.context.scene.tp3d.textFont
         obj["textSize"] = bpy.context.scene.tp3d.textSize
         obj["text1"] = bpy.context.scene.tp3d.textfield1

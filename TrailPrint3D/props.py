@@ -53,6 +53,48 @@ def generation_mode_update(self, context):
     self.use_multi_generation = (self.generation_mode == 'MULTI')
 
 
+# Which text/plate overlays each base shape supports. "NONE" (plain shape,
+# no overlay) must come first in every list -- see the shapeTextStyle
+# comment for why. Base shapes with no entry here (SQUARE, ELLIPSE, HEART)
+# have no overlay to offer.
+SHAPE_TEXT_STYLES = {
+    "HEXAGON": [
+        ("NONE",        _("None"),        _("Plain hexagonal map, no text overlay")),
+        ("INNER TEXT",  _("Inner text"),  _("Hexagonal map with inserted text")),
+        ("OUTER TEXT",  _("Outer text"),  _("Hexagonal map with backplate and text")),
+        ("FRONT TEXT",  _("Front text"),  _("Hexagonal map with backplate and text on the front")),
+    ],
+    "OCTAGON": [
+        ("NONE",       _("None"),        _("Plain octagon map, no text overlay")),
+        ("OUTER TEXT", _("Outer text"),  _("Octagon map with backplate and text")),
+    ],
+    "CIRCLE": [
+        ("NONE",       _("None"),        _("Plain circular map, no text overlay")),
+        ("OUTER TEXT", _("Outer text"),  _("Circular map with backplate and curved text")),
+    ],
+}
+
+
+def get_shape_text_style_items(self, context):
+    # Items must be a callback (not a static list) since the available
+    # styles depend on which base shape is currently selected.
+    return SHAPE_TEXT_STYLES.get(self.shape, [("NONE", _("None"), _("No text overlay available for this shape"))])
+
+
+def get_effective_shape(tp3d):
+    """The full shape identifier generation.py/metadata.py operate on
+    (e.g. "HEXAGON OUTER TEXT"), composed from the base shape dropdown and
+    the text-style dropdown. Falls back to the bare base shape if no style
+    is selected, or if the stored style isn't valid for the current base
+    shape (e.g. left over from a different shape)."""
+    base = tp3d.shape
+    style = tp3d.shapeTextStyle
+    valid_styles = {ident for ident, _label, _desc in SHAPE_TEXT_STYLES.get(base, [])}
+    if style and style != "NONE" and style in valid_styles:
+        return f"{base} {style}"
+    return base
+
+
 # Define a Property Group to store variables
 class TP3D_PG_properties(bpy.types.PropertyGroup):
     file_path: StringProperty(
@@ -86,14 +128,17 @@ class TP3D_PG_properties(bpy.types.PropertyGroup):
             ("OCTAGON", _("Octagon"), _("Octagon Map")), #Premium
             ("ELLIPSE", _("Ellipse"), _("Ellipse Map")), #Premium
             ("HEART", _("Heart"), _("Heart Map")), #Premium
-            ("HEXAGON INNER TEXT", _("Hexagon inner text"), _("Hexagonal map with inserted Text")),
-            ("HEXAGON OUTER TEXT", _("Hexagon outer text"), _("Hexagonal map with backplate and text")),
-            ("HEXAGON FRONT TEXT", _("Hexagon front text"), _("Hexagonal map with backplate and text on the front")),
-            ("OCTAGON OUTER TEXT", _("Octagon outer text"), _("Octagon map with backplate and text"))
-            #("MEDAL", _("Medal"), _("Circular medal with lower plate and curved text"))
         ],
         default = "HEXAGON",
         #update = shape_callback #calls shape_callback when user selects diffrent shape to register the Shape Panel
+    )# type: ignore
+    shapeTextStyle: EnumProperty(
+        name = _("Text Style"),
+        description = _("Add a text/plate overlay to the selected shape"),
+        items = get_shape_text_style_items,
+        # Dynamic-items EnumProperty can't take an explicit `default=` -- see
+        # get_special_blend_items above for why. "NONE" is first in every
+        # per-shape list in SHAPE_TEXT_STYLES, so it's the default.
     )# type: ignore
 
     api: bpy.props.EnumProperty(

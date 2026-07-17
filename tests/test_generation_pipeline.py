@@ -105,6 +105,7 @@ def _assert_all_passed():
 def _reset_scene_defaults():
     tp3d = bpy.context.scene.tp3d
     tp3d.shape = "HEXAGON"
+    tp3d.shapeTextStyle = "NONE"
     tp3d.objSize = 100
     tp3d.num_subdivisions = 4
     tp3d.scaleElevation = 1.0
@@ -413,7 +414,8 @@ def test_hexagon_outer_text_paint_forest_water():
         "hexagon_outer_text_paint_forest_water",
         "3BergeTour.gpx",
         {
-            "shape": "HEXAGON OUTER TEXT",
+            "shape": "HEXAGON",
+            "shapeTextStyle": "OUTER TEXT",
             "num_subdivisions": 8,
             "col_fActive": True,
             "col_wPondsActive": True,

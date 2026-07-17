@@ -9,6 +9,7 @@ from . import temp
 from . import updater
 from . import constants as const
 from . import addon_preferences
+from .props import SHAPE_TEXT_STYLES, get_effective_shape
 
 from bpy.app.translations import pgettext_iface as _ #For Translation of Text Required
 
@@ -156,6 +157,8 @@ class TP3D_PT_generate(bpy.types.Panel):
             box.label(text=_("Shape"), icon='MESH_DATA')
             col = box.column(align=True)
             col.prop(props, "shape")
+            if props.shape in SHAPE_TEXT_STYLES:
+                col.prop(props, "shapeTextStyle")
             col.separator(factor=0.5)
             if props.shape == "SQUARE":
                 row = col.row(align=True)
@@ -528,10 +531,9 @@ class TP3D_PT_shapes(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         props = context.scene.tp3d  # Get properties
+        effective_shape = get_effective_shape(props)
 
-        
-        #print(f"shape: {props.shape}")
-        if props.shape in {"HEXAGON INNER TEXT", "HEXAGON OUTER TEXT", "OCTAGON OUTER TEXT", "HEXAGON FRONT TEXT", "MEDAL"}:
+        if effective_shape in {"HEXAGON INNER TEXT", "HEXAGON OUTER TEXT", "OCTAGON OUTER TEXT", "HEXAGON FRONT TEXT", "CIRCLE OUTER TEXT"}:
 
             #Add input fields
             layout.prop(props, "textFont")
@@ -559,7 +561,7 @@ class TP3D_PT_shapes(bpy.types.Panel):
                 split = row.split(factor=0.3)
                 split.prop(props,"iconText3", text = "")
                 split.prop(props, "textfield3", text = "")
-                if props.shape == "HEXAGON OUTER TEXT":
+                if effective_shape == "HEXAGON OUTER TEXT":
                     row = layout.row()
                     split = row.split(factor=0.3)
                     split.prop(props,"iconText4", text = "")
@@ -589,7 +591,7 @@ class TP3D_PT_shapes(bpy.types.Panel):
                 split = row.split(factor=0.3)
                 split.operator("tp3d.terrain_dummy", text=_('Icon'), icon='LOCKED')
                 split.prop(props, "textfield3", text = "")
-                if props.shape == "HEXAGON OUTER TEXT":
+                if effective_shape == "HEXAGON OUTER TEXT":
                     row = layout.row()
                     split = row.split(factor=0.3)
                     split.operator("tp3d.terrain_dummy", text=_('Icon'), icon='LOCKED')
@@ -604,7 +606,7 @@ class TP3D_PT_shapes(bpy.types.Panel):
             layout.prop(props, "plateInsertValue")
             layout.prop(props, "text_angle_preset")
 
-            if props.shape in {"HEXAGON OUTER TEXT", "HEXAGON FRONT TEXT", "OCTAGON OUTER TEXT", "MEDAL"}:
+            if effective_shape in {"HEXAGON OUTER TEXT", "HEXAGON FRONT TEXT", "OCTAGON OUTER TEXT", "CIRCLE OUTER TEXT"}:
                 layout.prop(props, "plateBevel")
 
 
