@@ -95,6 +95,19 @@ def get_effective_shape(tp3d):
     return base
 
 
+def repair_invalid_shape(scene):
+    """Files/sessions saved before the "... TEXT" shape variants were split
+    out into shapeTextStyle may still have `shape` stored as one of those
+    now-removed identifiers. Reading an EnumProperty whose stored index no
+    longer exists in the (now trimmed, base-shapes-only) items list returns
+    '' and logs a bpy.rna warning on every single access -- once per UI
+    redraw, so it floods the console. Reset it once to a valid default so
+    both the stored value and the warning spam go away."""
+    tp3d = getattr(scene, "tp3d", None)
+    if tp3d is not None and not tp3d.shape:
+        tp3d.shape = "HEXAGON"
+
+
 # Define a Property Group to store variables
 class TP3D_PG_properties(bpy.types.PropertyGroup):
     file_path: StringProperty(

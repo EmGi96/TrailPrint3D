@@ -789,8 +789,7 @@ def color_map_faces_by_terrain(map_obj, terrain_obj, up_threshold=0.05):
         return
     print(f"  [color_faces] footprint build: {time.time()-_t_footprint:.3f}s")
 
-    from shapely.prepared import prep as _prep
-    prepared = _prep(footprint)
+    prepared = _g2d.prep(footprint)
 
     map_mesh = map_obj.data
     bm = bmesh.new()
@@ -813,12 +812,11 @@ def color_map_faces_by_terrain(map_obj, terrain_obj, up_threshold=0.05):
     colored_count = 0
 
     _t_loop = time.time()
-    from shapely.geometry import Point as _Point
     i = 0
     for i, f in enumerate(bm.faces):
         if f.normal.normalized().dot(up) > up_threshold:
             center = mw_map @ f.calc_center_median()
-            if prepared.contains(_Point(center.x, center.y)):
+            if prepared.contains(_g2d.Point(center.x, center.y)):
                 f.material_index = mat_index
                 colored_count += 1
     print(f"  [color_faces] loop: {time.time()-_t_loop:.3f}s  ({i+1} faces checked, {colored_count} colored)")

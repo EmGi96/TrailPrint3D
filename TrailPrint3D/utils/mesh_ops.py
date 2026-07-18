@@ -1109,8 +1109,8 @@ def _extrude_flat_polygon(g2d_mod, polygon, bottom_z, top_z, verts, faces):
     # if it comes back reversed, every triangle and wall quad winds backwards
     # and every normal ends up flipped, which silently breaks the boolean
     # against the map. Normalize it explicitly rather than assume.
-    from shapely.geometry.polygon import orient as _orient_polygon  # deferred to avoid circular import at load time
-    polygon = _orient_polygon(polygon, sign=1.0)
+    g2d_mod._require_shapely()
+    polygon = g2d_mod.orient(polygon, sign=1.0)
 
     ext = list(polygon.exterior.coords)
     if len(ext) > 1 and ext[0] == ext[-1]:
@@ -1387,11 +1387,12 @@ def _rounded_rect_polygon(width, height, radius, quad_segs=8):
     origin, with its outer corners rounded to *radius* (clamped so the
     rounding never exceeds half the rectangle's own width/height).
     """
-    from shapely.geometry import box as _box  # deferred to avoid circular import at load time
+    from . import geometry2d as _g2d  # deferred to avoid circular import at load time
+    _g2d._require_shapely()
     radius = max(0.0, min(radius, width / 2, height / 2))
     if radius <= 1e-6:
-        return _box(-width / 2, -height / 2, width / 2, height / 2)
-    inner = _box(-width / 2 + radius, -height / 2 + radius, width / 2 - radius, height / 2 - radius)
+        return _g2d.box(-width / 2, -height / 2, width / 2, height / 2)
+    inner = _g2d.box(-width / 2 + radius, -height / 2 + radius, width / 2 - radius, height / 2 - radius)
     return inner.buffer(radius, quad_segs=quad_segs, join_style='round')
 
 

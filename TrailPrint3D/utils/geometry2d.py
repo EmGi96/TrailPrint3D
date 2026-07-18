@@ -28,6 +28,10 @@ MultiPolygon: Any = None
 LineString: Any = None
 MultiLineString: Any = None
 GeometryCollection: Any = None
+Point: Any = None
+box: Any = None
+orient: Any = None
+prep: Any = None
 _make_valid_compat: Any = None
 _make_valid_v2: Any = None
 unary_union: Any = None
@@ -41,14 +45,17 @@ def _load_shapely():
     """
     global _HAS_SHAPELY, _SHAPELY_MAJOR, _SHAPELY_IMPORT_ERROR, _shapely
     global Polygon, MultiPolygon, LineString, MultiLineString, GeometryCollection
+    global Point, box, orient, prep
     global _make_valid_compat, _make_valid_v2, unary_union, polygonize
     try:
         import shapely as _shapely_mod
         from shapely.geometry import (
             Polygon as _P, MultiPolygon as _MP,
             LineString as _LS, MultiLineString as _MLS,
-            GeometryCollection as _GC,
+            GeometryCollection as _GC, Point as _Pt, box as _box,
         )
+        from shapely.geometry.polygon import orient as _orient
+        from shapely.prepared import prep as _prep
         from shapely.validation import make_valid as _mvc
         from shapely import make_valid as _mv2
         from shapely.ops import unary_union as _uu, polygonize as _pg
@@ -58,6 +65,10 @@ def _load_shapely():
         LineString = _LS
         MultiLineString = _MLS
         GeometryCollection = _GC
+        Point = _Pt
+        box = _box
+        orient = _orient
+        prep = _prep
         _make_valid_compat = _mvc
         _make_valid_v2 = _mv2
         unary_union = _uu

@@ -71,6 +71,13 @@ class TP3D_PT_generate(bpy.types.Panel):
             row.operator("tp3d.terrain_dummy", text=_("Multi"), icon='LOCKED')
             row.operator("tp3d.terrain_dummy", text=_("Terrain"), icon='LOCKED')
 
+        # --- Shapely status warning ---
+        from .utils import geometry2d as _g2d
+        if not _g2d._HAS_SHAPELY:
+            row = layout.row()
+            row.alert = True
+            row.operator("tp3d.shapely_status", text=_("Shapely failed to load"), icon='ERROR')
+
         # --- Generate button ---
         col = layout.column()
         col.scale_y = 1.4
