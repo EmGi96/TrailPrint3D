@@ -625,6 +625,11 @@ class TP3D_PT_shapes(bpy.types.Panel):
             if effective_shape in {"HEXAGON OUTER TEXT", "HEXAGON FRONT TEXT", "OCTAGON OUTER TEXT", "CIRCLE OUTER TEXT"}:
                 layout.prop(props, "plateBevel")
 
+            if effective_shape in {"HEXAGON OUTER TEXT", "HEXAGON FRONT TEXT", "OCTAGON OUTER TEXT", "CIRCLE OUTER TEXT"}:
+                layout.prop(props, "medalHandle")
+                if props.medalHandle:
+                    layout.prop(props, "medalHandleStyle")
+
 
         else:
             layout.label(text = _("Only for Text based Shapes (like Hexagon Outer Text)"))

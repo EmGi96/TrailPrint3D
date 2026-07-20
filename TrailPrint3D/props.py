@@ -346,6 +346,15 @@ class TP3D_PG_properties(bpy.types.PropertyGroup):
     plateThickness: FloatProperty(name= _("plateThickness"), default = 5, description= _("Thickness of the Additional Plate")) # type: ignore
     plateInsertValue: FloatProperty(name= _("plateInsertValue"), default = 0, description= _("Depth of Cutout for the Map in the Plate, 0  to ignore")) # type: ignore
     plateBevel: FloatProperty(name= _("Plate Bevel"), default = 0.0, min = 0.0, max = 50.0, description= _("Bevel the top and bottom edges of the plate (0 to disable)")) # type: ignore
+    medalHandle: BoolProperty(name= _("Add Ribbon Handle"), default = False, description= _("Add a tab with a hole on top of the plate, so a ribbon or cord can be pulled through it")) # type: ignore
+    medalHandleStyle: EnumProperty(
+        name = _("Handle Opening"),
+        items=[
+            ("ROUND", _("Round Hole"), _("A round hole sized for a cord or split ring")),
+            ("SLOT",  _("Wide Slot"),  _("A wide rounded slot sized for a flat ribbon")),
+        ],
+        default = "ROUND",
+    )# type: ignore
 
     tileSpacing: FloatProperty(name= _("tileSpacing"), default = 0, description= _("Distance between Tiles when Extending")) # type: ignore
 
