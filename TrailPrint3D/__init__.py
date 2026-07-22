@@ -92,7 +92,7 @@ Version 3.0
 bl_info = {
     "name": "TrailPrint3D",
     "author": "EmGi",
-    "version": (3, 1, 2),
+    "version": (3, 1, 3),
     "blender": (5, 1, 0),
     "location": "View3D > Sidebar > TrailPrint3D",
     "description": "Create 3D Printable Miniature Maps of your Adventures",
@@ -105,106 +105,6 @@ bl_info = {
 
 import bpy
 import os
-import sys
-import platform
-
-def _bootstrap_wheels():
-    """Extract and load bundled wheels when Blender hasn't processed the manifest.
-
-    Blender only extracts wheels listed in blender_manifest.toml when the addon
-    is installed as an extension.  In dev mode (junction/symlink into scripts/addons)
-    we must extract them ourselves — .pyd C-extensions cannot be imported from
-    a zip on sys.path, they need real files on disk.
-
-    Each bundled wheel is checked independently (not just shapely as a stand-in
-    for "our wheels are loaded") -- another installed addon can bundle its own
-    copy of shapely and put it on sys.path first, which would otherwise make
-    this return early without ever extracting mapbox_earcut.
-
-    The wheel filename must also match this interpreter's ABI tag (e.g.
-    "cp313"), not just the OS/arch tag -- loading a .pyd/.so built for a
-    different CPython version can crash the interpreter instead of raising
-    a clean ImportError, so a mismatch must skip the wheel entirely.
-
-    A wheel already stamped as extracted is still re-verified by import
-    before being trusted: antivirus quarantine or a manual deletion can
-    strip a .pyd/.dll after the stamp was written, leaving a stamp that
-    points at a broken extraction forever. If the import still fails, the
-    stamp is discarded and the wheel is re-extracted.
-
-    Real Extension installs (Blender's Extensions manager, living under
-    .../extensions/<repo>/<addon-id>/) are skipped entirely: Blender already
-    extracts the wheels declared in blender_manifest.toml and puts them on
-    sys.path itself before this module runs. Manually inserting our own path
-    on top of that is redundant at best, and Blender's extension validator
-    flags it as a policy violation ("Policy violation with sys.path") -- this
-    function's manual extraction is only meant for dev-mode installs
-    (a symlink/junction into scripts/addons), which have no such manifest
-    processing.
-    """
-    import zipfile
-
-    _addon_dir = os.path.dirname(__file__)
-    _path_parts = {_p.lower() for _p in os.path.normpath(_addon_dir).split(os.sep)}
-    if "extensions" in _path_parts:
-        return  # Extension install -- Blender owns wheel extraction, not us.
-
-    _wheels_dir = os.path.join(_addon_dir, "wheels")
-    if not os.path.isdir(_wheels_dir):
-        return
-
-    _machine = platform.machine().lower()
-    if sys.platform == "win32":
-        _tag = "win_amd64"
-    elif sys.platform == "darwin":
-        _tag = "macosx_11_0_arm64" if _machine == "arm64" else "macosx_11_0_x86_64"
-    else:
-        _tag = "manylinux_2_17_x86_64"
-    _abi_tag = f"cp{sys.version_info.major}{sys.version_info.minor}"
-
-    _needed = []
-    for _whl in sorted(os.listdir(_wheels_dir)):
-        if not (_whl.endswith(".whl") and _tag in _whl and _abi_tag in _whl):
-            continue
-        _import_name = _whl.split("-", 1)[0]
-        try:
-            __import__(_import_name)
-        except ImportError:
-            _needed.append(_whl)
-
-    if not _needed:
-        return
-
-    _extract_dir = os.path.join(_wheels_dir, "_extracted")
-    os.makedirs(_extract_dir, exist_ok=True)
-    if _extract_dir not in sys.path:
-        sys.path.insert(0, _extract_dir)
-
-    for _whl in _needed:
-        _whl_path = os.path.join(_wheels_dir, _whl)
-        _import_name = _whl.split("-", 1)[0]
-        # Use the wheel filename (minus .whl) as a stamp so we re-extract
-        # if the wheel is updated.
-        _stamp = os.path.join(_extract_dir, _whl + ".stamp")
-
-        if os.path.exists(_stamp):
-            try:
-                __import__(_import_name)
-                continue  # extraction from a previous run is still intact
-            except ImportError:
-                os.remove(_stamp)  # stamp lied -- extraction was tampered with
-
-        with zipfile.ZipFile(_whl_path, "r") as _z:
-            _z.extractall(_extract_dir)
-        open(_stamp, "w").close()
-
-try:
-    _bootstrap_wheels()
-except Exception as _e:
-    # A filesystem/AV/permission hiccup here must not take down the whole
-    # addon -- geometry2d.py already degrades gracefully when shapely is
-    # unavailable, so let it report that instead of Blender showing no UI.
-    print(f"[TrailPrint3D] Failed to bootstrap bundled wheels: {_e!r}")
 
 from . import translation
 from . import constants as const
@@ -235,6 +135,7 @@ classes = [
     panels.TP3D_OT_show_custom_props_popup,
     operators.TP3D_OT_run_generation,
     operators.TP3D_OT_shapely_status,
+    operators.TP3D_OT_earcut_status,
     operators.TP3D_OT_export_stl,
     operators.TP3D_OT_export_obj,
     operators.TP3D_OT_export_three_mf,

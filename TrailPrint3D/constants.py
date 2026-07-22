@@ -7,7 +7,7 @@ import bpy
 import os
 
 ADDON_NAME = "TrailPrint3D"
-ADDON_VERSION = (3, 1, 2)
+ADDON_VERSION = (3, 1, 3)
 required_blender_version = (5, 1, 0)
 
 ENABLE_UPDATE_CHECKER = True

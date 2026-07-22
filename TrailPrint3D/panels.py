@@ -71,12 +71,16 @@ class TP3D_PT_generate(bpy.types.Panel):
             row.operator("tp3d.terrain_dummy", text=_("Multi"), icon='LOCKED')
             row.operator("tp3d.terrain_dummy", text=_("Terrain"), icon='LOCKED')
 
-        # --- Shapely status warning ---
+        # --- Shapely / earcut status warnings ---
         from .utils import geometry2d as _g2d
         if not _g2d._HAS_SHAPELY:
             row = layout.row()
             row.alert = True
             row.operator("tp3d.shapely_status", text=_("Shapely failed to load"), icon='ERROR')
+        if not _g2d._HAS_EARCUT:
+            row = layout.row()
+            row.alert = True
+            row.operator("tp3d.earcut_status", text=_("Earcut failed to load"), icon='ERROR')
 
         # --- Generate button ---
         col = layout.column()
@@ -624,12 +628,8 @@ class TP3D_PT_shapes(bpy.types.Panel):
 
             if effective_shape in {"HEXAGON OUTER TEXT", "HEXAGON FRONT TEXT", "OCTAGON OUTER TEXT", "CIRCLE OUTER TEXT"}:
                 layout.prop(props, "plateBevel")
-
-            if effective_shape in {"HEXAGON OUTER TEXT", "HEXAGON FRONT TEXT", "OCTAGON OUTER TEXT", "CIRCLE OUTER TEXT"}:
-                layout.prop(props, "medalHandle")
-                if props.medalHandle:
-                    layout.prop(props, "medalHandleStyle")
-
+                row = layout.row(align=True)
+                row.prop(props, "handleStyle", expand=True)
 
         else:
             layout.label(text = _("Only for Text based Shapes (like Hexagon Outer Text)"))

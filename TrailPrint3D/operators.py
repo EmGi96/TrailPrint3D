@@ -64,6 +64,34 @@ class TP3D_OT_shapely_status(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class TP3D_OT_earcut_status(bpy.types.Operator):
+    bl_idname = "tp3d.earcut_status"
+    bl_label = "Earcut failed to load"
+
+    @classmethod
+    def description(cls, context, properties):
+        from .utils import geometry2d as _g2d
+        err = str(_g2d._EARCUT_IMPORT_ERROR) if _g2d._EARCUT_IMPORT_ERROR is not None else _("Unknown error")
+        return _(
+            "Trail strips (Single-color mode) and 3D Elements will come out empty\n"
+            "{err}\n"
+            "Try reinstalling the addon or wait for an update"
+        ).format(err=err)
+
+    def execute(self, context):
+        from .utils import geometry2d as _g2d
+        err_text = str(_g2d._EARCUT_IMPORT_ERROR) if _g2d._EARCUT_IMPORT_ERROR is not None else _("Unknown error")
+
+        def _draw(popup_self, context):
+            col = popup_self.layout.column(align=True)
+            col.label(text=_("Trail strips (Single-color mode) and 3D Elements will come out empty"))
+            col.label(text=err_text)
+            col.label(text=_("Try reinstalling the addon or wait for an update"))
+
+        context.window_manager.popup_menu(_draw, title=_("Earcut failed to load"), icon='ERROR')
+        return {'FINISHED'}
+
+
 class TP3D_OT_export_stl(bpy.types.Operator):
     bl_idname = "tp3d.export_stl"
     bl_label = "Export STL"
