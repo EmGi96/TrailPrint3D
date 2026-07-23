@@ -313,18 +313,18 @@ def _rg_create_map_object(flags, props, modelname, centerx, centery):
     if "append_collection" not in flags and "use_active_object" not in flags:
         print(f"[map_object] creating '{shape}' N={num_subdivisions} size={size:.1f}…")
         _t_shape = time.time()
-        if shape == "SQUARE":
+        if shape in {"SQUARE", "SQUARE SHELL"}:
             rHeight = bpy.context.scene.tp3d.rectangleHeight
             MapObject = create_rectangle(size, rHeight, num_subdivisions, modelname)
-        elif shape in {"HEXAGON", "HEXAGON INNER TEXT", "HEXAGON OUTER TEXT", "HEXAGON FRONT TEXT"}:
+        elif shape in {"HEXAGON", "HEXAGON SHELL", "HEXAGON INNER TEXT", "HEXAGON OUTER TEXT", "HEXAGON FRONT TEXT"}:
             MapObject = create_hexagon(size / 2, num_subdivisions, modelname)
         elif shape == "HEART":
             MapObject = create_heart(size / 2, num_subdivisions, modelname)
-        elif shape in {"OCTAGON", "OCTAGON OUTER TEXT"}:
+        elif shape in {"OCTAGON", "OCTAGON SHELL", "OCTAGON OUTER TEXT"}:
             MapObject = create_octagon(size / 2, num_subdivisions, modelname)
-        elif shape in {"CIRCLE", "CIRCLE OUTER TEXT"}:
+        elif shape in {"CIRCLE", "CIRCLE SHELL", "CIRCLE OUTER TEXT"}:
             MapObject = create_circle(size / 2, num_subdivisions, modelname)
-        elif shape == "ELLIPSE":
+        elif shape in {"ELLIPSE", "ELLIPSE SHELL"}:
             ratio = bpy.context.scene.tp3d.ellipseRatio
             MapObject = create_ellipse(size / 2, num_subdivisions, modelname, ratio)
         else:
@@ -764,6 +764,7 @@ def _rg_apply_single_color_mode(obj, curveObjs, terrain, props):
         # Maps key -> thicker mesh object, filled as each element is processed.
         thicker_by_key = {}
 
+
         _scm_fn = single_color_mode_mesh_remesh if props['elementMode'] == "SINGLECOLORMODE_REMESH" else single_color_mode_mesh_wireframe
 
         _active_scm_keys = [k for k in TERRAIN_PRIORITY_ORDER if terrain.get(k)]
@@ -802,7 +803,6 @@ def _rg_apply_single_color_mode(obj, curveObjs, terrain, props):
             _scm_done += 1
 
         for thicker in thicker_by_key.values():
-            #pass
             remove_objects(thicker)
 
     if props['elementMode'] == "SEPARATE" and thickerCurves:
@@ -838,7 +838,7 @@ def _rg_apply_single_color_mode(obj, curveObjs, terrain, props):
             remove_objects(thickerCurves)
 
 
-def _rg_assign_materials(obj, curveObjs, textobj, plateobj, props):
+def _rg_assign_materials(obj, curveObjs, textobj, plateobj, props, shellobj=None):
     """Write metadata and assign materials to all generated objects."""
     from .metadata import writeMetadata  # deferred to avoid circular import at load time
 
@@ -880,8 +880,15 @@ def _rg_assign_materials(obj, curveObjs, textobj, plateobj, props):
         plateobj.data.materials.append(mat)
         writeMetadata(plateobj, type="PLATE")
 
+    if shellobj:
+        mat = bpy.data.materials.get("BLACK")
+        shellobj.data.materials.clear()
+        if mat:
+            shellobj.data.materials.append(mat)
+        writeMetadata(shellobj, type="SHELL")
 
-def _rg_export(obj, curveObjs, textobj, plateobj, props, buggyDataset, start_time, exportformat, elements=None):
+
+def _rg_export(obj, curveObjs, textobj, plateobj, props, buggyDataset, start_time, exportformat, elements=None, shellobj=None):
     """Export all geometry, update API counters, and zoom camera."""
     from ..export import export_to_STL, export_selected_to_3mf, is_3mf_extension_installed  # deferred to avoid circular import at load time
     from .elevation import load_counter  # deferred to avoid circular import at load time
@@ -921,6 +928,9 @@ def _rg_export(obj, curveObjs, textobj, plateobj, props, buggyDataset, start_tim
         if shape in {"HEXAGON OUTER TEXT", "OCTAGON OUTER TEXT", "HEXAGON FRONT TEXT", "CIRCLE OUTER TEXT"} and plateobj:
             plateobj.select_set(True)
 
+        if shellobj:
+            shellobj.select_set(True)
+
         export_selected_to_3mf()
     else:
         print("exporting as STL/OBJ")
@@ -939,6 +949,9 @@ def _rg_export(obj, curveObjs, textobj, plateobj, props, buggyDataset, start_tim
 
         if shape in {"HEXAGON OUTER TEXT", "OCTAGON OUTER TEXT", "HEXAGON FRONT TEXT", "CIRCLE OUTER TEXT"} and plateobj:
             export_to_STL(plateobj, exportformat)
+
+        if shellobj:
+            export_to_STL(shellobj, exportformat)
 
     count_openTopoData, _dt1, count_openElevation, _dt2 = load_counter()
     tp3d = bpy.context.scene.tp3d
@@ -1062,7 +1075,7 @@ def runGeneration(type, locked_scale=None):
     from .primitives import simplify_curve, create_curve_from_coordinates  # deferred to avoid circular import at load time
     from .elevation import get_tile_elevation  # deferred to avoid circular import at load time
     from .scene import zoom_camera_to_selected, show_message_box, transform_MapObject, set_origin_to_3d_cursor, remove_objects  # deferred to avoid circular import at load time
-    from .mesh_ops import RaycastCurveToMesh, splitCurves, recalculateNormals, merge_with_map  # deferred to avoid circular import at load time
+    from .mesh_ops import RaycastCurveToMesh, splitCurves, recalculateNormals, merge_with_map, build_map_shell  # deferred to avoid circular import at load time
     from .text_objects import HexagonInnerText, HexagonOuterText, HexagonFrontText, OctagonOuterText, MedalText  # deferred to avoid circular import at load time
     from .terrain import plateInsert  # deferred to avoid circular import at load time
 
@@ -1442,6 +1455,7 @@ def runGeneration(type, locked_scale=None):
     overlay.update(0.82, "Shape Overlays", "Adding text and plate elements…")
     textobj   = None
     plateobj  = None
+    shellobj  = None
     shape     = props['shape']
     plateThickness = props['plateThickness']
     shapeRotation  = props['shapeRotation']
@@ -1462,6 +1476,10 @@ def runGeneration(type, locked_scale=None):
         elif shape == "CIRCLE OUTER TEXT":
             textobj, plateobj = MedalText()
             obj.location.z += plateThickness
+        elif shape.endswith(" SHELL"):
+            shellobj = build_map_shell(obj, bpy.context.scene.tp3d.tolerance, wall=bpy.context.scene.tp3d.shellWallThickness, bottom_wall=1.0)
+            if shellobj:
+                set_origin_to_3d_cursor(shellobj)
         else:
             pass  # BottomText() — currently disabled
 
@@ -1522,8 +1540,8 @@ def runGeneration(type, locked_scale=None):
 
     # --- Phases 16-18: Assign materials, export, and finalize ---
     overlay.update(0.97, "Finalizing", "Exporting files...")
-    _rg_assign_materials(obj, curveObjs, textobj, plateobj, props)
-    _rg_export(obj, curveObjs, textobj, plateobj, props, buggyDataset, start_time, exportformat, elements)
+    _rg_assign_materials(obj, curveObjs, textobj, plateobj, props, shellobj)
+    _rg_export(obj, curveObjs, textobj, plateobj, props, buggyDataset, start_time, exportformat, elements, shellobj)
     # Script duration
     end_time = time.time()
     duration = end_time - start_time

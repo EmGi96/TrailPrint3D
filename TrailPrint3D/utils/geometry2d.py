@@ -92,12 +92,14 @@ if not _HAS_SHAPELY:
 _np = None
 _earcut = None
 _HAS_EARCUT = False
+_EARCUT_IMPORT_ERROR: Exception | None = None
 try:
     import numpy as _np
     import mapbox_earcut as _earcut
     _HAS_EARCUT = True
-except ImportError:
-    pass
+except ImportError as _ee:
+    _EARCUT_IMPORT_ERROR = _ee
+    print(f"[TrailPrint3D] mapbox_earcut import failed: {_ee!r}")
 
 _SHAPELY_ERR = (
     "TrailPrint3D requires Shapely 2.x. "

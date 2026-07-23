@@ -1669,6 +1669,11 @@ def single_color_mode_curve(crv, map, keepTolTrail = False, cutDepth = 2, projec
         _extrude_flat_polygon(g2d, poly, bottom_z, top_z, verts, faces)
 
     if not verts:
+        if not g2d._HAS_EARCUT:
+            from .. import progress as _progress
+            _progress.WarningsOverlay.add_warning(
+                "Trail strip is empty -- mapbox_earcut failed to load (see the sidebar warning)", "error"
+            )
         bpy.data.objects.remove(crv, do_unlink=True)
         return None
 
@@ -2023,6 +2028,209 @@ def remeshClearing(obj, voxelSize2, tolerance, map_obj=None):
 
 
     recalculateNormals(obj)
+
+
+def _select_bottom_and_sides(obj):
+    """Select obj's bottom face (lowest-Z face -- the single dissolved N-gon
+    the generation pipeline leaves at the bottom) plus every face directly
+    touching it: one "select more" step. Since the bottom is one big N-gon
+    bordering every side-wall face directly, that single step selects
+    exactly bottom + sides, leaving the top (terrain) faces unselected --
+    without needing any normal-angle threshold, so it isn't fooled by steep
+    terrain the way selectTopFaces was. Leaves obj in Edit Mode, face-select
+    mode, with bottom+sides selected."""
+    bpy.context.view_layer.objects.active = obj
+    obj.select_set(True)
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_mode(type='FACE')
+    bpy.ops.mesh.select_all(action='DESELECT')
+    bm = bmesh.from_edit_mesh(obj.data)
+    bm.faces.ensure_lookup_table()
+    bottom_face = min(bm.faces, key=lambda f: sum(v.co.z for v in f.verts) / len(f.verts))
+    bottom_face.select = True
+    bmesh.update_edit_mesh(obj.data)
+    bpy.ops.mesh.select_more()
+
+
+def _extract_bottom_and_sides(map_obj, name):
+    """Duplicate map_obj and keep only its bottom + side-wall faces (the
+    real, terrain-following outer shell) -- discards the top/terrain cap."""
+    bpy.ops.object.select_all(action='DESELECT')
+    map_obj.select_set(True)
+    bpy.context.view_layer.objects.active = map_obj
+    bpy.ops.object.duplicate()
+    shell_obj = bpy.context.view_layer.objects.active
+    shell_obj.name = name
+
+    _select_bottom_and_sides(shell_obj)  # leaves Edit Mode, bottom+sides selected
+    bpy.ops.mesh.select_all(action='INVERT')
+    bpy.ops.mesh.delete(type='FACE')
+    bpy.ops.object.mode_set(mode='OBJECT')
+    return shell_obj
+
+
+def _offset_shell_xy(shell_obj, amount, cx, cy):
+    """Grow every vertex of shell_obj radially outward in the XY plane
+    (about world (cx, cy)) by `amount`, leaving Z untouched entirely -- the
+    tolerance/wall gap, without disturbing the terrain-following heights
+    that came along for free by extracting the map's own real geometry.
+
+    Round-trips through matrix_world rather than assuming world = local +
+    location -- ELLIPSE objects carry a real object-level Y scale (their
+    aspect ratio never gets baked into the mesh), so that shortcut computes
+    the wrong world position and corrupts the offset for that shape.
+    """
+    if amount == 0:
+        return
+    mesh = shell_obj.data
+    mw = shell_obj.matrix_world
+    mw_inv = mw.inverted()
+    for v in mesh.vertices:
+        w = mw @ v.co
+        dx, dy = w.x - cx, w.y - cy
+        d = math.hypot(dx, dy)
+        if d > 1e-9:
+            new_world = Vector((cx + dx / d * (d + amount), cy + dy / d * (d + amount), w.z))
+            v.co = mw_inv @ new_world
+    mesh.update()
+
+
+def _push_bottom_face(obj, amount):
+    """Translate obj's bottom (lowest-Z) face straight down by `amount` --
+    the floor's own tolerance-gap / wall-thickness, kept independent of the
+    XY side offset since a flat floor doesn't get one "for free" the way
+    the sides do."""
+    if amount == 0:
+        return
+    bpy.context.view_layer.objects.active = obj
+    obj.select_set(True)
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_mode(type='FACE')
+    bpy.ops.mesh.select_all(action='DESELECT')
+    bm = bmesh.from_edit_mesh(obj.data)
+    bm.faces.ensure_lookup_table()
+    bottom_face = min(bm.faces, key=lambda f: sum(v.co.z for v in f.verts) / len(f.verts))
+    bottom_face.select = True
+    bmesh.update_edit_mesh(obj.data)
+    bpy.ops.transform.translate(value=(0, 0, -amount))
+    bpy.ops.object.mode_set(mode='OBJECT')
+
+
+def _stretch_up_from_bottom(obj, factor):
+    """Scale obj's Z coordinates by `factor` about its own bottom (lowest-Z)
+    point -- stretches everything above the floor further upward while
+    keeping the floor itself fixed. Used to grow the cavity cutter taller
+    than the outer wall's own highest point, so its cap safely removes
+    everything above it (any residual sliver between the two independently
+    fan-triangulated caps) instead of just meeting it edge-to-edge."""
+    if factor == 1:
+        return
+    mesh = obj.data
+    bottom_z = min(v.co.z for v in mesh.vertices)
+    for v in mesh.vertices:
+        v.co.z = bottom_z + (v.co.z - bottom_z) * factor
+    mesh.update()
+
+
+def _cap_boundary(obj):
+    """Close obj's single open boundary loop (where the top/terrain cap
+    used to be) by fanning triangles out from a center point to every
+    boundary edge -- turns the open bottom+sides shell into a valid closed
+    solid, right at its own natural (terrain-following) height.
+
+    A fan instead of bpy.ops.mesh.fill(): fill() can leave gaps on a
+    genuinely bumpy (non-planar) boundary loop -- fine on a flat rim, but a
+    real terrain-following one trips it up. A fan is reliable here because
+    the map's outline is always convex, so every boundary edge is visible
+    from an interior point regardless of how bumpy the rim's height is; the
+    fan's own shape doesn't matter beyond that; only its outer ring survives
+    the later boolean difference anyway.
+    """
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    bm.verts.ensure_lookup_table()
+    bm.edges.ensure_lookup_table()
+
+    remaining = {e for e in bm.edges if len(e.link_faces) == 1}
+    rings = []
+    while remaining:
+        e0 = next(iter(remaining))
+        remaining.discard(e0)
+        ring = [e0.verts[0], e0.verts[1]]
+        while True:
+            last = ring[-1]
+            nxt_e = next((e for e in remaining if last in e.verts), None)
+            if nxt_e is None:
+                break
+            remaining.discard(nxt_e)
+            ring.append(nxt_e.other_vert(last))
+        if len(ring) > 1 and ring[0] == ring[-1]:
+            ring = ring[:-1]
+        if len(ring) >= 3:
+            rings.append(ring)
+
+    for ring in rings:
+        n = len(ring)
+        cx = sum(v.co.x for v in ring) / n
+        cy = sum(v.co.y for v in ring) / n
+        cz = sum(v.co.z for v in ring) / n
+        center = bm.verts.new((cx, cy, cz))
+        for i in range(n):
+            a, b = ring[i], ring[(i + 1) % n]
+            try:
+                bm.faces.new((center, a, b))
+            except ValueError:
+                pass  # degenerate/duplicate face -- skip
+
+    bm.to_mesh(obj.data)
+    bm.free()
+    obj.data.update()
+    recalculateNormals(obj)
+
+
+def build_map_shell(map_obj, tolerance, wall=2.0, bottom_wall=1.0):
+    """Build a snug, open-top shell from the map's own real bottom+side
+    geometry, instead of reconstructing/approximating the shape.
+
+    Selects the bottom face and grows the selection once (bottom + every
+    directly-touching face = the side walls, since the bottom is a single
+    dissolved N-gon touching every side face -- the same thing pressing
+    Ctrl+Numpad+ once in the viewport would select), discards the top
+    (terrain) cap, then grows that shell outward in X/Y only for the
+    tolerance gap and wall thickness. Because the shell comes from the
+    map's actual mesh, the wall's top edge follows the real terrain exactly
+    -- not sampled, interpolated, or threshold-detected, so it can't drift
+    off the true height the way the previous normal-angle-based approaches
+    did on steep terrain.
+    """
+    cx, cy = map_obj.location.x, map_obj.location.y
+
+    # Fully process one shell (extract -> offset -> push -> cap) before
+    # starting the next -- interleaving the same step across both objects
+    # (all extracts, then all offsets, ...) has been observed to leave the
+    # second object's edit-mode boundary selection empty in background mode.
+    outer_obj = _extract_bottom_and_sides(map_obj, "_ShellOuter")
+    _offset_shell_xy(outer_obj, tolerance + wall, cx, cy)
+    _push_bottom_face(outer_obj, tolerance + bottom_wall)
+    _cap_boundary(outer_obj)
+
+    inner_obj = _extract_bottom_and_sides(map_obj, "_ShellInner")
+    _offset_shell_xy(inner_obj, tolerance, cx, cy)
+    _push_bottom_face(inner_obj, tolerance)
+    _stretch_up_from_bottom(inner_obj, 1.5)  # grow past outer's own rim height, so it cuts the top fully open
+    _cap_boundary(inner_obj)
+
+    boolean_operation(outer_obj, inner_obj, 'DIFFERENCE')
+    bpy.data.objects.remove(inner_obj, do_unlink=True)
+
+    if not outer_obj.data.polygons:
+        print("[build_map_shell] empty after hollowing -- skipping")
+        bpy.data.objects.remove(outer_obj, do_unlink=True)
+        return None
+
+    recalculateNormals(outer_obj)
+    outer_obj.name = map_obj.name + "_Shell"
+    return outer_obj
 
 
 def single_color_mode_mesh_remesh(original, map, tolerance = None):

@@ -53,24 +53,36 @@ def generation_mode_update(self, context):
     self.use_multi_generation = (self.generation_mode == 'MULTI')
 
 
-# Which text/plate overlays each base shape supports. "NONE" (plain shape,
+# Which text/plate/shell extras each base shape supports. "NONE" (plain shape,
 # no overlay) must come first in every list -- see the shapeTextStyle
-# comment for why. Base shapes with no entry here (SQUARE, ELLIPSE, HEART)
-# have no overlay to offer.
+# comment for why. HEART has no entry here -- it has no extras to offer.
+_SHELL_ITEM = ("SHELL", _("Shell"), _("Snug protective shell around the map's sides and bottom, offset by the tolerance gap with a printable wall"))
+
 SHAPE_TEXT_STYLES = {
     "HEXAGON": [
         ("NONE",        _("None"),        _("Plain hexagonal map, no text overlay")),
+        _SHELL_ITEM,
         ("INNER TEXT",  _("Inner text"),  _("Hexagonal map with inserted text")),
         ("OUTER TEXT",  _("Outer text"),  _("Hexagonal map with backplate and text")),
         ("FRONT TEXT",  _("Front text"),  _("Hexagonal map with backplate and text on the front")),
     ],
     "OCTAGON": [
         ("NONE",       _("None"),        _("Plain octagon map, no text overlay")),
+        _SHELL_ITEM,
         ("OUTER TEXT", _("Outer text"),  _("Octagon map with backplate and text")),
     ],
     "CIRCLE": [
         ("NONE",       _("None"),        _("Plain circular map, no text overlay")),
+        _SHELL_ITEM,
         ("OUTER TEXT", _("Outer text"),  _("Circular map with backplate and curved text")),
+    ],
+    "SQUARE": [
+        ("NONE", _("None"), _("Plain rectangular map, no extras")),
+        _SHELL_ITEM,
+    ],
+    "ELLIPSE": [
+        ("NONE", _("None"), _("Plain ellipse map, no extras")),
+        _SHELL_ITEM,
     ],
 }
 
@@ -146,8 +158,8 @@ class TP3D_PG_properties(bpy.types.PropertyGroup):
         #update = shape_callback #calls shape_callback when user selects diffrent shape to register the Shape Panel
     )# type: ignore
     shapeTextStyle: EnumProperty(
-        name = _("Text Style"),
-        description = _("Add a text/plate overlay to the selected shape"),
+        name = _("Shape Extras"),
+        description = _("Add an extra (text/plate overlay or shell) to the selected shape"),
         items = get_shape_text_style_items,
         # Dynamic-items EnumProperty can't take an explicit `default=` -- see
         # get_special_blend_items above for why. "NONE" is first in every
@@ -346,15 +358,16 @@ class TP3D_PG_properties(bpy.types.PropertyGroup):
     plateThickness: FloatProperty(name= _("plateThickness"), default = 5, description= _("Thickness of the Additional Plate")) # type: ignore
     plateInsertValue: FloatProperty(name= _("plateInsertValue"), default = 0, description= _("Depth of Cutout for the Map in the Plate, 0  to ignore")) # type: ignore
     plateBevel: FloatProperty(name= _("Plate Bevel"), default = 0.0, min = 0.0, max = 50.0, description= _("Bevel the top and bottom edges of the plate (0 to disable)")) # type: ignore
-    medalHandle: BoolProperty(name= _("Add Ribbon Handle"), default = False, description= _("Add a tab with a hole on top of the plate, so a ribbon or cord can be pulled through it")) # type: ignore
-    medalHandleStyle: EnumProperty(
-        name = _("Handle Opening"),
+    handleStyle: EnumProperty(
+        name = _("Handle"),
         items=[
-            ("ROUND", _("Round Hole"), _("A round hole sized for a cord or split ring")),
-            ("SLOT",  _("Wide Slot"),  _("A wide rounded slot sized for a flat ribbon")),
+            ("NONE",  _("None"),  _("No handle")),
+            ("ROUND", _("Round"), _("A round cylinder handle on top of the plate, like a medal")),
+            ("FLAT",  _("Flat"),  _("A flat bar handle on top of the plate, like a medal")),
         ],
-        default = "ROUND",
-    )# type: ignore
+        default = "NONE",
+    ) # type: ignore
+    shellWallThickness: FloatProperty(name= _("Shell Wall Thickness"), default = 2.0, min = 0.1, description= _("Thickness of the Shell extra's side walls")) # type: ignore
 
     tileSpacing: FloatProperty(name= _("tileSpacing"), default = 0, description= _("Distance between Tiles when Extending")) # type: ignore
 

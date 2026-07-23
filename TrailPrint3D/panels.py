@@ -628,8 +628,12 @@ class TP3D_PT_shapes(bpy.types.Panel):
 
             if effective_shape in {"HEXAGON OUTER TEXT", "HEXAGON FRONT TEXT", "OCTAGON OUTER TEXT", "CIRCLE OUTER TEXT"}:
                 layout.prop(props, "plateBevel")
+                layout.label(text=_("Medal Handle"))
                 row = layout.row(align=True)
                 row.prop(props, "handleStyle", expand=True)
+
+        elif effective_shape.endswith(" SHELL"):
+            layout.prop(props, "shellWallThickness")
 
         else:
             layout.label(text = _("Only for Text based Shapes (like Hexagon Outer Text)"))

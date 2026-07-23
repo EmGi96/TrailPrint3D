@@ -1,4 +1,4 @@
-import bpy  # type: ignore
+﻿import bpy  # type: ignore
 import bmesh  # type: ignore
 import math
 import os
@@ -235,6 +235,250 @@ def _apply_plate_bevel(obj, bevel_amount, thickness):
         bm.to_mesh(obj.data)
     bm.free()
     obj.data.update()
+
+
+def _add_box(half_x, half_y, center_y, z_top, z_bottom, name):
+    """Axis-aligned box in local space: x in [-half_x, half_x], y in
+    [center_y - half_y, center_y + half_y], z in [z_bottom, z_top]."""
+    near_y, far_y = center_y - half_y, center_y + half_y
+    verts = [
+        (-half_x, near_y, z_top), (half_x, near_y, z_top),
+        (half_x, far_y, z_top), (-half_x, far_y, z_top),
+        (-half_x, near_y, z_bottom), (half_x, near_y, z_bottom),
+        (half_x, far_y, z_bottom), (-half_x, far_y, z_bottom),
+    ]
+    faces = [
+        (0, 1, 2, 3),
+        (7, 6, 5, 4),
+        (0, 4, 5, 1),
+        (1, 5, 6, 2),
+        (2, 6, 7, 3),
+        (3, 7, 4, 0),
+    ]
+    mesh = bpy.data.meshes.new(name)
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(obj)
+    mesh.from_pydata(verts, [], faces)
+    mesh.update()
+    return obj
+
+
+def _add_dome_ring(radius, hole_radius, near_y, far_y, hole_center_y, z_top, z_bottom, name, segments=32):
+    """A tombstone-shaped ring: the outline from _add_dome with a round
+    hole of hole_radius built directly into the mesh topology (bridging
+    the outer and an inner loop of matching vertex count index-for-index,
+    the same fix already used for the plain circular ROUND hole earlier
+    in this project's history) instead of cut with a boolean -- booleans
+    against this outline (a large flat-bottom/semicircle-top face) have
+    proven unreliable with both of Blender's solvers: EXACT leaves dozens
+    of non-manifold edges, and MANIFOLD silently no-ops on a session's
+    first attempt at this specific shape, before working fine afterward.
+
+    near_y and hole_center_y are independent, not a shared center: the
+    outer shape's near (plate-facing) edge is pulled down as needed to
+    keep it embedded in the plate (see _handle_near_y), but the hole must
+    stay fixed just above the plate's own topmost point regardless of
+    that -- dragging the hole down along with the outer shape would push
+    it back into the plate's own material near the shape's center and
+    block it.
+
+    near_y and far_y set the outer shape's actual vertical span; radius
+    only controls the semicircle's curvature (and so the rectangle
+    portion's half-width) -- it is *not* forced to be half of (far_y -
+    near_y). Keeping those independent matters because near_y can get
+    pulled well below where a fixed-radius dome's near edge would
+    naturally land (embedding for a beveled or curved plate can require
+    more room than the nominal radius provides) -- if the whole shape's
+    height were locked to 2*radius, the far (outward) wall above the
+    hole would thin out or vanish entirely whenever that happens, instead
+    of the rectangle portion simply stretching to cover the gap.
+    """
+    split_y = far_y - radius
+
+    # Corner points aren't evenly spaced in angle from the arc points (two
+    # corners cover a 90 deg jump in one step, versus a few degrees per
+    # arc step) -- so the inner loop is built from the *same* per-point
+    # angles as the outer loop, not its own uniform spacing, keeping each
+    # inner point exactly radially under its outer counterpart. Otherwise
+    # the bridged quad spanning that 90 deg outer jump against only a few
+    # degrees of inner motion comes out badly skewed, showing up as a
+    # dark, inverted-looking face right at the hole's corner-side edge.
+    angles = [math.atan2(-radius, -radius), math.atan2(-radius, radius)]
+    outer2d = [(-radius, near_y), (radius, near_y)]
+    for i in range(segments + 1):
+        angle = math.pi * i / segments
+        outer2d.append((radius * math.cos(angle), split_y + radius * math.sin(angle)))
+        angles.append(angle)
+    n = len(outer2d)
+
+    inner2d = [
+        (hole_radius * math.cos(a), hole_center_y + hole_radius * math.sin(a))
+        for a in angles
+    ]
+
+    verts = (
+        [(x, y, z_top) for x, y in outer2d] + [(x, y, z_top) for x, y in inner2d]
+        + [(x, y, z_bottom) for x, y in outer2d] + [(x, y, z_bottom) for x, y in inner2d]
+    )
+
+    def ot(i): return i % n
+    def it(i): return n + (i % n)
+    def ob(i): return 2 * n + (i % n)
+    def ib(i): return 3 * n + (i % n)
+
+    faces = []
+    for i in range(n):
+        j = i + 1
+        faces.append([ot(i), ot(j), it(j), it(i)])
+        faces.append([ob(i), ib(i), ib(j), ob(j)])
+        faces.append([ot(i), ob(i), ob(j), ot(j)])
+        faces.append([it(i), it(j), ib(j), ib(i)])
+
+    mesh = bpy.data.meshes.new(name)
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(obj)
+    mesh.from_pydata(verts, [], faces)
+    mesh.update()
+    return obj
+
+
+def _handle_near_y(max_y, outer_half_width, fallback_margin):
+    """Y-coordinate for a handle's near (plate-facing) edge, chosen so it
+    never floats above the plate's actual surface at the shape's widest
+    corners, regardless of the plate's shape.
+
+    A flat-topped plate (hexagon, octagon) keeps a straight edge safely
+    embedded just by tucking it a few mm below the plate's topmost point
+    (max_y - fallback_margin) -- their top is already flat there. But a
+    circular plate curves away on both sides of that same point, so that
+    fixed offset alone leaves a wide shape's corners floating above the
+    plate's actual curve instead of touching it (the bug this fixes).
+    Solving for where the corners would land on a circle of max_y's
+    radius handles that case -- and is always safe to compare against the
+    flat assumption even for a plate that isn't actually circular,
+    because it only ever pulls the edge further into the plate, never out
+    of it. Taking whichever candidate sits lower covers both plate shapes
+    without needing to know which one this is.
+    """
+    flat_candidate = max_y - fallback_margin
+    curved_candidate = math.sqrt(max(max_y ** 2 - outer_half_width ** 2, 0.0)) - 0.5
+    return min(flat_candidate, curved_candidate)
+
+
+def _add_medal_handle(plate_obj, thickness, style, bevel_amount):
+    """Attach a small ring-shaped handle to the top of a plate object,
+    like a medal's hanging loop, so a cord can be threaded through it --
+    ROUND is a "tombstone" outline (flat-bottomed rectangle topped with a
+    semicircle, see _add_dome_ring) sized 16mm across with a 10mm round
+    hole, its flat side facing the plate; FLAT is a straight-sided
+    rectangle 3mm larger on every side than a 40mm x 3mm opening (not a
+    stretched cylinder, so its corners are flat, not rounded).
+
+    Centered on the plate's own topmost point (found by scanning its
+    actual vertices, not assumed from a formula, since different shapes
+    reach their highest point differently) -- see _handle_near_y for how
+    the near edge is actually placed relative to that point.
+
+    bevel_amount matters because _apply_plate_bevel chamfers the plate's
+    flat top/bottom faces inward by that amount -- the plate's *overall*
+    topmost vertex (max_y below) still sits at the original, unbeveled
+    radius (that edge just moves to mid-thickness instead of vanishing),
+    but the flat top face the handle's near edge actually has to touch is
+    smaller by bevel_amount. Using unadjusted max_y there would anchor
+    the near edge out past where the flat face actually ends, leaving a
+    gap -- so the anchor position used for embedding is pulled in by
+    bevel_amount, while the hole keeps using the unadjusted max_y (it
+    still has to clear that wider mid-thickness edge, not just the top
+    face).
+    """
+    max_y = max(v.co.y for v in plate_obj.data.vertices)
+    anchor_y = max_y - bevel_amount
+    # The handle gets its own top/bottom edges beveled too, further below
+    # -- which insets its near edge by another bevel_amount, same as the
+    # plate's own bevel already did once. Anchoring the *pre-bevel*
+    # position an extra bevel_amount inside anchor_y means that, after
+    # the handle's own bevel pulls it back out by exactly that much, it
+    # still lands flush on the plate's true (already-inset) flat face
+    # instead of reopening a gap.
+    near_edge_anchor_y = anchor_y - bevel_amount
+
+    bpy.ops.object.select_all(action='DESELECT')
+
+    if style == 'FLAT':
+        inner_half_x, inner_half_y = 20.0, 1.5
+        border = 3.0
+        outer_half_x = inner_half_x + border
+
+        # The hole stays anchored just above the plate's topmost point,
+        # independent of the outer shape's own (possibly pulled-down)
+        # position -- see _add_dome_ring's docstring for why.
+        hole_center_y = max_y + inner_half_y
+        near_y = _handle_near_y(near_edge_anchor_y, outer_half_x, border)
+        # The far (outer, away-from-plate) edge is pinned to the hole's
+        # own far edge plus the border, guaranteeing that side of the
+        # frame is always exactly `border` thick regardless of how far
+        # near_y got pulled in for embedding -- fixing outer_half_y at a
+        # constant instead (as if the outer box were always centered on
+        # the hole) would let the far wall thin out or vanish entirely
+        # whenever near_y sits below the hole's own center, since the
+        # box's height wouldn't stretch to cover the extra embedding depth.
+        far_y = hole_center_y + inner_half_y + border
+        outer_half_y = (far_y - near_y) / 2
+        outer_center_y = (far_y + near_y) / 2
+
+        # At the point this function runs, the plate's own solid spans
+        # z=0 (top) to z=-thickness (bottom) -- it's only shifted to
+        # [0, thickness] by a later step in the calling shape function,
+        # well after this handle is already built and joined on. Building
+        # the handle to that later range instead would leave it a
+        # disconnected volume floating away from the plate's actual
+        # z-extent at this point in the pipeline (invisible from directly
+        # above, but broken for a real print).
+        handle_obj = _add_box(outer_half_x, outer_half_y, outer_center_y, 0.0, -thickness, "Handle")
+        # Z-overshoot on the cutter so its own top/bottom faces don't land
+        # exactly on the outer shape's -- a coincident-face boolean is
+        # unreliable, but an overshooting cutter only ever removes
+        # material, so it can't add a bump from the overshoot itself.
+        cutter_obj = _add_box(inner_half_x, inner_half_y, hole_center_y, 2.0, -(thickness + 2.0), "HandleCutter")
+
+        bpy.context.view_layer.objects.active = handle_obj
+        diff_mod = handle_obj.modifiers.new(name="HandleHoleCut", type='BOOLEAN')
+        diff_mod.operation = 'DIFFERENCE'
+        diff_mod.object = cutter_obj
+        diff_mod.solver = 'MANIFOLD'
+        bpy.ops.object.modifier_apply(modifier=diff_mod.name)
+        bpy.data.objects.remove(cutter_obj, do_unlink=True)
+    else:
+        inner_radius, outer_radius = 5.0, 8.0
+        border = outer_radius - inner_radius
+        hole_center_y = max_y + inner_radius
+        near_y = _handle_near_y(near_edge_anchor_y, outer_radius, border)
+        # Far edge pinned to the hole's own far edge plus the border --
+        # see _add_dome_ring's docstring and the matching comment on the
+        # FLAT branch's far_y above for why a fixed offset from near_y
+        # alone isn't enough once near_y gets pulled in for embedding.
+        far_y = (hole_center_y + inner_radius) + border
+        # Built directly, not cut with a boolean -- see _add_dome_ring.
+        # z spans 0 (top) to -thickness (bottom) -- see the comment on the
+        # FLAT branch's box above for why, at this point in the pipeline.
+        handle_obj = _add_dome_ring(outer_radius, inner_radius, near_y, far_y, hole_center_y, 0.0, -thickness, "Handle")
+
+    # Bevel the handle's own top/bottom perimeter edges the same way the
+    # plate's are -- _apply_plate_bevel's edge selection also catches the
+    # hole's own rim (just another wall-face boundary between z=0 and
+    # z=-thickness), so this chamfers the hole opening too, matching the
+    # plate's edges instead of leaving the handle sharp-edged against a
+    # beveled plate.
+    _apply_plate_bevel(handle_obj, bevel_amount, thickness)
+    recalculateNormals(handle_obj)
+
+    bpy.ops.object.select_all(action='DESELECT')
+    handle_obj.select_set(True)
+    plate_obj.select_set(True)
+    bpy.context.view_layer.objects.active = plate_obj
+    bpy.ops.object.join()
+
+    recalculateNormals(plate_obj)
 
 
 def HexagonInnerText(MapObject):
@@ -483,6 +727,9 @@ def HexagonOuterText():
     _apply_plate_bevel(outerHex, bpy.context.scene.tp3d.plateBevel, thickness)
     recalculateNormals(outerHex)
 
+    if bpy.context.scene.tp3d.handleStyle != 'NONE':
+        _add_medal_handle(outerHex, thickness, bpy.context.scene.tp3d.handleStyle, bpy.context.scene.tp3d.plateBevel)
+
     transform_MapObject(outerHex, centerx, centery)
 
 
@@ -724,6 +971,9 @@ def HexagonFrontText():
     _apply_plate_bevel(outerHex, bpy.context.scene.tp3d.plateBevel, thickness)
     recalculateNormals(outerHex)
 
+    if bpy.context.scene.tp3d.handleStyle != 'NONE':
+        _add_medal_handle(outerHex, thickness, bpy.context.scene.tp3d.handleStyle, bpy.context.scene.tp3d.plateBevel)
+
     transform_MapObject(outerHex, centerx, centery)
 
     dist = outersize/2
@@ -917,6 +1167,9 @@ def OctagonOuterText():
 
     _apply_plate_bevel(outerOct, bpy.context.scene.tp3d.plateBevel, thickness)
     recalculateNormals(outerOct)
+
+    if bpy.context.scene.tp3d.handleStyle != 'NONE':
+        _add_medal_handle(outerOct, thickness, bpy.context.scene.tp3d.handleStyle, bpy.context.scene.tp3d.plateBevel)
 
     transform_MapObject(outerOct, centerx, centery)
 
@@ -1147,19 +1400,23 @@ def MedalText():
     _apply_plate_bevel(plateObj, bpy.context.scene.tp3d.plateBevel, thickness)
     recalculateNormals(plateObj)
 
+    if bpy.context.scene.tp3d.handleStyle != 'NONE':
+        _add_medal_handle(plateObj, thickness, bpy.context.scene.tp3d.handleStyle, bpy.context.scene.tp3d.plateBevel)
+
     plateObj.name = name
     plateObj.data.name = name
     transform_MapObject(plateObj, centerx, centery)
 
     # --- Curved text in the ring between coin edge and plate edge ---
     # Text sits at the midpoint of the ring so it fits in the open space the map doesn't cover.
-    # Angles: title at top (90°), other three distributed around the lower arc.
+    # Angles: title at top (90°), other three spaced 90° apart around the
+    # lower arc (left/bottom/right), symmetric about the bottom (270°).
     text_radius = (size / 2 + outersize / 2) / 2
     text_specs = [
         ("t_name",      90),
-        ("t_length",    210),
+        ("t_length",    180),
         ("t_elevation", 270),
-        ("t_duration",  330),
+        ("t_duration",  0),
     ]
 
     # Build each label flat and unrotated at the local origin. Placing icons
@@ -1256,7 +1513,11 @@ def MedalText():
             bpy.ops.object.join()
 
         angle_deg = base_deg + text_angle_preset
-        upper = math.sin(math.radians(angle_deg)) >= 0
+        # Strict > (not >=) so the two fields that now sit exactly on the
+        # left/right cardinal points (180°/0°, sin == 0) fall in with the
+        # rest of the bottom arc's "lower" convention rather than flipping
+        # to match the title's "upper" one right at that boundary.
+        upper = math.sin(math.radians(angle_deg)) > 0
         _wrap_mesh_around_circle(txt_obj, text_radius, math.radians(angle_deg), upper, anchor_x, anchor_y)
         transform_MapObject(txt_obj, centerx, centery)
 

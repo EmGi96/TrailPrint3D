@@ -217,6 +217,18 @@ def writeMetadata(obj, type = "MAP"):
 
         obj["ExportGroup"] = 2 if bpy.context.scene.tp3d.plateInsertValue > 0 else 1
 
+    if type == "SHELL":
+        obj["Object type"] = type
+        obj["Addon"] = const.ADDON_NAME
+        obj["Version"] = const.ADDON_VERSION
+        obj["Shape"] = get_effective_shape(bpy.context.scene.tp3d)
+        obj["tolerance"] = bpy.context.scene.tp3d.tolerance
+        obj["wallThickness"] = bpy.context.scene.tp3d.shellWallThickness
+        obj["xTerrainOffset"] = bpy.context.scene.tp3d.xTerrainOffset
+        obj["yTerrainOffset"] = bpy.context.scene.tp3d.yTerrainOffset
+
+        obj["ExportGroup"] = 0  # Printed separate -- it wraps around the map, not stacked with it
+
     if type == "LINES":
         obj["Object type"] = type
         obj["cl_thickness"] = bpy.context.scene.tp3d.cl_thickness
