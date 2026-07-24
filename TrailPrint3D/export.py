@@ -241,7 +241,6 @@ def export_selected_to_3mf():
         if obj is None:
             continue
         for col in obj.users_collection:
-            pass
             col.objects.unlink(obj)
         bpy.data.objects.remove(obj)
 
