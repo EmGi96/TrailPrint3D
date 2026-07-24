@@ -9,8 +9,8 @@ same createTerrainFromSelected() pipeline every other mapmode already uses.
 import json
 import math
 
-import bpy       # type: ignore
-import bmesh     # type: ignore
+import bmesh  # type: ignore
+import bpy  # type: ignore
 
 from . import geometry2d as g2d
 

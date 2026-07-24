@@ -1,14 +1,16 @@
-import bpy  # type: ignore
+import io
+import json
 import math
 import os
-import json
-import time
-import zlib
 import struct
+import time
 import zipfile
-import io
-import requests  # type: ignore
+import zlib
 from datetime import date, datetime
+
+import bpy  # type: ignore
+import requests  # type: ignore
+
 from .. import constants as const
 from .. import progress as _progress
 

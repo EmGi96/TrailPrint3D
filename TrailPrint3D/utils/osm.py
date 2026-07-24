@@ -1,14 +1,16 @@
-import bpy  # type: ignore
-import bmesh  # type: ignore
+import hashlib
+import json
 import math
 import os
-import json
 import time
-import requests
-import hashlib
 from collections import deque
 from typing import NamedTuple
+
+import bmesh  # type: ignore
+import bpy  # type: ignore
+import requests
 from mathutils import Vector  # type: ignore
+
 from .. import constants as const
 from .. import progress as _progress
 

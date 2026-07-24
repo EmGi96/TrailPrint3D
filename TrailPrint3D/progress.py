@@ -13,16 +13,17 @@ Usage:
     overlay.finish()
 """
 
-import math
-import time
 import json
+import math
 import pathlib
 import subprocess
 import sys
 import tempfile
+import time
+
+import blf
 import bpy
 import gpu
-import blf
 from gpu_extras.batch import batch_for_shader
 
 _CREATE_NO_WINDOW = 0x08000000 if sys.platform == 'win32' else 0

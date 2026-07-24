@@ -1,6 +1,8 @@
-import bpy  # type: ignore
-import os
 import csv
+import os
+
+import bpy  # type: ignore
+
 from .. import constants as const
 
 

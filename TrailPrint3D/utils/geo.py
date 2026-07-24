@@ -1,6 +1,8 @@
-import bpy  # type: ignore
 import math
+
+import bpy  # type: ignore
 import numpy as np
+
 from .. import constants as const
 
 

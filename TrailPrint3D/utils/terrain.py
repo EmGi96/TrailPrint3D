@@ -1,10 +1,12 @@
-import bpy  # type: ignore
-import bmesh  # type: ignore
 import math
-import time
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+import bmesh  # type: ignore
+import bpy  # type: ignore
 from mathutils import Vector  # type: ignore
+
 from .. import progress as _progress
 
 _COLORING_EMPTY = object()

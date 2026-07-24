@@ -1,18 +1,19 @@
-import bpy  # type: ignore
 import math
-import time
 import os
 import platform
 import random
 import threading
+import time
+
+import bpy  # type: ignore
 import numpy as np
-from mathutils import Vector  # type: ignore
 from bpy.app.translations import pgettext as _
-from .. import progress as _progress
+from mathutils import Vector  # type: ignore
+
 from .. import addon_preferences
 from .. import constants as const
+from .. import progress as _progress
 from .elevation import compute_and_store_tile_bounds
-
 
 # ---------------------------------------------------------------------------
 # runGeneration sub-phase helpers

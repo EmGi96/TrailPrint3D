@@ -5,15 +5,14 @@
 # is a fully frameless card.  Falls back to ANSI console when no Chromium
 # browser is found.
 
-import sys
 import json
-import re
 import pathlib
-import time
+import re
 import socket
+import sys
 import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
-
+import time
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 # ── HTML template ─────────────────────────────────────────────────────────────
 # __PORT__ is replaced at runtime with the actual port number.

@@ -1,8 +1,9 @@
-import bpy  # type: ignore
-import bmesh  # type: ignore
-import random
 import platform
+import random
 import webbrowser
+
+import bmesh  # type: ignore
+import bpy  # type: ignore
 from mathutils import Vector, bvhtree  # type: ignore
 
 

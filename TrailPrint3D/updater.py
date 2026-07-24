@@ -1,9 +1,9 @@
 #  Copyright (C) 2026  EmGi
 
-import re
-import threading
 import os
+import re
 import tempfile
+import threading
 
 import requests
 
