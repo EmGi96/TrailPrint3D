@@ -1,8 +1,9 @@
-﻿import bpy  # type: ignore
-import bmesh  # type: ignore
-import math
+﻿import math
 import os
 import platform
+
+import bmesh  # type: ignore
+import bpy  # type: ignore
 from mathutils import Vector  # type: ignore
 
 from .mesh_ops import recalculateNormals

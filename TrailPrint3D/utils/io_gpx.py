@@ -1,7 +1,8 @@
-import bpy  # type: ignore
-import xml.etree.ElementTree as ET
 import os
+import xml.etree.ElementTree as ET
 from datetime import datetime
+
+import bpy  # type: ignore
 
 
 def _parse_points(points, point_type):

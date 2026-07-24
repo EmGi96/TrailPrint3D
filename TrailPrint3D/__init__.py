@@ -103,25 +103,20 @@ bl_info = {
     "support": "COMMUNITY",
 }
 
-import bpy
 import os
 
-from . import translation
+import bpy
+
+from . import addon_preferences, progress, props, temp, translation, updater, utils
 from . import constants as const
-from . import temp
-from . import updater
-from . import addon_preferences
-from . import props
-from . import progress
-from . import utils
+
 try:
     from . import picker_server
 except ImportError:
     picker_server = None
-from . import operators
-from . import panels
-from . import export
 from bpy.app.handlers import persistent
+
+from . import export, operators, panels
 
 # Base (non-premium) classes — built once at import time.
 # Premium classes are registered dynamically inside register() so that

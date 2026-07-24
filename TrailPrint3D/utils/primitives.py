@@ -1,7 +1,8 @@
-import bpy  # type: ignore
-import bmesh  # type: ignore
 import math
 import time
+
+import bmesh  # type: ignore
+import bpy  # type: ignore
 from mathutils import Vector  # type: ignore
 
 from .text_objects import _apply_plate_bevel

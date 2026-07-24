@@ -10,22 +10,27 @@ except ImportError:
         return None
 
 from ..export import *
-from .io_gpx import *
-from .mesh_ops import *
-from .text_objects import *
-from .geo import *
-from .presets import *
-from .metadata import *
-from .primitives import *
 from .elevation import *
-from .osm import *
-from .scene import *
-from .geometry2d import *
-from .terrain import *
 from .generation import *
 from .generation import (
-    _rg_validate_inputs, _rg_load_coordinates, _rg_compute_trail_stats,
-    _rg_create_map_object, _rg_build_terrain_elements,
-    _rg_apply_single_color_mode, _rg_assign_materials, _rg_export,
     _GEN_FLAGS,
+    _rg_apply_single_color_mode,
+    _rg_assign_materials,
+    _rg_build_terrain_elements,
+    _rg_compute_trail_stats,
+    _rg_create_map_object,
+    _rg_export,
+    _rg_load_coordinates,
+    _rg_validate_inputs,
 )
+from .geo import *
+from .geometry2d import *
+from .io_gpx import *
+from .mesh_ops import *
+from .metadata import *
+from .osm import *
+from .presets import *
+from .primitives import *
+from .scene import *
+from .terrain import *
+from .text_objects import *

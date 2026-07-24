@@ -1,7 +1,8 @@
-import bpy  # type: ignore
-import bmesh  # type: ignore
 import math
-from mathutils import Vector, Matrix, bvhtree  # type: ignore
+
+import bmesh  # type: ignore
+import bpy  # type: ignore
+from mathutils import Matrix, Vector, bvhtree  # type: ignore
 
 
 def applyModifier(obj, modifier):
