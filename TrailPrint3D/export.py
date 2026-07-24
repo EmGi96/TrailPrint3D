@@ -217,7 +217,7 @@ def export_selected_to_3mf():
     try:
         result = _3mf_api.export_3mf(
             filepath=full_path,
-            use_selection=True,
+            objects=export_roots,
             use_mesh_modifiers=True,
             global_scale=0.001,
             coordinate_precision=4,
@@ -225,9 +225,13 @@ def export_selected_to_3mf():
             thumbnail_resolution=256,
             thumbnail_image=thumbnail_path if not bpy.app.background else "",
         )
-        print(f"Successfully exported to: {full_path}")
-        _progress.WarningsOverlay.add_warning("Exported as 3mf", "ok")
-    except (RuntimeError, OSError) as e:
+        if result.status == "FINISHED":
+            print(f"Successfully exported to: {full_path}")
+            _progress.WarningsOverlay.add_warning("Exported as 3mf", "ok")
+        else:
+            print("Export Error:\n" + "\n".join(result.warnings))
+            _progress.WarningsOverlay.add_warning("Exporting as 3mf Failed", "error")
+    except Exception as e:  # noqa: BLE001 - Wide catch is purposeful, incase of a crash from the api itself
         print(f"Export Error: {e}")
         _progress.WarningsOverlay.add_warning("Exporting as 3mf Failed", "error")
 
