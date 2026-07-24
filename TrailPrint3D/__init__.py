@@ -268,12 +268,12 @@ def _load_collections_deferred():
         # Repairs the *already open* session too, not just future file loads
         # (load_post only fires on the next file-open) -- covers an addon
         # reload/update leaving `shape` pointed at a now-removed enum item.
+        # Implicitly returns None, so the timer only runs once
         for scn in bpy.data.scenes:
             props.repair_invalid_shape(scn)
         utils.loadCollections(None, None)
     except (AttributeError, RuntimeError, ReferenceError) as e:
         print(f"TrailPrint3D: deferred collection load failed: {e}")
-    return None   # returning None cancels the timer (run once)
 
 
 def unregister():
