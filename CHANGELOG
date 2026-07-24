@@ -1,0 +1,74 @@
+# TrailPrint3D Changelog
+
+Version 3.09
+
+- Added: Info Popup when Exporting manually
+- Added: Automatic Version Updater (Only free version)
+- Added: Minimum Road width setting
+- Changed: Increased road thickness. "Unclassified" roads are now medium roads instead of small
+- Changed: Adjusted scale to Mercator projection
+- Fixed: Ocean cutoff for rectangular shape
+- Fixed: Cache not getting deleted properly
+- Fixed: Single-color Mode where elements are above a certain threshold
+- Fixed: Error when Trail object is empty
+- Fixed: Greenspace in Single-color Mode
+
+Version 3.08
+
+- Added: HTML based Progress Bar that does not Freeze
+- Changed: Roads and buildings are no longer clipping into the Map
+- Changed: Improved reliability of the Single-color-mode
+- Removed: Rescale Elevation (Conflicting with Single-color-mode, Unnecessary since caching)
+- Removed: Extrude Terrain (Conflicting with Single-color-mode, Unnecessary since caching)
+
+Version 3.05
+
+- Fixed missing duration for text shapes {duration}
+- Fixed crash when using 2 identical icons for text shapes
+
+Version 3.04
+
+- Added Greenspace element (Parks, grass, gardens inside cities)
+- Added Another Single-color-mode Algorithm for elements
+- Improved existing SCM algorithm for elements. Bevel is now gone and vertice count reduced massively -> Better performance
+- Improved River generation. Rivers thickness can now be modified
+- Fixed: Many buidlings were missing
+- Fixed: Negative islands (Cutouts in elements) were creating floating objects when combining single-color-mode with a Text based shape
+- Fixed: Some weird behaviour from the Single-color-mode on the outer rim
+- Fixed: elements with "Separate objects" selected are now 1mm thick instead of having a flat bottom
+- Fixed: Wrong position of Roads and buiildings in 3mf export
+- Fixed: Coloring Mountains behaved weirdly if it had multiple materials applied
+
+Version 3.0
+
+- Completely Restructured the Addon Code
+- optimized Coloring Mountains for less color switches (Outside walls were always staying green before, now getting colored at treshold)
+- Sliding/Jigzaw puzzles, Holders, connectors are now part of the Addon (Special category of the Advanced Tab)
+- Sliding/Jigzaw puzzles are generated with just one click
+- Sliding/Jigzaw puzzles are now compatible with Multi-generation
+- More flexibility for Text Based Shapes
+- Added Printable Icons to the Text Based Shapes
+- Added SVG Import
+- Added Custom Text Import
+- Completely reworked the "Merge with Map" Function. Now 4 diffrent Options
+  - Paint on Map
+  - Project but keep as separate Object
+  - Single-color-mode
+  - Negative
+- Added Roads
+- Elements wont Generate if the Map area is too big to prevent Crashes (individual limit for each element)
+- Objects are now properly getting cleared up when using x and y TerrainOffset
+- Variable Aspect ratio for the Ellipse Shape
+- Variable Width/Height for the Rectangle Shape (Previous only Squares possible)
+- Replaced the Console Window with a Progress Bar
+- Restructured the UI
+- New Export format: .3mf (by downloading the 3mf Addon by Clonephaze)
+- You can set a default Export older in the Addon preferences
+- Oceans Beta
+- Added Stone Elements (Mainly for mountain tips)
+- Added Farmland elements
+- Added Bevel setting to Plate Shapes (requested by @BH)
+- Added Opentopography as another optional API for the elevation (thanks to @FLG)
+- GPX files from more sources are now compatible
+- option to disable auto 3mf Exports or automated exports
+- Chinese and German Translation
