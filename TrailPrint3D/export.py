@@ -192,10 +192,7 @@ def export_selected_to_3mf():
             # member.location = (0,0,0)
 
     # Handle Ungrouped Objects
-    for obj in ungrouped:
-        #obj.location = (0, 0, 0)
-        export_roots.append(obj)
-
+    export_roots.extend(ungrouped)
 
     # 4. Thumbnail & Export
     # Reselect ONLY our new hierarchy for the thumbnail and exporter
