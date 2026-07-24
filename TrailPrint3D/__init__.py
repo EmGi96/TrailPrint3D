@@ -89,20 +89,6 @@ Version 3.0
 
 '''
 
-bl_info = {
-    "name": "TrailPrint3D",
-    "author": "EmGi",
-    "version": (3, 1, 3),
-    "blender": (5, 1, 0),
-    "location": "View3D > Sidebar > TrailPrint3D",
-    "description": "Create 3D Printable Miniature Maps of your Adventures",
-    "warning": "",
-    "doc_url": "https://www.trailprint3d.com",
-    "tracker_url": "https://github.com/EmGi96/TrailPrint3D/issues",
-    "category": "Object",
-    "support": "COMMUNITY",
-}
-
 import os
 
 import bpy
