@@ -271,7 +271,7 @@ def _load_collections_deferred():
         for scn in bpy.data.scenes:
             props.repair_invalid_shape(scn)
         utils.loadCollections(None, None)
-    except Exception as e:
+    except (AttributeError, RuntimeError, ReferenceError) as e:
         print(f"TrailPrint3D: deferred collection load failed: {e}")
     return None   # returning None cancels the timer (run once)
 
@@ -288,37 +288,37 @@ def unregister():
                 if cls:
                     try:
                         bpy.utils.unregister_class(cls)
-                    except Exception:
+                    except RuntimeError:
                         pass
 
     for cls in reversed(classes):
         try:
             bpy.utils.unregister_class(cls)
-        except Exception:
+        except RuntimeError:
             pass
 
     try:
         bpy.utils.unregister_class(props.TP3D_PG_properties)
-    except Exception:
+    except RuntimeError:
         pass
 
     try:
         bpy.utils.unregister_class(addon_preferences.TP3D_AddonPreferences)
-    except Exception:
+    except RuntimeError:
         pass
 
     try:
         bpy.app.handlers.load_post.remove(startup_function)
-    except Exception:
+    except RuntimeError:
         pass
 
     try:
         del bpy.types.Scene.tp3d
-    except Exception:
+    except RuntimeError:
         pass
 
     try:
         del bpy.types.Scene.preset_list
-    except Exception:
+    except RuntimeError:
         pass
 
