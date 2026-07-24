@@ -230,7 +230,7 @@ def export_selected_to_3mf():
         )
         print(f"Successfully exported to: {full_path}")
         _progress.WarningsOverlay.add_warning("Exported as 3mf", "ok")
-    except Exception as e:
+    except (RuntimeError, OSError) as e:
         print(f"Export Error: {e}")
         _progress.WarningsOverlay.add_warning("Exporting as 3mf Failed", "error")
 
@@ -363,6 +363,6 @@ def install_3mf_extension():
     try:
         bpy.ops.extensions.package_install(pkg_id="ThreeMF_io")
         return True
-    except Exception as e:
+    except RuntimeError as e:
         print(f"Installation failed: {e}")
         return False
