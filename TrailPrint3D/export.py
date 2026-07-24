@@ -195,17 +195,9 @@ def export_selected_to_3mf():
     export_roots.extend(ungrouped)
 
     # 4. Thumbnail & Export
-    # Reselect ONLY our new hierarchy for the thumbnail and exporter
-    bpy.ops.object.select_all(action='DESELECT')
-    for root in export_roots:
-        root.select_set(True)
-        # We also need to select children for the API 'use_selection' to see them
-        for child in root.children_recursive:
-            child.select_set(True)
-
     thumbnail_path = os.path.join(tempfile.gettempdir(), "tp3d_thumbnail.png")
     if not bpy.app.background:
-        customThumbnail(bpy.context.selected_objects, thumbnail_path)
+        customThumbnail(duplicates, thumbnail_path)
 
     full_path = exportPath + _sanitize_filename(bpy.context.scene.tp3d.modelname) + ".3mf"
 
