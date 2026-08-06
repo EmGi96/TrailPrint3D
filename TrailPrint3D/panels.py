@@ -47,7 +47,8 @@ class TP3D_PT_generate(bpy.types.Panel):
 
         # --- Header ---
         row = layout.row(align=True)
-        row.operator("tp3d.open_website", text=_("Patreon"), icon='FUND')
+        if not temp.PREMIUMVERSION:
+            row.operator("tp3d.open_website", text=_("Patreon"), icon='FUND')
         row.operator("tp3d.join_discord", text=_("Discord"), icon='URL')
         # Version comes from constants.ADDON_VERSION at runtime rather than being
         # baked into this string -- keeps the label (and its translations)
