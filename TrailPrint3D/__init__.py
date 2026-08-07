@@ -229,6 +229,7 @@ classes = [
     operators.TP3D_OT_pin_coords,
     operators.TP3D_OT_terrain_dummy,
     operators.TP3D_OT_magnet_holes,
+    operators.TP3D_OT_cut_pin_socket,
     operators.TP3D_OT_dovetail,
     operators.TP3D_OT_thicken,
     operators.TP3D_OT_bottom_mark,

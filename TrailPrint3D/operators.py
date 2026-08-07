@@ -575,6 +575,122 @@ class TP3D_OT_magnet_holes(bpy.types.Operator):
 
         return{'FINISHED'}
 
+class TP3D_OT_cut_pin_socket(bpy.types.Operator):
+    bl_idname = "tp3d.cut_pin_socket"
+    bl_label = "Cut Pin Socket"
+    bl_description = "Select the map(s) first, then Shift-click the pin last (making it active) -- cuts a socket hole into the map(s) at the pin's current position/size, so the printed pin can be inserted afterward"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        pin = context.view_layer.objects.active
+        selected = context.selected_objects
+
+        if pin is None or pin.type != 'MESH':
+            self.report({'ERROR'}, "No pin selected. Select the map(s) first, then Shift-click the pin last.")
+            return {'CANCELLED'}
+
+        maps = [o for o in selected if o != pin and o.type == 'MESH']
+        if not maps:
+            self.report({'ERROR'}, "No map selected. Select the map(s) first, then Shift-click the pin last.")
+            return {'CANCELLED'}
+
+        overlay = _progress.ProgressOverlay.get()
+        overlay.start()
+
+        cut_count = 0
+        for i, map_obj in enumerate(maps):
+            overlay.update(percent=i / len(maps), phase="Cutting Pin Socket",
+                           message=f"{map_obj.name} ({i + 1}/{len(maps)})")
+
+            cutter_name = f"{pin.name}_socket_cutter"
+            if cutter_name in bpy.data.objects:
+                bpy.data.objects.remove(bpy.data.objects[cutter_name], do_unlink=True)
+
+            # Use the pin's OWN tapered shape as the cutter (not a generic
+            # cylinder sized off its narrow tip) so wherever the cone's
+            # surface actually crosses the terrain, the hole matches the
+            # cone's real cross-section width there -- not just the tip.
+            # Its bottom cap is then extruded straight down so the cutter
+            # reaches past the cone's own short natural depth, but capped
+            # short of the map's own bottom (print floor) -- leaving the
+            # same minThickness/2 margin Single Color Mode already leaves
+            # under GPS trail grooves, instead of always punching a hole
+            # clean through the whole volume.
+            cutter = pin.copy()
+            cutter.data = pin.data.copy()
+            context.collection.objects.link(cutter)
+            cutter.name = cutter_name
+            # A Boolean DIFFERENCE builds the newly exposed hole walls out of
+            # the cutter's own surface, so without this the hole inherits
+            # the pin's material (e.g. shows up colored like the pin)
+            # instead of the map's own material.
+            cutter.data.materials.clear()
+
+            bm = bmesh.new()
+            bm.from_mesh(cutter.data)
+            bm.verts.ensure_lookup_table()
+            min_local_z = min(v.co.z for v in bm.verts)
+            tip_verts = {v for v in bm.verts if abs(v.co.z - min_local_z) < 1e-4}
+            tip_faces = [f for f in bm.faces if all(v in tip_verts for v in f.verts)]
+            if tip_faces:
+                tip_world_z = min((cutter.matrix_world @ v.co).z for v in tip_verts)
+                floor_z = min((map_obj.matrix_world @ Vector(c)).z for c in map_obj.bound_box)
+                floor_margin = map_obj.get("minThickness", context.scene.tp3d.minThickness) / 2
+                spike_depth_world = max(tip_world_z - (floor_z + floor_margin), 0.0)
+                spike_depth_local = spike_depth_world / max(abs(cutter.scale.z), 1e-6)
+
+                ret = bmesh.ops.extrude_face_region(bm, geom=tip_faces)
+                new_verts = [v for v in ret['geom'] if isinstance(v, bmesh.types.BMVert)]
+                bmesh.ops.translate(bm, verts=new_verts, vec=(0.0, 0.0, -spike_depth_local))
+                # extrude_face_region keeps the ORIGINAL tip cap face in
+                # place in addition to the new (translated) one -- without
+                # deleting it, every edge of the old tip boundary ends up
+                # shared by 3 faces instead of 2, making the cutter
+                # non-manifold. That's harmless on simple/flat terrain
+                # (the solver tolerates it), but on more complex terrain
+                # (e.g. steep ground near a lake shoreline) it makes the
+                # EXACT solver produce a broken, non-manifold result
+                # instead of a clean hole.
+                bmesh.ops.delete(bm, geom=tip_faces, context='FACES')
+                bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+            bm.to_mesh(cutter.data)
+            bm.free()
+
+            bpy.ops.object.select_all(action='DESELECT')
+            map_obj.select_set(True)
+            bpy.context.view_layer.objects.active = map_obj
+
+            bool_mod = map_obj.modifiers.new(name="PinSocket", type='BOOLEAN')
+            bool_mod.operation = 'DIFFERENCE'
+            # MANIFOLD (not EXACT): on a real, large terrain (800k+ faces)
+            # cut by this cutter's short tapered section, EXACT was found
+            # to become numerically unstable right where it crosses steep
+            # ground (e.g. next to a lake shoreline) and silently produce a
+            # near-empty, garbage result instead of erroring -- confirmed
+            # unrelated to cutter validity (the cutter here is manifold and
+            # correctly outward-oriented) or to rotation/depth of the
+            # cutter's spike. MANIFOLD (and FLOAT) both handled the same
+            # case correctly. MANIFOLD does silently no-op on a
+            # non-manifold cutter, but the cutter is now always kept
+            # manifold (see the delete() above), so that risk doesn't apply
+            # here.
+            bool_mod.solver = 'MANIFOLD'
+            bool_mod.object = cutter
+            bpy.ops.object.modifier_apply(modifier=bool_mod.name)
+
+            bpy.data.objects.remove(cutter, do_unlink=True)
+            cut_count += 1
+
+        overlay.update(percent=1.0, phase="Done", message="")
+        overlay.finish()
+
+        bpy.ops.object.select_all(action='DESELECT')
+        pin.select_set(True)
+        bpy.context.view_layer.objects.active = pin
+
+        self.report({'INFO'}, f"Cut pin socket into {cut_count} map(s)")
+        return {'FINISHED'}
+
 class TP3D_OT_dovetail(bpy.types.Operator):
     bl_idname = "tp3d.dovetail"
     bl_label = "Dovetail"
