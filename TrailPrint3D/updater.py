@@ -1,9 +1,9 @@
 #  Copyright (C) 2026  EmGi
 
-import re
-import threading
 import os
+import re
 import tempfile
+import threading
 
 import requests
 
@@ -74,7 +74,7 @@ def _check_worker():
             if ver > const.ADDON_VERSION and html_ver > const.ADDON_VERSION
             else "up_to_date"
         )
-    except Exception as e:
+    except (requests.RequestException, OSError, ValueError) as e:
         status = "error"
         error_message = str(e)
 
@@ -116,7 +116,7 @@ def _check_premium_worker():
         premium_latest_version = ver
         premium_post_url = post_url
         premium_status = "update_available" if ver > const.ADDON_VERSION else "up_to_date"
-    except Exception as e:
+    except (requests.RequestException, OSError, ValueError) as e:
         premium_status = "error"
         premium_error_message = str(e)
 
@@ -145,7 +145,7 @@ def _install_timer():
     _pending_install_zip = None
     if not path or not os.path.exists(path):
         print(f"TrailPrint3D updater: no pending zip found at {path!r}")
-        return None
+        return
     try:
         result = bpy.ops.extensions.package_install_files(
             filepath=path,
@@ -156,16 +156,16 @@ def _install_timer():
         if 'FINISHED' not in result:
             status = "error"
             error_message = f"Install operator returned {result}"
-    except Exception as e:
+    except RuntimeError as e:
         status = "error"
         error_message = str(e)
         print(f"TrailPrint3D updater: install exception: {e}")
     finally:
         try:
             os.remove(path)
-        except Exception as e:
+        except OSError as e:
             print(f"TrailPrint3D updater: could not remove temp zip: {e}")
-    return None  # don't repeat
+    return  # don't repeat
 
 
 def download_and_install():
@@ -189,12 +189,11 @@ def download_and_install():
 
         install_zip = os.path.join(tempfile.gettempdir(), "TrailPrint3D_update.zip")
         with open(install_zip, "wb") as f:
-            for chunk in resp.iter_content(chunk_size=32768):
-                f.write(chunk)
+            f.writelines(resp.iter_content(chunk_size=32768))
 
         _pending_install_zip = install_zip
         bpy.app.timers.register(_install_timer, first_interval=0.5)
         return True, None
 
-    except Exception as e:
+    except (requests.RequestException, OSError) as e:
         return False, str(e)

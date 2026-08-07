@@ -1,0 +1,243 @@
+Version 3.2.1
+03.08.2026
+
+Fixed: Dovetail Cutouts doing nothing due to an inverted condition from a previous refactor
+-----------------------------
+Version 3.2
+31.07.2026
+
+Added: GeoJSON boundary import as a new Terrain map mode, including MultiPolygon (islands/exclaves) support and merging multiple boundary files into one shape (by Louisefeige) (Premium)
+Added: Coordinate search with city lookup and lat/lon input, plus new map layers for Browser based Features (Puzzle/Multitile Configurator)
+Added: Circle Outer Text shape
+Added: Medal handle support for text-based shapes
+Added: Shell geometry for text-based shapes (Premium)
+Added: Material preview mode in the Puzzle Configurator
+Added: Hexagonal and Concentric-Ring puzzle piece shapes in the Puzzle Configurator (Premium)
+Added: Shapely/Earcut status indicators and clearer error messages when Shapely fails to load
+Added: ARM64 and macOS 10.13 x86_64 wheels for Shapely and Mapbox Earcut
+Added: 'Bay' natural features are now fetched and classified as water in OSM data
+Added: Puzzle/Multitile Configurator now remembers the selected base map layer across sessions
+Added: Puzzle Configurator seed input for reproducible puzzle generation
+Added: 'Map Scale Ratio' (1:X) map metadata property, and a matching {scale} code for text-based shapes
+Changed: Default terrain source is now Mapterhorn
+Changed: Smoother raw OSM element boundaries before extrusion, and fetched OSM polygons are now clipped to the query bbox
+Changed: Faster full-ocean tile mesh generation
+Changed: Updated projection logic for Ocean creation
+Changed: Restructured Shape selection UI
+Changed: Improved update checker reliability
+Changed: Updated export format handling for terrain-element colors in Paint mode
+Changed: Reworked Contour Lines — now subtracts its bands from the map instead of only intersecting, supports real-world-meter distance/offset (elevation-scale aware, enabled by default) alongside mm, generates at the map's own origin instead of the 3D cursor, and warns instead of failing when distance is smaller than thickness
+Fixed: Shapely should now be installed correctly and no longer throw errors
+Fixed: Ocean creation now supports merging with the map again
+Fixed: Steep (60°) walls were incorrectly detected as vertical walls during raycast
+Fixed: Trail points bouncing in one direction during Multi-generation
+Fixed: Buggy BMesh shapes causing issues with Rivers and unreliable element painting
+Fixed: Trails clipping through hills
+Fixed: Progress bar/browser window not opening properly in app mode when no Chromium browser is found
+Fixed: Spike artifacts on complex GeoJSON boundaries
+Fixed: Crash in Separate/Single-Color element mode with exactly one surviving part
+Fixed: GPX chain import not working due to a broken condition check
+Fixed: Malformed GPX files crashing the addon instead of showing a clear error
+Fixed: Incorrect vertex selection/lowest point calculation for Oceans
+Fixed: Elevation Range (m) map metadata was inflated by an uncompensated per-vertex Mercator latitude factor baked into terrain height generation, causing incorrect real-world elevation figures away from the equator
+Fixed: Duplicate warning messages repeating once per tile when generating a multitile batch
+Fixed: Various scaling and logic bugs in the MultiTile Configurator
+Fixed: Map picker window could occasionally freeze Blender's input focus on close
+-----------------------------
+Version 3.1.1
+01.07.2026
+
+Added: Mapterhorn terrain tiles — premium terrain elevation source with improved tile fetching and error handling
+Added: Coastline/river map size limit — prevents oversized OSM requests for water features
+Added: Optional update checker — update check can now be disabled or ignored
+Added: Export warnings — shows an error and skips export if no export folder is set
+Changed: Single Color Mode now dynamically calculates extrusion heights based on map height
+Changed: Reduced parallel Overpass requests to 1 to prevent rate limiting on large maps (HTTP 429)
+Changed: Trail stability improvements using the Remesh + Shapely approach
+Changed: Buggy terrain fix made optional instead of always applied
+Changed: Tile counter added to the debug console during OSM fetching
+Changed: Auto-export disabled for multi-tile maps
+Fixed: Trail cutting through the map on text-based shapes
+Fixed: Buggy Remesh for cutouts deeper than 30mm
+Fixed: Some trails not creating cutouts when intersecting other trails
+Fixed: Wrong normals on shapes after Grid Fill (causing raycast failures)
+Fixed: Trail Raycast default height
+Fixed: Post-process operators having the wrong object selected
+Fixed: SCM trail origin being placed at world origin
+Changed: Single Color Mode boolean changed to Manifold to prevent artifacts when curve touches shape border
+-----------------------------
+Version 3.1
+21.06.2026
+
+Added: Puzzle Configurator — browser-based interface to create custom puzzle maps
+Added: Custom input for Road height
+Added: Generated-maps counter tracked in Advanced -> Additional Info
+Added: File Picker now filters and shows only valid files
+Added: Automatic Addon version updater
+Added: Russian translation
+Changed: Replaced custom geometry processing with a Shapely-based pipeline for all Elements — far more robust and faster than booleans, with fewer vertices and no downsides
+Changed: OSM fetching is now parallelized and pre-fetched during the Elevation download — way fewer requests, saving a lot of time for element-heavy maps
+Changed: Improved Progress Bar status updates
+Changed: Hexagon Outer shape now has 6 text input fields instead of 4
+Changed: Minimum required Blender version is now 5.1 instead of 4.5 due to the bundled python wheels
+Fixed: GPX import dropping path segments at overlapping points
+Fixed: Stray single vertices requiring manual smoothing
+Fixed: Elevation cache not being deleted properly
+Fixed: Crash when a trail object is empty after a boolean operation
+-----------------------------
+Version 3.09
+10.05.2026
+
+Added: Info Popup when Exporting manually
+Added: Automatic Version Updater (Only free version)
+Added: Minimum Road width setting
+Changed: Increased road thickness. "Unclassified" roads are now medium roads instead of small
+Changed: Adjusted scale to Mercator projection
+Fixed: Ocean cutoff for rectangular shape
+Fixed: Cache not getting deleted properly
+Fixed: Single-color Mode where elements are above a certain threshold
+Fixed: Error when Trail object is empty
+Fixed: Greenspace in Single-color Mode
+-----------------------------
+Version 3.08
+24.04.2026
+
+Added: HTML based Progress Bar that does not Freeze
+Changed: Roads and buildings are no longer clipping into the Map
+Changed: Improved reliability of the Single-color-mode
+Removed: Rescale Elevation (Conflicting with Single-color-mode, Unnecessary since caching)
+Removed: Extrude Terrain (Conflicting with Single-color-mode, Unnecessary since caching)
+-----------------------------
+Version 3.05
+10.04.2026
+
+Fixed: missing duration for text shapes {duration}
+Fixed: crash when using 2 identical icons for text shapes
+-----------------------------
+Version 3.04
+01.04.2026
+
+Added: Greenspace element (Parks, grass, gardens inside cities)
+Added: Another Single-color-mode Algorithm for elements
+Improved existing SCM algorithm for elements. Bevel is now gone and vertice count reduced massively -> Better performance
+Improved River generation. Rivers thickness can now be modified
+Fixed: Many buidlings were missing
+Fixed: Negative islands (Cutouts in elements) were creating floating objects when combining single-color-mode with a Text based shape
+Fixed: Some weird behaviour from the Single-color-mode on the outer rim
+Fixed: elements with "Separate objects" selected are now 1mm thick instead of having a flat bottom
+Fixed: Wrong position of Roads and buiildings in 3mf export
+Fixed: Coloring Mountains behaved weirdly if it had multiple materials applied
+-----------------------------
+Version 3.0
+15.03.2026
+
+Completely Restructured the Addon Code
+optimized Coloring Mountains for less color switches (Outside walls were always staying green before, now getting colored at treshold)
+Sliding/Jigzaw puzzles, Holders, connectors are now part of the Addon (Special category of the Advanced Tab)
+Sliding/Jigzaw puzzles are generated with just one click
+Sliding/Jigzaw puzzles are now compatible with Multi-generation
+More flexibility for Text Based Shapes
+Added: Printable Icons to the Text Based Shapes
+Added: SVG Import
+Added: Custom Text Import
+Completely reworked the "Merge with Map" Function. Now 4 diffrent Options: Paint on Map, Project but keep as separate Object, Single-color-mode, Negative
+Added: Roads
+Elements wont Generate if the Map area is too big to prevent Crashes (individual limit for each element)
+Objects are now properly getting cleared up when using x and y TerrainOffset
+Variable Aspect ratio for the Ellipse Shape
+Variable Width/Height for the Rectangle Shape (Previous only Squares possible)
+Replaced the Console Window with a Progress Bar
+Restructured the UI
+New Export format: .3mf (by downloading the 3mf Addon by Clonephaze)
+You can set a default Export older in the Addon preferences
+Oceans Beta
+Added: Stone Elements (Mainly for mountain tips)
+Added: Farmland elements
+Added: Bevel setting to Plate Shapes (requested by @BH)
+Added: Opentopography as another optional API for the elevation (thanks to @FLG)
+GPX files from more sources are now compatible
+option to disable auto 3mf Exports or automated exports
+Chinese and German Translation
+-----------------------------
+Version 2.6
+12.01.2026
+
+Added: Buildings — enable them in the Elements tab of the Advanced Settings
+Added: support for another GPX file format (rte)
+Added: Option to set how many retries each API request should have before timing out
+Fixed: Trails merging with maps
+Fixed: Single Color mode on flat maps (minThickness 2mm)
+-----------------------------
+Version 2.5
+25.11.2025
+
+Added: New icons for buttons
+Added: You can now create, load and delete Presets
+Fixed: xTerrain/yTerrain Offset not working correctly with text-based shapes
+Fixed: Shape Rotation not working correctly with text-based shapes
+Fixed: Magnet Holes/Dovetails not working correctly with text-based shapes
+Fixed: Magnet Holes/Dovetails not working correctly with rotated shapes
+Fixed: Merge-With-Map had some minor issues
+-----------------------------
+Version 2.4
+06.11.2025
+
+Added: Bottom Mark Cutout — option to create the bottom mark as a cutout instead of a separate object
+Added: Feature to just add the Trail to existing Maps
+Added: Feature to Merge Trails into Maps so they can be printed separately (Single Color mode)
+Change: Export files as STL if all objects have only 1 Material
+Change: Changed Manual Export so you can now choose what export format you want to use
+Change: Independent Tile Option — tiles lowest Z-point no longer relies on the initial tile
+Fixed: Fixed bug with Overwrite Path Elevation on some specific cases
+-----------------------------
+Version 2.3
+01.10.2025
+
+Added: the option to color in Glaciers
+Fixed: Wrong scale calculation when having Scale Mode set to "Coordinates"
+Fixed: Weird results when having "Plate Insert" value for text shapes too high
+-----------------------------
+Version 2.2
+12.09.2025
+
+You can now generate elements as separate objects
+Option to Add contour lines as separate objects
+-----------------------------
+Version 2.1
+30.08.2025
+
+Big Improvement on Reliability of Water Generation
+Added: option to include Forest/City boundaries
+Made Terrain Tiles the Default API
+Added: Feature to Add Magnet Holes
+Added: Feature to Add Dovetail Cutouts
+Added: Feature to Extrude a Map after Generation
+Added: Feature to Automatically color mountains
+Objects that contain Materials will now be exported as .obj instead of STL to keep the Color
+-----------------------------
+Version 2.0
+19.07.2025
+
+Increased Default Cache Limit
+Made Cache Size Variable
+Added: MapZen Terrain Tiles as API
+Added: nzdem8m and eudem25m Datasets to Opentopodata
+Added: Option to use your own Opentopo host
+Added: Option to import Water (Lakes, ponds) as a Separate STL file
+Added: Feature to place Pins based on City names
+Added: option to "Merge" objects into the Map
+Added: Octagon Shape with Text
+Added: Hexagon Shape with Text on the Sides
+Overwrite Path Elevation will be ignored in Single Color mode
+Option to calculate the scale based on 2 coordinates
+Option to Generate Map based on a Point and a Radius
+Option to Generate Map based on 2 points
+Delete Non-Manifold Objects of Water
+Debug Popup window to see used Settings for a Map
+Option to Insert Map into a Plate for some Shapes
+Option to place Pins based on Coordinates or City Names
+-----------------------------
+Version 1.0
+30.03.2025
+
+Initial Release

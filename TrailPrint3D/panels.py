@@ -5,13 +5,11 @@
 
 import bpy
 import textwrap
+from bpy.app.translations import pgettext_iface as _  #For Translation of Text Required
 
-from . import temp
-from . import updater
+from . import addon_preferences, temp, updater
 from . import constants as const
-from . import addon_preferences
-
-from bpy.app.translations import pgettext_iface as _ #For Translation of Text Required
+from .props import SHAPE_TEXT_STYLES, get_effective_shape
 
 
 def draw_wrapped_label(layout, context, text, icon='NONE'):
@@ -53,7 +51,7 @@ class TP3D_PT_generate(bpy.types.Panel):
         if update_available and addon_preferences.get_prefs().dismissed_update_version != latest_str:
             box = layout.box()
             header = box.row()
-            header.label(text=_(f"Update available: v{latest_str}"), icon='FUND')
+            header.label(text=_("Update available: v%s") % latest_str, icon='FUND')
             header.operator("tp3d.dismiss_update", text="", icon='X', emboss=False).version = latest_str
             col = box.column(align=True)
             col.scale_y = 1.3
@@ -84,6 +82,17 @@ class TP3D_PT_generate(bpy.types.Panel):
             row.prop_enum(props, "generation_mode", 'GENERATION')
             row.operator("tp3d.terrain_dummy", text=_("Multi"), icon='LOCKED')
             row.operator("tp3d.terrain_dummy", text=_("Terrain"), icon='LOCKED')
+
+        # --- Shapely / earcut status warnings ---
+        from .utils import geometry2d as _g2d
+        if not _g2d._HAS_SHAPELY:
+            row = layout.row()
+            row.alert = True
+            row.operator("tp3d.shapely_status", text=_("Shapely failed to load"), icon='ERROR')
+        if not _g2d._HAS_EARCUT:
+            row = layout.row()
+            row.alert = True
+            row.operator("tp3d.earcut_status", text=_("Earcut failed to load"), icon='ERROR')
 
         # --- Generate button ---
         col = layout.column()
@@ -180,6 +189,8 @@ class TP3D_PT_generate(bpy.types.Panel):
             box.label(text=_("Shape"), icon='MESH_DATA')
             col = box.column(align=True)
             col.prop(props, "shape")
+            if props.shape in SHAPE_TEXT_STYLES:
+                col.prop(props, "shapeTextStyle")
             col.separator(factor=0.5)
             if props.shape == "SQUARE":
                 row = col.row(align=True)
@@ -406,8 +417,9 @@ class TP3D_PT_advanced(bpy.types.Panel):
             sub.label(text=_("Contour Lines"), icon='ALIGN_JUSTIFY')
             col = sub.column(align=True)
             col.prop(props, "cl_thickness")
-            col.prop(props, "cl_distance")
-            col.prop(props, "cl_offset")
+            col.prop(props, "cl_distance", text=_("Distance (m)") if props.cl_useRealMeters else _("Distance (mm)"))
+            col.prop(props, "cl_offset", text=_("Offset (m)") if props.cl_useRealMeters else _("Offset (mm)"))
+            col.prop(props, "cl_useRealMeters")
             col.operator("tp3d.contour_lines", icon="ALIGN_JUSTIFY")
 
             #sub = box.box()
@@ -556,10 +568,9 @@ class TP3D_PT_shapes(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         props = context.scene.tp3d  # Get properties
+        effective_shape = get_effective_shape(props)
 
-        
-        #print(f"shape: {props.shape}")
-        if props.shape in {"HEXAGON INNER TEXT", "HEXAGON OUTER TEXT", "OCTAGON OUTER TEXT", "HEXAGON FRONT TEXT", "MEDAL"}:
+        if effective_shape in {"HEXAGON INNER TEXT", "HEXAGON OUTER TEXT", "OCTAGON OUTER TEXT", "HEXAGON FRONT TEXT", "CIRCLE OUTER TEXT"}:
 
             #Add input fields
             layout.prop(props, "textFont")
@@ -587,7 +598,7 @@ class TP3D_PT_shapes(bpy.types.Panel):
                 split = row.split(factor=0.3)
                 split.prop(props,"iconText3", text = "")
                 split.prop(props, "textfield3", text = "")
-                if props.shape == "HEXAGON OUTER TEXT":
+                if effective_shape == "HEXAGON OUTER TEXT":
                     row = layout.row()
                     split = row.split(factor=0.3)
                     split.prop(props,"iconText4", text = "")
@@ -617,7 +628,7 @@ class TP3D_PT_shapes(bpy.types.Panel):
                 split = row.split(factor=0.3)
                 split.operator("tp3d.terrain_dummy", text=_('Icon'), icon='LOCKED')
                 split.prop(props, "textfield3", text = "")
-                if props.shape == "HEXAGON OUTER TEXT":
+                if effective_shape == "HEXAGON OUTER TEXT":
                     row = layout.row()
                     split = row.split(factor=0.3)
                     split.operator("tp3d.terrain_dummy", text=_('Icon'), icon='LOCKED')
@@ -632,9 +643,19 @@ class TP3D_PT_shapes(bpy.types.Panel):
             layout.prop(props, "plateInsertValue")
             layout.prop(props, "text_angle_preset")
 
-            if props.shape in {"HEXAGON OUTER TEXT", "HEXAGON FRONT TEXT", "OCTAGON OUTER TEXT", "MEDAL"}:
+            if effective_shape in {"HEXAGON OUTER TEXT", "HEXAGON FRONT TEXT", "OCTAGON OUTER TEXT", "CIRCLE OUTER TEXT"}:
                 layout.prop(props, "plateBevel")
+                layout.label(text=_("Medal Handle"))
+                row = layout.row(align=True)
+                if temp.PREMIUMVERSION:
+                    row.prop(props, "handleStyle", expand=True)
+                else:
+                    row.prop_enum(props, "handleStyle", 'NONE')
+                    row.operator("tp3d.terrain_dummy", text=_("Round"), icon='LOCKED')
+                    row.operator("tp3d.terrain_dummy", text=_("Flat"), icon='LOCKED')
 
+        elif effective_shape.endswith(" SHELL"):
+            layout.prop(props, "shellWallThickness")
 
         else:
             layout.label(text = _("Only for Text based Shapes (like Hexagon Outer Text)"))
@@ -659,7 +680,7 @@ class TP3D_OT_show_custom_props_popup(bpy.types.Operator):
             layout.label(text= _("No active object."), icon="ERROR")
             return
 
-        custom_props = [k for k in obj.keys() if not k.startswith("_")]
+        custom_props = [k for k in obj if not k.startswith("_")]
 
         if not custom_props:
             layout.label(text= _("No custom properties found. Please Select a Map"), icon="INFO")
@@ -691,7 +712,7 @@ class TP3D_OT_show_custom_props_popup(bpy.types.Operator):
 
     def invoke(self, context, event):
         obj = context.active_object
-        custom_props = [k for k in obj.keys() if not k.startswith("_")] if obj else []
+        custom_props = [k for k in obj if not k.startswith("_")] if obj else []
         width = self.DOUBLE_WIDTH if len(custom_props) > self.MAX_PER_COLUMN else self.NORMAL_WIDTH
         return context.window_manager.invoke_props_dialog(self, width=width)
 

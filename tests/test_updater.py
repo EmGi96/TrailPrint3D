@@ -15,15 +15,15 @@ faked via sys.modules injection rather than needing a real Blender bpy.
 Run with:
   blender --background --factory-startup --python-exit-code 1 -P tests/test_updater.py
   or, as part of the full suite:
-  & "C:\\Program Files\\Blender Foundation\\Blender 5.1\\blender.exe" --background --factory-startup --python-exit-code 1 -P tests/run_all_tests.py
-"""
+  & "C:\Program Files\Blender Foundation\Blender 5.1\blender.exe" --background --factory-startup --python-exit-code 1 -P tests/run_all_tests.py
+"""  # noqa: W605
 
-import sys
 import os
+import sys
+import tempfile
 import time
 import traceback
-import tempfile
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 # ---------------------------------------------------------------------------
 # Path setup — makes TrailPrint3D importable as a package from source
@@ -45,7 +45,7 @@ def _run(name, fn):
         fn()
         print(f"  PASS  {name}")
         _passed += 1
-    except Exception:
+    except Exception:  # noqa: BLE001 - wide exception needeed to keep test runner going
         print(f"  FAIL  {name}")
         traceback.print_exc()
         _failed += 1
@@ -188,7 +188,7 @@ def test_version_tuple_ordering_uses_numeric_not_string_comparison():
 # ---------------------------------------------------------------------------
 
 def test_check_worker_update_available_when_both_sources_agree():
-    import TrailPrint3D.updater as updater
+    from TrailPrint3D import updater
     _reset_updater_state(updater)
 
     gh_resp = _make_response(json_body=_github_release_json("v99.0.0"))
@@ -204,8 +204,8 @@ def test_check_worker_update_available_when_both_sources_agree():
 
 def test_check_worker_up_to_date_when_github_ahead_but_site_not_updated():
     """Both gates must agree an update exists (site acts as a kill-switch/rollout gate)."""
-    import TrailPrint3D.updater as updater
     from TrailPrint3D import constants as const
+    from TrailPrint3D import updater
     _reset_updater_state(updater)
 
     gh_resp = _make_response(json_body=_github_release_json("v99.0.0"))
@@ -220,8 +220,8 @@ def test_check_worker_up_to_date_when_github_ahead_but_site_not_updated():
 
 
 def test_check_worker_up_to_date_when_no_new_release():
-    import TrailPrint3D.updater as updater
     from TrailPrint3D import constants as const
+    from TrailPrint3D import updater
     _reset_updater_state(updater)
 
     current = ".".join(str(x) for x in const.ADDON_VERSION)
@@ -237,8 +237,8 @@ def test_check_worker_up_to_date_when_no_new_release():
 def test_check_worker_up_to_date_when_github_tag_is_lower_than_current():
     """A stale/rolled-back GitHub tag below the installed version must not
     be reported as an update (guards the strict '>' comparison, not '!=')."""
-    import TrailPrint3D.updater as updater
     from TrailPrint3D import constants as const
+    from TrailPrint3D import updater
     _reset_updater_state(updater)
 
     lower = _lower_version_str(const)
@@ -256,8 +256,8 @@ def test_check_worker_up_to_date_when_github_tag_is_lower_than_current():
 def test_check_worker_up_to_date_when_html_page_is_lower_despite_github_higher():
     """GitHub ahead but normal_version.html reports a lower/stale version —
     the site gate must veto the update even though GitHub alone would allow it."""
-    import TrailPrint3D.updater as updater
     from TrailPrint3D import constants as const
+    from TrailPrint3D import updater
     _reset_updater_state(updater)
 
     lower = _lower_version_str(const)
@@ -274,7 +274,7 @@ def test_check_worker_up_to_date_when_html_page_is_lower_despite_github_higher()
 
 
 def test_check_worker_error_on_unparseable_github_tag():
-    import TrailPrint3D.updater as updater
+    from TrailPrint3D import updater
     _reset_updater_state(updater)
 
     gh_resp = _make_response(json_body={"tag_name": "not-a-version", "assets": []})
@@ -287,7 +287,7 @@ def test_check_worker_error_on_unparseable_github_tag():
 
 
 def test_check_worker_error_on_unparseable_html_page():
-    import TrailPrint3D.updater as updater
+    from TrailPrint3D import updater
     _reset_updater_state(updater)
 
     gh_resp = _make_response(json_body=_github_release_json("v99.0.0"))
@@ -301,7 +301,7 @@ def test_check_worker_error_on_unparseable_html_page():
 
 
 def test_check_worker_error_on_network_exception():
-    import TrailPrint3D.updater as updater
+    from TrailPrint3D import updater
     _reset_updater_state(updater)
 
     with patch("TrailPrint3D.updater.requests.get", side_effect=ConnectionError("boom")):
@@ -312,7 +312,7 @@ def test_check_worker_error_on_network_exception():
 
 
 def test_check_worker_error_on_github_http_error():
-    import TrailPrint3D.updater as updater
+    from TrailPrint3D import updater
     _reset_updater_state(updater)
 
     gh_resp = _make_response(status_code=404)
@@ -326,7 +326,7 @@ def test_check_worker_error_on_github_http_error():
 def test_check_worker_no_matching_zip_asset_leaves_url_none():
     """If no asset matches the TrailPrint3D*.zip pattern, zip URL stays None
     but the check can still report update_available (asset picked at install time)."""
-    import TrailPrint3D.updater as updater
+    from TrailPrint3D import updater
     _reset_updater_state(updater)
 
     gh_resp = _make_response(json_body=_github_release_json(
@@ -346,7 +346,7 @@ def test_check_worker_no_matching_zip_asset_leaves_url_none():
 # ---------------------------------------------------------------------------
 
 def test_check_premium_worker_update_available():
-    import TrailPrint3D.updater as updater
+    from TrailPrint3D import updater
     _reset_updater_state(updater)
 
     resp = _make_response(text="99.0.0\nhttps://www.patreon.com/posts/999\n")
@@ -359,8 +359,8 @@ def test_check_premium_worker_update_available():
 
 
 def test_check_premium_worker_up_to_date():
-    import TrailPrint3D.updater as updater
     from TrailPrint3D import constants as const
+    from TrailPrint3D import updater
     _reset_updater_state(updater)
 
     current = ".".join(str(x) for x in const.ADDON_VERSION)
@@ -373,8 +373,8 @@ def test_check_premium_worker_up_to_date():
 
 def test_check_premium_worker_up_to_date_when_lower_than_current():
     """Stale/rolled-back premium_version.html must not report an update."""
-    import TrailPrint3D.updater as updater
     from TrailPrint3D import constants as const
+    from TrailPrint3D import updater
     _reset_updater_state(updater)
 
     lower = _lower_version_str(const)
@@ -387,7 +387,7 @@ def test_check_premium_worker_up_to_date_when_lower_than_current():
 
 
 def test_check_premium_worker_error_on_bad_page():
-    import TrailPrint3D.updater as updater
+    from TrailPrint3D import updater
     _reset_updater_state(updater)
 
     resp = _make_response(text="")
@@ -399,7 +399,7 @@ def test_check_premium_worker_error_on_bad_page():
 
 
 def test_check_premium_worker_error_on_exception():
-    import TrailPrint3D.updater as updater
+    from TrailPrint3D import updater
     _reset_updater_state(updater)
 
     with patch("TrailPrint3D.updater.requests.get", side_effect=TimeoutError("timed out")):
@@ -410,17 +410,50 @@ def test_check_premium_worker_error_on_exception():
 
 
 def test_get_premium_update_url_prefers_announced_post():
-    import TrailPrint3D.updater as updater
+    from TrailPrint3D import updater
     _reset_updater_state(updater)
     updater.premium_post_url = "https://www.patreon.com/posts/123"
     assert updater.get_premium_update_url() == "https://www.patreon.com/posts/123"
 
 
 def test_get_premium_update_url_falls_back_to_patreon_page():
-    import TrailPrint3D.updater as updater
+    from TrailPrint3D import updater
     _reset_updater_state(updater)
     updater.premium_post_url = None
     assert updater.get_premium_update_url() == updater._PATREON_URL
+
+
+def test_check_worker_sets_zip_url_when_asset_found():
+    """_latest_release_zip_url is populated when the release has a matching .zip asset."""
+    from TrailPrint3D import updater
+    _reset_updater_state(updater)
+
+    gh_resp = _make_response(json_body=_github_release_json("v99.0.0"))
+    html_resp = _make_response(text="99.0.0\n")
+
+    with patch("TrailPrint3D.updater.requests.get", side_effect=[gh_resp, html_resp]):
+        updater._check_worker()
+
+    assert updater._latest_release_zip_url is not None
+    assert updater._latest_release_zip_url.endswith(".zip")
+
+
+def test_check_worker_zip_url_none_when_no_asset():
+    """_latest_release_zip_url stays None when the release has no .zip asset."""
+    from TrailPrint3D import updater
+    _reset_updater_state(updater)
+
+    release_without_zip = {
+        "tag_name": "v99.0.0",
+        "assets": [{"browser_download_url": "https://example.com/somefile.tar.gz"}],
+    }
+    gh_resp = _make_response(json_body=release_without_zip)
+    html_resp = _make_response(text="99.0.0\n")
+
+    with patch("TrailPrint3D.updater.requests.get", side_effect=[gh_resp, html_resp]):
+        updater._check_worker()
+
+    assert updater._latest_release_zip_url is None
 
 
 # ---------------------------------------------------------------------------
@@ -429,7 +462,8 @@ def test_get_premium_update_url_falls_back_to_patreon_page():
 
 def test_start_check_sets_status_checking_immediately():
     import threading
-    import TrailPrint3D.updater as updater
+
+    from TrailPrint3D import updater
     _reset_updater_state(updater)
 
     # Block the worker thread so we can observe the immediate "checking" flip
@@ -450,7 +484,8 @@ def test_start_check_sets_status_checking_immediately():
 
 def test_start_premium_check_sets_status_checking_immediately():
     import threading
-    import TrailPrint3D.updater as updater
+
+    from TrailPrint3D import updater
     _reset_updater_state(updater)
 
     gate = threading.Event()
@@ -469,7 +504,7 @@ def test_start_premium_check_sets_status_checking_immediately():
 def test_start_check_worker_actually_runs_in_background_thread():
     """End-to-end (mocked network): start_check() eventually lands on a
     terminal status without the caller blocking on the network call."""
-    import TrailPrint3D.updater as updater
+    from TrailPrint3D import updater
     _reset_updater_state(updater)
 
     gh_resp = _make_response(json_body=_github_release_json("v99.0.0"))
@@ -488,7 +523,7 @@ def test_start_check_worker_actually_runs_in_background_thread():
 # ---------------------------------------------------------------------------
 
 def test_download_and_install_no_zip_url_fails_fast():
-    import TrailPrint3D.updater as updater
+    from TrailPrint3D import updater
     _reset_updater_state(updater)
     updater._latest_release_zip_url = None
 
@@ -499,7 +534,7 @@ def test_download_and_install_no_zip_url_fails_fast():
 
 
 def test_download_and_install_downloads_and_schedules_installation():
-    import TrailPrint3D.updater as updater
+    from TrailPrint3D import updater
     _reset_updater_state(updater)
     updater._latest_release_zip_url = "https://example.com/TrailPrint3D-3.5.0.zip"
 
@@ -535,7 +570,7 @@ def test_download_and_install_downloads_and_schedules_installation():
 
 
 def test_download_and_install_returns_error_on_download_failure():
-    import TrailPrint3D.updater as updater
+    from TrailPrint3D import updater
     _reset_updater_state(updater)
     updater._latest_release_zip_url = "https://example.com/TrailPrint3D-3.5.0.zip"
 
@@ -548,7 +583,7 @@ def test_download_and_install_returns_error_on_download_failure():
 
 
 def test_download_and_install_returns_error_on_http_error():
-    import TrailPrint3D.updater as updater
+    from TrailPrint3D import updater
     _reset_updater_state(updater)
     updater._latest_release_zip_url = "https://example.com/TrailPrint3D-3.5.0.zip"
 
@@ -567,7 +602,7 @@ def test_download_and_install_returns_error_on_http_error():
 # ---------------------------------------------------------------------------
 
 def test_install_timer_no_pending_zip_is_noop():
-    import TrailPrint3D.updater as updater
+    from TrailPrint3D import updater
     _reset_updater_state(updater)
     updater._pending_install_zip = None
 
@@ -580,7 +615,7 @@ def test_install_timer_no_pending_zip_is_noop():
 
 
 def test_install_timer_missing_file_on_disk_is_noop():
-    import TrailPrint3D.updater as updater
+    from TrailPrint3D import updater
     _reset_updater_state(updater)
     updater._pending_install_zip = os.path.join(
         tempfile.gettempdir(), "TrailPrint3D_does_not_exist.zip"
@@ -595,7 +630,7 @@ def test_install_timer_missing_file_on_disk_is_noop():
 
 
 def test_install_timer_success_installs_and_removes_zip():
-    import TrailPrint3D.updater as updater
+    from TrailPrint3D import updater
     _reset_updater_state(updater)
 
     zip_path = os.path.join(tempfile.gettempdir(), "TrailPrint3D_test_install.zip")
@@ -618,7 +653,7 @@ def test_install_timer_success_installs_and_removes_zip():
 
 
 def test_install_timer_non_finished_result_sets_error_status():
-    import TrailPrint3D.updater as updater
+    from TrailPrint3D import updater
     _reset_updater_state(updater)
 
     zip_path = os.path.join(tempfile.gettempdir(), "TrailPrint3D_test_install2.zip")
@@ -638,7 +673,7 @@ def test_install_timer_non_finished_result_sets_error_status():
 
 
 def test_install_timer_exception_during_install_sets_error_and_cleans_up():
-    import TrailPrint3D.updater as updater
+    from TrailPrint3D import updater
     _reset_updater_state(updater)
 
     zip_path = os.path.join(tempfile.gettempdir(), "TrailPrint3D_test_install3.zip")
@@ -660,7 +695,7 @@ def test_install_timer_exception_during_install_sets_error_and_cleans_up():
 def test_install_timer_clears_pending_zip_global_before_running():
     """_pending_install_zip must be consumed (set back to None) so a stray
     second timer tick can't reuse a stale path."""
-    import TrailPrint3D.updater as updater
+    from TrailPrint3D import updater
     _reset_updater_state(updater)
 
     zip_path = os.path.join(tempfile.gettempdir(), "TrailPrint3D_test_install4.zip")
@@ -713,6 +748,8 @@ if __name__ == "__main__":
     _run("premium check: exception -> error",                     test_check_premium_worker_error_on_exception)
     _run("get_premium_update_url: prefers announced post",        test_get_premium_update_url_prefers_announced_post)
     _run("get_premium_update_url: falls back to Patreon page",    test_get_premium_update_url_falls_back_to_patreon_page)
+    _run("latest_release_zip_url: set when asset matches",        test_check_worker_sets_zip_url_when_asset_found)
+    _run("latest_release_zip_url: None when no asset matches",    test_check_worker_zip_url_none_when_no_asset)
 
     # start_check / start_premium_check
     _run("start_check: status flips to checking immediately",    test_start_check_sets_status_checking_immediately)

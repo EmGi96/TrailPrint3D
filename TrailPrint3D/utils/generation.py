@@ -1,18 +1,18 @@
-import bpy  # type: ignore
 import math
-import time
 import os
 import platform
-import random
 import threading
-import numpy as np
-from mathutils import Vector  # type: ignore
+import time
+
+import bpy  # type: ignore
+import numpy as np  # type: ignore
 from bpy.app.translations import pgettext as _
-from .. import progress as _progress
+from mathutils import Vector  # type: ignore
+
 from .. import addon_preferences
 from .. import constants as const
+from .. import progress as _progress
 from .elevation import compute_and_store_tile_bounds
-
 
 # ---------------------------------------------------------------------------
 # runGeneration sub-phase helpers
@@ -24,7 +24,12 @@ def _rg_validate_inputs(flags):
     Returns a props dict on success, or None if validation fails (console
     is toggled closed before returning None).
     """
-    from .scene import show_message_box  # deferred to avoid circular import at load time
+    from ..props import (
+        get_effective_shape,  # deferred to avoid circular import at load time
+    )
+    from .scene import (
+        show_message_box,  # deferred to avoid circular import at load time
+    )
 
     start_time = time.time()
     for i in range(30):
@@ -38,7 +43,7 @@ def _rg_validate_inputs(flags):
     gpx_file_path      = tp3d.get('file_path', None)
     gpx_chain_path     = tp3d.get('chain_path', None)
     exportPath         = tp3d.get('export_path', None)
-    shape              = tp3d.shape
+    shape              = get_effective_shape(tp3d)
     name               = tp3d.get('trailName', "")
     size               = tp3d.get('objSize', 100)
     scaleElevation     = tp3d.get('scaleElevation', 1)
@@ -107,7 +112,7 @@ def _rg_validate_inputs(flags):
         gpx_file_path = bpy.path.abspath(gpx_file_path)
         file_extension = os.path.splitext(gpx_file_path)[1].lower()
         if file_extension != '.gpx' and file_extension != ".igc":
-            show_message_box(f"Invalid file format. Please Use a .GPX file")
+            show_message_box("Invalid file format. Please Use a .GPX file")
             return None
     if "gpx_chain" in flags:
         if not gpx_chain_path or gpx_chain_path == "":
@@ -209,9 +214,14 @@ def _rg_load_coordinates(flags, props):
 
     Returns (coordinates, separate_paths, coordinates2) or None on error.
     """
-    from .primitives import setupColors  # deferred to avoid circular import at load time
-    from .io_gpx import read_gpx_file, read_gpx_directory  # deferred to avoid circular import at load time
     from .geo import move_coordinates  # deferred to avoid circular import at load time
+    from .io_gpx import (  # deferred to avoid circular import at load time
+        read_gpx_directory,
+        read_gpx_file,
+    )
+    from .primitives import (
+        setupColors,  # deferred to avoid circular import at load time
+    )
 
     setupColors()
 
@@ -235,7 +245,7 @@ def _rg_load_coordinates(flags, props):
     try:
         if "gpx_file" in flags and "trail_map" not in flags:
             separate_paths = read_gpx_file()
-        if "gpx_chain" in flags not in flags:
+        if "gpx_chain" in flags:
             separate_paths_by_file = read_gpx_directory(props['gpx_chain_path'])
             separate_paths = [seg for file_segs in separate_paths_by_file for seg in file_segs]
         if "jmap" in flags:
@@ -253,7 +263,7 @@ def _rg_load_coordinates(flags, props):
         if "jmap_bbox" in flags:
             separate_paths.append([(props['jMapLat1'], props['jMapLon1'], 0, 0)])
             separate_paths.append([(props['jMapLat2'], props['jMapLon2'], 0, 0)])
-    except Exception as e:
+    except Exception:  # noqa: BLE001 — GPX/IGC parsing can raise many unpredictable types
         #show_message_box(f"Something went Wrong reading the GPX. Type {type}")
         _progress.WarningsOverlay.add_warning("Something went Wrong reading the GPX file", "error")
         return None
@@ -265,7 +275,12 @@ def _rg_load_coordinates(flags, props):
 
 def _rg_compute_trail_stats(flags, coordinates):
     """Calculate trail statistics and store them in scene properties."""
-    from .geo import calculate_total_length, calculate_total_elevation, calculate_total_time, calculate_date  # deferred to avoid circular import at load time
+    from .geo import (  # deferred to avoid circular import at load time
+        calculate_date,
+        calculate_total_elevation,
+        calculate_total_length,
+        calculate_total_time,
+    )
 
     total_length = 0
     total_elevation = 0
@@ -279,27 +294,43 @@ def _rg_compute_trail_stats(flags, coordinates):
         trail_date      = calculate_date(coordinates)
         if total_time is not None and total_time > 0:
             average_speed = total_length / total_time
-
-    hours = int(total_time)
-    minutes = int((total_time - hours) * 60)
-    time_str = f"{hours}h {minutes}m"
-
-    tp3d = bpy.context.scene.tp3d
-    tp3d.sTime_str      = time_str
-    tp3d.total_length   = total_length
-    tp3d.total_elevation = total_elevation
-    tp3d.total_time     = total_time
-    tp3d.average_speed  = average_speed
-    tp3d.trail_date     = trail_date
+            
+    if total_time is not None and total_time > 0:
+        hours = int(total_time)
+        minutes = int((total_time - hours) * 60)
+        time_str = f"{hours}h {minutes}m"
+        tp3d = bpy.context.scene.tp3d
+        tp3d.sTime_str      = time_str
+        tp3d.total_length   = total_length
+        tp3d.total_elevation = total_elevation
+        tp3d.total_time     = total_time
+        tp3d.average_speed  = average_speed
+        tp3d.trail_date     = trail_date
 
 
 def _rg_create_map_object(flags, props, modelname, centerx, centery):
     """Create, rotate, and position the base map shape object."""
-    from .primitives import create_rectangle, create_hexagon, create_heart, create_octagon, create_circle, create_ellipse  # deferred to avoid circular import at load time
-    from .presets import appendCollection  # deferred to avoid circular import at load time
-    from .mesh_ops import recalculateNormals  # deferred to avoid circular import at load time
-    from .geo import midpoint_spherical, convert_to_blender_coordinates  # deferred to avoid circular import at load time
-    from .scene import transform_MapObject  # deferred to avoid circular import at load time
+    from .geo import (  # deferred to avoid circular import at load time
+        convert_to_blender_coordinates,
+        midpoint_spherical,
+    )
+    from .mesh_ops import (
+        recalculateNormals,  # deferred to avoid circular import at load time
+    )
+    from .presets import (
+        appendCollection,  # deferred to avoid circular import at load time
+    )
+    from .primitives import (  # deferred to avoid circular import at load time
+        create_circle,
+        create_ellipse,
+        create_heart,
+        create_hexagon,
+        create_octagon,
+        create_rectangle,
+    )
+    from .scene import (
+        transform_MapObject,  # deferred to avoid circular import at load time
+    )
 
     shape          = props['shape']
     size           = props['size']
@@ -309,21 +340,23 @@ def _rg_create_map_object(flags, props, modelname, centerx, centery):
     xTerrainOffset = props['xTerrainOffset']
     yTerrainOffset = props['yTerrainOffset']
 
+    MapObject = None
+
     if "append_collection" not in flags and "use_active_object" not in flags:
         print(f"[map_object] creating '{shape}' N={num_subdivisions} size={size:.1f}…")
         _t_shape = time.time()
-        if shape == "SQUARE":
+        if shape in {"SQUARE", "SQUARE SHELL"}:
             rHeight = bpy.context.scene.tp3d.rectangleHeight
             MapObject = create_rectangle(size, rHeight, num_subdivisions, modelname)
-        elif shape in {"HEXAGON", "HEXAGON INNER TEXT", "HEXAGON OUTER TEXT", "HEXAGON FRONT TEXT"}:
+        elif shape in {"HEXAGON", "HEXAGON SHELL", "HEXAGON INNER TEXT", "HEXAGON OUTER TEXT", "HEXAGON FRONT TEXT"}:
             MapObject = create_hexagon(size / 2, num_subdivisions, modelname)
         elif shape == "HEART":
             MapObject = create_heart(size / 2, num_subdivisions, modelname)
-        elif shape in {"OCTAGON", "OCTAGON OUTER TEXT"}:
+        elif shape in {"OCTAGON", "OCTAGON SHELL", "OCTAGON OUTER TEXT"}:
             MapObject = create_octagon(size / 2, num_subdivisions, modelname)
-        elif shape in {"CIRCLE", "MEDAL"}:
+        elif shape in {"CIRCLE", "CIRCLE SHELL", "CIRCLE OUTER TEXT"}:
             MapObject = create_circle(size / 2, num_subdivisions, modelname)
-        elif shape == "ELLIPSE":
+        elif shape in {"ELLIPSE", "ELLIPSE SHELL"}:
             ratio = bpy.context.scene.tp3d.ellipseRatio
             MapObject = create_ellipse(size / 2, num_subdivisions, modelname, ratio)
         else:
@@ -348,7 +381,7 @@ def _rg_create_map_object(flags, props, modelname, centerx, centery):
     targety = centery + yTerrainOffset
     if scalemode == "COORDINATES" and "chain_coords_center" in flags:
         midLat, midLon = midpoint_spherical(props['scaleLat1'], props['scaleLon1'], props['scaleLat2'], props['scaleLon2'])
-        targetx, targety, el = convert_to_blender_coordinates(midLat, midLon, 0, 0)
+        targetx, targety, _el = convert_to_blender_coordinates(midLat, midLon, 0, 0)
 
     transform_MapObject(MapObject, targetx, targety)
     return MapObject
@@ -377,8 +410,10 @@ def _rg_start_osm_prefetch(tp3d, map_km):
     The caller must call thread.join() before consuming the result dict.
     Returns (None, {}) immediately if no coloring elements are active.
     """
-    from .terrain import _fetch_all_kinds_parallel  # deferred to avoid circular import at load time
-    from .osm import OsmFetchSettings               # deferred to avoid circular import at load time
+    from .osm import OsmFetchSettings  # deferred to avoid circular import at load time
+    from .terrain import (
+        _fetch_all_kinds_parallel,  # deferred to avoid circular import at load time
+    )
 
     _lat_span  = tp3d.maxLat - tp3d.minLat
     _lon_span  = tp3d.maxLon - tp3d.minLon
@@ -447,12 +482,25 @@ def _rg_build_terrain_elements(obj, scaleHor, curveObj=None, phase_start=0.83, p
     tile_label: optional prefix for progress messages (e.g. "Tile 2/6") used by
     multi-tile callers so element messages keep their tile context visible.
     """
-    from .terrain import coloring_main, createOcean, _COLORING_EMPTY, _COLORING_PAINTED, _COLORING_FILTERED, _fetch_all_kinds_parallel  # deferred to avoid circular import at load time
-    from .osm import OsmFetchSettings  # deferred to avoid circular import at load time
-    from .osm import create_buildings, create_roads  # deferred to avoid circular import at load time
-    from .scene import set_origin_to_3d_cursor  # deferred to avoid circular import at load time
-    from .mesh_ops import intersectWithTile  # deferred to avoid circular import at load time
-    from .metadata import writeMetadata  # deferred to avoid circular import at load time
+    from .metadata import (
+        writeMetadata,  # deferred to avoid circular import at load time
+    )
+    from .osm import (  # deferred to avoid circular import at load time
+        OsmFetchSettings,  # deferred to avoid circular import at load time
+        create_buildings,
+        create_roads,
+    )
+    from .scene import (
+        set_origin_to_3d_cursor,  # deferred to avoid circular import at load time
+    )
+    from .terrain import (  # deferred to avoid circular import at load time
+        _COLORING_EMPTY,
+        _COLORING_FILTERED,
+        _COLORING_PAINTED,
+        _fetch_all_kinds_parallel,
+        coloring_main,
+        createOcean,
+    )
 
     tp3d   = bpy.context.scene.tp3d
     map_km = tp3d["sMapInKm"]
@@ -546,9 +594,8 @@ def _rg_build_terrain_elements(obj, scaleHor, curveObj=None, phase_start=0.83, p
     # the mesh operations for that kind are complete.
     if _ov.active:
         for key, flag_attr, max_size, _, _ in COLORING_ELEMENTS:
-            if (flag_attr(tp3d) if callable(flag_attr) else getattr(tp3d, flag_attr) == 1) and map_km <= max_size:
-                if _all_prefetched.get(key.upper()):
-                    _ov.set_fetch_ready(key)
+            if (flag_attr(tp3d) if callable(flag_attr) else getattr(tp3d, flag_attr) == 1) and map_km <= max_size and _all_prefetched.get(key.upper()):
+                _ov.set_fetch_ready(key)
         # Buildings, roads, and ocean are pre-fetched in the same batch but aren't
         # in COLORING_ELEMENTS, so mark them ready here too.
         if tp3d.el_bActive == 1 and map_km <= const.BUILDINGS_MAXSIZE and _all_prefetched.get('BUILDINGS'):
@@ -694,7 +741,14 @@ def _rg_apply_single_color_mode(obj, curveObjs, terrain, props):
     To add a new terrain layer, append its key to TERRAIN_PRIORITY_ORDER and make
     sure it is populated in the terrain dict passed by the caller.
     """
-    from .mesh_ops import single_color_mode_curve, single_color_mode_mesh_wireframe, single_color_mode_mesh_remesh, boolean_operation, selectBottomFaces, recalculateNormals, remeshClearing  # deferred to avoid circular import at load time
+    from .mesh_ops import (  # deferred to avoid circular import at load time
+        boolean_operation,
+        recalculateNormals,
+        selectBottomFaces,
+        single_color_mode_curve,
+        single_color_mode_mesh_remesh,
+        single_color_mode_mesh_wireframe,
+    )
     from .scene import remove_objects  # deferred to avoid circular import at load time
 
     # Priority order: index 0 = highest priority (subtracted from everything below it).
@@ -703,34 +757,33 @@ def _rg_apply_single_color_mode(obj, curveObjs, terrain, props):
  
 
     thickerCurves = []
-    if props['singleColorMode']:
-        if curveObjs:
-            dpt = 1
-            dup = obj.copy()
-            dup.data = obj.data.copy()
-            dup.name = f"{obj.name}_dup_for_projection"
-            if obj.users_collection:
-                for coll in obj.users_collection:
-                    coll.objects.link(dup)
-            survivingCurveObjs = []
-            for tcrv in curveObjs:
-                result = single_color_mode_curve(tcrv, obj, True, dpt, dup)
-                if result is not None and result[1] is not None:
-                    survivingCurveObjs.append(result[0])
-                    thickerCurves.append(result[1])
-            remove_objects(dup)
-            for tcrv in thickerCurves:
-                bpy.ops.object.select_all(action='DESELECT')
-                tcrv.select_set(True)
-                bpy.context.view_layer.objects.active = tcrv
-            for i in range(len(thickerCurves)):
-                recalculateNormals(thickerCurves[i])
-                thickerCurves[i].location.z -= 0.001
-                for j in range(i + 1, len(survivingCurveObjs)):
-                    recalculateNormals(survivingCurveObjs[j])
-                    boolean_operation(survivingCurveObjs[j], thickerCurves[i])
+    if props['singleColorMode'] and curveObjs:
+        dpt = 1
+        dup = obj.copy()
+        dup.data = obj.data.copy()
+        dup.name = f"{obj.name}_dup_for_projection"
+        if obj.users_collection:
+            for coll in obj.users_collection:
+                coll.objects.link(dup)
+        survivingCurveObjs = []
+        for tcrv in curveObjs:
+            result = single_color_mode_curve(tcrv, obj, True, dpt, dup)
+            if result is not None and result[1] is not None:
+                survivingCurveObjs.append(result[0])
+                thickerCurves.append(result[1])
+        remove_objects(dup)
+        for tcrv in thickerCurves:
+            bpy.ops.object.select_all(action='DESELECT')
+            tcrv.select_set(True)
+            bpy.context.view_layer.objects.active = tcrv
+        for i in range(len(thickerCurves)):
+            recalculateNormals(thickerCurves[i])
+            thickerCurves[i].location.z -= 0.001
+            for j in range(i + 1, len(survivingCurveObjs)):
+                recalculateNormals(survivingCurveObjs[j])
+                boolean_operation(survivingCurveObjs[j], thickerCurves[i])
 
-    if props['elementMode'] == "SEPARATE" and 1 == 0:
+    if props['elementMode'] == "SEPARATE" and False:
         for i, key in enumerate(TERRAIN_PRIORITY_ORDER):
 
             elem_obj = terrain.get(key)
@@ -759,9 +812,10 @@ def _rg_apply_single_color_mode(obj, curveObjs, terrain, props):
 
         _ov = _progress.ProgressOverlay.get()
         if _ov.active:
-            _ov.update(message=f"Applying Single-color Mode…")
+            _ov.update(message="Applying Single-color Mode…")
         # Maps key -> thicker mesh object, filled as each element is processed.
         thicker_by_key = {}
+
 
         _scm_fn = single_color_mode_mesh_remesh if props['elementMode'] == "SINGLECOLORMODE_REMESH" else single_color_mode_mesh_wireframe
 
@@ -800,9 +854,13 @@ def _rg_apply_single_color_mode(obj, curveObjs, terrain, props):
 
             _scm_done += 1
 
-        for thicker in thicker_by_key.values():
-            #pass
-            remove_objects(thicker)
+        if bpy.app.debug:
+            obj_size = props.get('size', 100)
+            for thicker in thicker_by_key.values():
+                thicker.location.x += obj_size
+        else:
+            for thicker in thicker_by_key.values():
+                remove_objects(thicker)
 
     if props['elementMode'] == "SEPARATE" and thickerCurves:
         for key in TERRAIN_PRIORITY_ORDER:
@@ -837,11 +895,13 @@ def _rg_apply_single_color_mode(obj, curveObjs, terrain, props):
             remove_objects(thickerCurves)
 
 
-def _rg_assign_materials(obj, curveObjs, textobj, plateobj, props):
+def _rg_assign_materials(obj, curveObjs, textobj, plateobj, props, shellobj=None):
     """Write metadata and assign materials to all generated objects."""
-    from .metadata import writeMetadata  # deferred to avoid circular import at load time
+    from .metadata import (
+        writeMetadata,  # deferred to avoid circular import at load time
+    )
 
-    shape = props['shape'] if "shape" in props.keys() else None
+    shape = props.get('shape', None)
 
     bpy.ops.object.select_all(action='DESELECT')
 
@@ -866,27 +926,42 @@ def _rg_assign_materials(obj, curveObjs, textobj, plateobj, props):
             except ReferenceError:
                 pass
 
-    if shape in {"HEXAGON INNER TEXT", "HEXAGON OUTER TEXT", "OCTAGON OUTER TEXT", "HEXAGON FRONT TEXT", "MEDAL"} and textobj:
+    if shape in {"HEXAGON INNER TEXT", "HEXAGON OUTER TEXT", "OCTAGON OUTER TEXT", "HEXAGON FRONT TEXT", "CIRCLE OUTER TEXT"} and textobj:
         mat_name = "TRAIL" if shape == "HEXAGON INNER TEXT" else "WHITE"
         mat = bpy.data.materials.get(mat_name)
         textobj.data.materials.clear()
         textobj.data.materials.append(mat)
         writeMetadata(textobj, type="TEXT")
 
-    if shape in {"HEXAGON OUTER TEXT", "OCTAGON OUTER TEXT", "HEXAGON FRONT TEXT", "MEDAL"} and plateobj:
+    if shape in {"HEXAGON OUTER TEXT", "OCTAGON OUTER TEXT", "HEXAGON FRONT TEXT", "CIRCLE OUTER TEXT"} and plateobj:
         mat = bpy.data.materials.get("BLACK")
         plateobj.data.materials.clear()
         plateobj.data.materials.append(mat)
         writeMetadata(plateobj, type="PLATE")
 
+    if shellobj:
+        mat = bpy.data.materials.get("BLACK")
+        shellobj.data.materials.clear()
+        if mat:
+            shellobj.data.materials.append(mat)
+        writeMetadata(shellobj, type="SHELL")
 
-def _rg_export(obj, curveObjs, textobj, plateobj, props, buggyDataset, start_time, exportformat, elements=None):
+
+def _rg_export(obj, curveObjs, textobj, plateobj, props, buggyDataset, start_time, exportformat, elements=None, shellobj=None):
     """Export all geometry, update API counters, and zoom camera."""
-    from ..export import export_to_STL, export_selected_to_3mf, is_3mf_extension_installed  # deferred to avoid circular import at load time
-    from .elevation import load_counter  # deferred to avoid circular import at load time
-    from .scene import zoom_camera_to_selected  # deferred to avoid circular import at load time
+    from ..export import (  # deferred to avoid circular import at load time
+        export_selected_to_3mf,
+        export_to_STL,
+        is_3mf_extension_installed,
+    )
+    from .elevation import (
+        load_counter,  # deferred to avoid circular import at load time
+    )
+    from .scene import (
+        zoom_camera_to_selected,  # deferred to avoid circular import at load time
+    )
 
-    shape = props['shape'] if "shape" in props.keys() else None
+    shape = props.get('shape', None)
 
     tp3d_props = bpy.context.scene.tp3d
     if getattr(tp3d_props, 'disable_auto_export', False):
@@ -914,11 +989,14 @@ def _rg_export(obj, curveObjs, textobj, plateobj, props, buggyDataset, start_tim
                 if elem_obj and elem_obj.name in bpy.data.objects:
                     elem_obj.select_set(True)
 
-        if shape in {"HEXAGON INNER TEXT", "HEXAGON OUTER TEXT", "OCTAGON OUTER TEXT", "HEXAGON FRONT TEXT", "MEDAL"} and textobj:
+        if shape in {"HEXAGON INNER TEXT", "HEXAGON OUTER TEXT", "OCTAGON OUTER TEXT", "HEXAGON FRONT TEXT", "CIRCLE OUTER TEXT"} and textobj:
             textobj.select_set(True)
 
-        if shape in {"HEXAGON OUTER TEXT", "OCTAGON OUTER TEXT", "HEXAGON FRONT TEXT", "MEDAL"} and plateobj:
+        if shape in {"HEXAGON OUTER TEXT", "OCTAGON OUTER TEXT", "HEXAGON FRONT TEXT", "CIRCLE OUTER TEXT"} and plateobj:
             plateobj.select_set(True)
+
+        if shellobj:
+            shellobj.select_set(True)
 
         export_selected_to_3mf()
     else:
@@ -928,16 +1006,19 @@ def _rg_export(obj, curveObjs, textobj, plateobj, props, buggyDataset, start_tim
                 export_to_STL(tcrv, exportformat)
         export_to_STL(obj, exportformat)
 
-        if elements and props.get('elementMode') == "SEPARATE":
+        if elements and (props.get('elementMode') == "SEPARATE" or "SINGLECOLORMODE" in props.get('elementMode')):
             for elem_obj in elements.values():
                 if elem_obj and elem_obj.name in bpy.data.objects:
                     export_to_STL(elem_obj, exportformat)
 
-        if shape in {"HEXAGON INNER TEXT", "HEXAGON OUTER TEXT", "OCTAGON OUTER TEXT", "HEXAGON FRONT TEXT", "MEDAL"} and textobj:
+        if shape in {"HEXAGON INNER TEXT", "HEXAGON OUTER TEXT", "OCTAGON OUTER TEXT", "HEXAGON FRONT TEXT", "CIRCLE OUTER TEXT"} and textobj:
             export_to_STL(textobj, exportformat)
 
-        if shape in {"HEXAGON OUTER TEXT", "OCTAGON OUTER TEXT", "HEXAGON FRONT TEXT", "MEDAL"} and plateobj:
+        if shape in {"HEXAGON OUTER TEXT", "OCTAGON OUTER TEXT", "HEXAGON FRONT TEXT", "CIRCLE OUTER TEXT"} and plateobj:
             export_to_STL(plateobj, exportformat)
+
+        if shellobj:
+            export_to_STL(shellobj, exportformat)
 
     count_openTopoData, _dt1, count_openElevation, _dt2 = load_counter()
     tp3d = bpy.context.scene.tp3d
@@ -1034,7 +1115,7 @@ def _subdivide_long_segments(coords, max_xy_dist, depsgraph=None):
         dx, dy = x2 - x1, y2 - y1
         dist_xy = math.sqrt(dx * dx + dy * dy)
         if dist_xy > max_xy_dist:
-            n = int(math.ceil(dist_xy / max_xy_dist))
+            n = math.ceil(dist_xy / max_xy_dist)
             for j in range(1, n):
                 t = j / n
                 xi, yi = x1 + t * dx, y1 + t * dy
@@ -1057,13 +1138,45 @@ def _subdivide_long_segments(coords, max_xy_dist, depsgraph=None):
 def runGeneration(type, locked_scale=None):
 
     """Orchestrate the full 3D map generation pipeline."""
-    from .geo import calculate_scale, convert_to_blender_coordinates_batch, haversine, separate_duplicate_xy  # deferred to avoid circular import at load time
-    from .primitives import simplify_curve, create_curve_from_coordinates  # deferred to avoid circular import at load time
-    from .elevation import get_tile_elevation  # deferred to avoid circular import at load time
-    from .scene import zoom_camera_to_selected, show_message_box, transform_MapObject, set_origin_to_3d_cursor, remove_objects  # deferred to avoid circular import at load time
-    from .mesh_ops import RaycastCurveToMesh, splitCurves, recalculateNormals, merge_with_map  # deferred to avoid circular import at load time
-    from .text_objects import HexagonInnerText, HexagonOuterText, HexagonFrontText, OctagonOuterText, MedalText  # deferred to avoid circular import at load time
+    from .elevation import (
+        get_tile_elevation,  # deferred to avoid circular import at load time
+    )
+    from .geo import (  # deferred to avoid circular import at load time
+        calculate_scale,
+        convert_to_blender_coordinates_batch,
+        haversine,
+        separate_duplicate_xy,
+    )
+    from .mesh_ops import (  # deferred to avoid circular import at load time
+        RaycastCurveToMesh,
+        merge_with_map,
+        recalculateNormals,
+        splitCurves,
+    )
+    try:
+        from ..premium.utils_pe import build_map_shell  # Premium-only: Shell shape extra
+    except ImportError:
+        def build_map_shell(*_args, **_kwargs):
+            return None
+    from .primitives import (  # deferred to avoid circular import at load time
+        create_curve_from_coordinates,
+        simplify_curve,
+    )
+    from .scene import (  # deferred to avoid circular import at load time
+        remove_objects,
+        set_origin_to_3d_cursor,
+        show_message_box,
+        transform_MapObject,
+        zoom_camera_to_selected,
+    )
     from .terrain import plateInsert  # deferred to avoid circular import at load time
+    from .text_objects import (  # deferred to avoid circular import at load time
+        HexagonFrontText,
+        HexagonInnerText,
+        HexagonOuterText,
+        MedalText,
+        OctagonOuterText,
+    )
 
     flags = _GEN_FLAGS[type]
 
@@ -1079,7 +1192,11 @@ def runGeneration(type, locked_scale=None):
         return
     start_time = props['start_time']
     buggyDataset = 0
-    exportformat = "STL"
+    # PAINT mode bakes terrain-element colors as per-face materials on a single
+    # mesh; STL cannot store material data at all, so PAINT-mode maps must be
+    # exported as OBJ to keep the colors. Mirrors the equivalent computation in
+    # terrain.coloring_main().
+    exportformat = "OBJ" if props['elementMode'] == "PAINT" else "STL"
 
     overlay.add_completed_step("Inputs validated")
 
@@ -1102,13 +1219,12 @@ def runGeneration(type, locked_scale=None):
         xyz = np.array([(c[0], c[1], c[2]) for c in coordinates], dtype=np.float64)
         mids = (xyz[:-1] + xyz[1:]) / 2.0
         # Interleave originals and midpoints: [orig0, mid0, orig1, mid1, ..., origN]
-        out = [None] * (2 * n - 1)
-        out[0::2] = coordinates
-        out[1::2] = [
-            (mids[i, 0], mids[i, 1], mids[i, 2], coordinates[i][3])
-            for i in range(n - 1)
-        ]
-        coordinates = out
+        interleaved: list = []
+        for i in range(n - 1):
+            interleaved.append(coordinates[i])
+            interleaved.append((mids[i, 0], mids[i, 1], mids[i, 2], coordinates[i][3]))
+        interleaved.append(coordinates[-1])
+        coordinates = interleaved
 
     # --- Phase 5: Calculate horizontal scale factor ---
     overlay.update(0.20, "Scale Calculation", "Computing horizontal scale…")
@@ -1151,11 +1267,14 @@ def runGeneration(type, locked_scale=None):
     for obs in bpy.data.objects:
         obj_2d        = Vector((obs.location.x, obs.location.y))
         obj_2d_offset = obj_2d
-        if "xTerrainOffset" in obs.keys() or "yTerrainOffset" in obs.keys():
+        if "xTerrainOffset" in obs or "yTerrainOffset" in obs:
             obj_2d_offset = Vector((obs.location.x - obs["xTerrainOffset"], obs.location.y - obs["yTerrainOffset"]))
-        if (obj_2d - target_2d).length <= 0.2 or (obj_2d - target_2d_offset).length <= 0.2:
-            bpy.data.objects.remove(obs, do_unlink=True)
-        elif (obj_2d_offset - target_2d).length <= 0.2 or (obj_2d_offset - target_2d_offset).length <= 0.2:
+        if (
+            (obj_2d - target_2d).length <= 0.2
+            or (obj_2d - target_2d_offset).length <= 0.2
+            or (obj_2d_offset - target_2d).length <= 0.2
+            or (obj_2d_offset - target_2d_offset).length <= 0.2
+        ):
             bpy.data.objects.remove(obs, do_unlink=True)
     bpy.ops.object.select_all(action='DESELECT')
 
@@ -1205,7 +1324,7 @@ def runGeneration(type, locked_scale=None):
         overlay.update(
             0.38 + t * (0.65 - 0.38),
             "Fetching Elevation Data",
-            f"Querying elevation API…",
+            "Querying elevation API…",
             sub_percent=t,
             sub_label="Tiles processed",
         )
@@ -1225,11 +1344,8 @@ def runGeneration(type, locked_scale=None):
         autoScale = scaleHor
     bpy.context.scene.tp3d.sAutoScale = autoScale
 
-    if not props['fixedElevationScale']:
-        if diff == 0:
-            _progress.WarningsOverlay.add_warning("Terrain seems to be really flat. If not intended, increase Elevation scale", icon="warn")
-        elif (diff / 1000) * autoScale * props['scaleElevation'] < 2:
-            _progress.WarningsOverlay.add_warning("Terrain seems to be really flat. If not intended, increase Elevation scale", icon="warn")
+    if not props['fixedElevationScale'] and (diff == 0 or (diff / 1000) * autoScale * props['scaleElevation'] < 2):
+        _progress.WarningsOverlay.add_warning("Terrain seems to be really flat. If not intended, increase Elevation scale", icon="warn")
 
     # Recalculate blender coords with elevation applied, simplify, deduplicate
     blender_coords = convert_to_blender_coordinates_batch(coordinates)
@@ -1311,7 +1427,7 @@ def runGeneration(type, locked_scale=None):
                 create_curve_from_coordinates(crds)
             bpy.ops.object.join()
             curveObjs = [bpy.context.view_layer.objects.active]
-    except Exception as e:
+    except RuntimeError:
         show_message_box("Bad Response from API while creating the curve. If this happens everytime contact dev")
         overlay.finish()
         return
@@ -1373,8 +1489,9 @@ def runGeneration(type, locked_scale=None):
     if bpy.app.debug:
         _t_slopes = []
         for edge in mesh.edges:
-            v1 = mesh.vertices[edge.vertices[0]].co
-            v2 = mesh.vertices[edge.vertices[1]].co
+            verts = tuple(edge.vertices)
+            v1 = mesh.vertices[verts[0]].co
+            v2 = mesh.vertices[verts[1]].co
             _h = math.sqrt((v2.x-v1.x)**2 + (v2.y-v1.y)**2)
             if _h > 0:
                 _t_slopes.append(abs(v2.z - v1.z) / _h)
@@ -1437,6 +1554,7 @@ def runGeneration(type, locked_scale=None):
     overlay.update(0.82, "Shape Overlays", "Adding text and plate elements…")
     textobj   = None
     plateobj  = None
+    shellobj  = None
     shape     = props['shape']
     plateThickness = props['plateThickness']
     shapeRotation  = props['shapeRotation']
@@ -1454,31 +1572,34 @@ def runGeneration(type, locked_scale=None):
         elif shape == "HEXAGON FRONT TEXT":
             textobj, plateobj = HexagonFrontText()
             obj.location.z += plateThickness
-        elif shape == "MEDAL":
+        elif shape == "CIRCLE OUTER TEXT":
             textobj, plateobj = MedalText()
             obj.location.z += plateThickness
+        elif shape.endswith(" SHELL"):
+            shellobj = build_map_shell(obj, bpy.context.scene.tp3d.tolerance, wall=bpy.context.scene.tp3d.shellWallThickness, bottom_wall=1.0)
+            if shellobj:
+                set_origin_to_3d_cursor(shellobj)
         else:
             pass  # BottomText() — currently disabled
 
     if ("TEXT" in shape and curveObjs is not None and "INNER TEXT" not in shape) or \
-       (shape == "MEDAL" and curveObjs is not None):
+       (shape == "CIRCLE OUTER TEXT" and curveObjs is not None):
         for tcrv in curveObjs:
             tcrv.location.z += plateThickness
 
     # Plate insert
     bpy.ops.object.select_all(action='DESELECT')
     dist = bpy.context.scene.tp3d.plateInsertValue
-    if shape in {"HEXAGON OUTER TEXT", "OCTAGON OUTER TEXT", "HEXAGON FRONT TEXT", "MEDAL"}:
-        if plateobj and textobj:
-            transform_MapObject(plateobj, props['xTerrainOffset'], props['yTerrainOffset'])
-            transform_MapObject(textobj,  props['xTerrainOffset'], props['yTerrainOffset'])
-            set_origin_to_3d_cursor(plateobj)
-            set_origin_to_3d_cursor(textobj)
-            if dist > 0:
-                plateInsert(plateobj, obj)
-                textobj.location.z += dist
-            if shapeRotation != 0:
-                textobj.rotation_euler[2] += shapeRotation * (3.14159265 / 180)
+    if shape in {"HEXAGON OUTER TEXT", "OCTAGON OUTER TEXT", "HEXAGON FRONT TEXT", "CIRCLE OUTER TEXT"} and plateobj and textobj:
+        transform_MapObject(plateobj, props['xTerrainOffset'], props['yTerrainOffset'])
+        transform_MapObject(textobj,  props['xTerrainOffset'], props['yTerrainOffset'])
+        set_origin_to_3d_cursor(plateobj)
+        set_origin_to_3d_cursor(textobj)
+        if dist > 0:
+            plateInsert(plateobj, obj)
+            textobj.location.z += dist
+        if shapeRotation != 0:
+            textobj.rotation_euler[2] += shapeRotation * (3.14159265 / 180)
 
     # --- Material preview mode ---
     for area in bpy.context.screen.areas:
@@ -1517,8 +1638,8 @@ def runGeneration(type, locked_scale=None):
 
     # --- Phases 16-18: Assign materials, export, and finalize ---
     overlay.update(0.97, "Finalizing", "Exporting files...")
-    _rg_assign_materials(obj, curveObjs, textobj, plateobj, props)
-    _rg_export(obj, curveObjs, textobj, plateobj, props, buggyDataset, start_time, exportformat, elements)
+    _rg_assign_materials(obj, curveObjs, textobj, plateobj, props, shellobj)
+    _rg_export(obj, curveObjs, textobj, plateobj, props, buggyDataset, start_time, exportformat, elements, shellobj)
     # Script duration
     end_time = time.time()
     duration = end_time - start_time
@@ -1536,7 +1657,7 @@ def runGeneration(type, locked_scale=None):
 
     print(f"Finished. Generating Map took {duration:.0f} seconds")
     print("----------------------------------------------------------------")
-    print(f"")
+    print(" ")
 
 
     _elapsed = int(time.time() - overlay._start_time) if overlay._start_time else 0
@@ -1591,7 +1712,9 @@ def _ctfs_apply_elevation(zobj, props, progress_cb=None, skip_bottom_recess=Fals
     pass and this function's, not a real seam to protect, and the 1mm-step
     loop below would force at least a 1mm recess off that noise alone.
     """
-    from .elevation import get_tile_elevation  # deferred to avoid circular import at load time
+    from .elevation import (
+        get_tile_elevation,  # deferred to avoid circular import at load time
+    )
     from .geo import convert_to_geo  # deferred to avoid circular import at load time
 
     scaleElevation      = props['scaleElevation']
@@ -1603,7 +1726,7 @@ def _ctfs_apply_elevation(zobj, props, progress_cb=None, skip_bottom_recess=Fals
     print(f"additionalExtrusion: {additionalExtrusion}")
 
     bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
-    tileVerts, diff = get_tile_elevation(zobj, progress_cb=progress_cb)
+    tileVerts, _diff = get_tile_elevation(zobj, progress_cb=progress_cb)
 
     # Reset scene property to original value before this tile
     bpy.context.scene.tp3d.sAdditionalExtrusion = additionalExtrusion
@@ -1703,7 +1826,9 @@ def _ctfs_handle_trail(zobj, duplicate, singleColorMode):
 
     Returns curveObjs list (may be empty).
     """
-    from .mesh_ops import intersect_trail_with_existing_box  # deferred to avoid circular import at load time
+    from .mesh_ops import (
+        intersect_trail_with_existing_box,  # deferred to avoid circular import at load time
+    )
 
     def _xy_extents(obj):
         corners = [obj.matrix_world @ Vector(c) for c in obj.bound_box]
@@ -1774,9 +1899,15 @@ def createTerrainFromSelected(manage_overlay=True, skip_bottom_recess=False):
     docstring. Pass True for fresh single-tile callers with no neighbor
     baseline to protect (e.g. the puzzle generator).
     """
-    from .primitives import setupColors  # deferred to avoid circular import at load time
-    from .metadata import writeMetadata  # deferred to avoid circular import at load time
-    from .mesh_ops import recalculateNormals  # deferred to avoid circular import at load time
+    from .mesh_ops import (
+        recalculateNormals,  # deferred to avoid circular import at load time
+    )
+    from .metadata import (
+        writeMetadata,  # deferred to avoid circular import at load time
+    )
+    from .primitives import (
+        setupColors,  # deferred to avoid circular import at load time
+    )
 
     props = _ctfs_load_props()
     start_time = time.time()
@@ -1800,7 +1931,9 @@ def createTerrainFromSelected(manage_overlay=True, skip_bottom_recess=False):
 
     selected_objects = bpy.context.selected_objects
     if not selected_objects:
-        from .scene import show_message_box  # deferred to avoid circular import at load time
+        from .scene import (
+            show_message_box,  # deferred to avoid circular import at load time
+        )
         show_message_box("No objects selected")
         if manage_overlay:
             overlay.finish()
@@ -1850,9 +1983,8 @@ def createTerrainFromSelected(manage_overlay=True, skip_bottom_recess=False):
             continue
         if "objType" in zobj and zobj["objType"] != "MAP":
             continue
-        if "highestZ" in zobj and "lowestZ" in zobj:
-            if zobj["highestZ"] != 0 and zobj["lowestZ"] != 0:
-                continue
+        if "highestZ" in zobj and "lowestZ" in zobj and zobj["highestZ"] != 0 and zobj["lowestZ"] != 0:
+            continue
 
         if _mp_tiles_info and _progress.SubprocessProgress.get().is_cancel_requested():
             break
@@ -1889,11 +2021,11 @@ def createTerrainFromSelected(manage_overlay=True, skip_bottom_recess=False):
         overlay.update(base_pct + step * 0.00, "Fetching Elevation", f"{tile_label} — querying elevation API…")
         overlay.set_fetch_progress('elevation', 0.0)
 
-        def _elev_progress(pct):
+        def _elev_progress(pct, _base_pct=base_pct, _step=step, _tile_label=tile_label):
             t = pct / 100.0
-            overlay.update(base_pct + step * t * 0.50,
+            overlay.update(_base_pct + _step * t * 0.50,
                            "Fetching Elevation",
-                           f"{tile_label} — {pct}% complete…",
+                           f"{_tile_label} — {pct}% complete…",
                            sub_percent=t,
                            sub_label="Elevation tiles")
             overlay.set_fetch_progress('elevation', t)
@@ -1951,14 +2083,7 @@ def createTerrainFromSelected(manage_overlay=True, skip_bottom_recess=False):
         zobj["lowestZ"] += additionalExtrusion
         zobj["highestZ"] += additionalExtrusion
 
-        elementMode = (bpy.context.scene.tp3d.elementMode)
-        exportformat = "STL"
-        if elementMode == "PAINT":
-            exportformat = "OBJ"
-
         _rg_assign_materials(zobj, curveObjs, None, None, props)
-
-        #utils.export_to_STL(zobj)
 
     # Mark all tiles done in the preview
     if _mp_tiles_info:
@@ -1993,11 +2118,21 @@ def createTerrainFromSelected(manage_overlay=True, skip_bottom_recess=False):
 
 
 def generateJustTrail(material="TRAIL"):
-    from .scene import show_message_box  # deferred to avoid circular import at load time
+    from .geo import (  # deferred to avoid circular import at load time
+        convert_to_blender_coordinates,
+        separate_duplicate_xy,
+    )
     from .io_gpx import read_gpx_file  # deferred to avoid circular import at load time
-    from .geo import convert_to_blender_coordinates, separate_duplicate_xy  # deferred to avoid circular import at load time
-    from .primitives import simplify_curve, create_curve_from_coordinates  # deferred to avoid circular import at load time
-    from .mesh_ops import RaycastCurveToAnyMesh  # deferred to avoid circular import at load time
+    from .mesh_ops import (
+        RaycastCurveToAnyMesh,  # deferred to avoid circular import at load time
+    )
+    from .primitives import (  # deferred to avoid circular import at load time
+        create_curve_from_coordinates,
+        simplify_curve,
+    )
+    from .scene import (
+        show_message_box,  # deferred to avoid circular import at load time
+    )
 
     props = bpy.context.scene.tp3d
 
@@ -2017,7 +2152,7 @@ def generateJustTrail(material="TRAIL"):
 
     try:
         separate_paths = read_gpx_file()
-    except Exception as e:
+    except Exception:  # noqa: BLE001 — GPX/IGC parsing can raise many unpredictable types
         show_message_box(f"Something went Wrong reading the GPX. Type {type}")
     coordinates = [item for sublist in separate_paths for item in sublist]
 
@@ -2059,7 +2194,7 @@ def generateJustTrail(material="TRAIL"):
 
                 bpy.ops.object.join()
                 curveObj = bpy.context.view_layer.objects.active
-    except Exception as e:
+    except RuntimeError as e:
         show_message_box(e)
 
 

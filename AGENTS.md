@@ -1,37 +1,75 @@
 # TrailPrint3D — Agent Coding Instructions
 
-This is a **Blender 5.1+ Python addon** using the Blender Extensions platform. Apply every rule in this file when reading or writing any `.py` file inside `TrailPrint3D/`.
+This is a **Blender 5.1+ Python addon** using the Blender Extensions platform. Apply every rule in this file when reading or writing any `.py` file inside `TrailPrint3D/`. §18 (CHANGELOG) applies to the repo-root `CHANGELOG` file instead.
 
 ---
 
 ## Project Layout
 
 ```
-TrailPrint3D/
-  __init__.py           - register() / unregister(), class list
-  addon_preferences.py  - TP3D_AP_preferences
-  constants.py          - shared constants (no side-effects at import time)
-  export.py             - STL / OBJ / 3MF export helpers
-  operators.py          - all bpy.types.Operator subclasses
-  panels.py             - all bpy.types.Panel subclasses
-  progress.py           - GPU progress overlay + WarningsOverlay
-  props.py              - TP3D_PG_properties (scene property group)
-  temp.py               - runtime flags (PREMIUMVERSION, has3mf)
+TrailPrint3D/                 - Blender addon package (installed as a Blender extension)
+  __init__.py                 - register() / unregister(), class list
+  addon_preferences.py        - TP3D_AP_preferences
+  blender_manifest.toml       - Blender Extensions platform manifest
+  constants.py                - shared constants (no side-effects at import time)
+  export.py                   - STL / OBJ / 3MF export helpers
+  headless_ui.py               - local HTTP config UI for --background headless mode
+  operators.py                 - all bpy.types.Operator subclasses
+  panels.py                    - all bpy.types.Panel subclasses
+  picker_server.py             - local HTTP map-picker window (draw a bbox, POST coords back to Blender)
+  progress.py                  - GPU progress overlay + WarningsOverlay
+  progress_win.py              - standalone frameless progress window (subprocess)
+  props.py                     - TP3D_PG_properties (scene property group)
+  temp.py                      - runtime flags (PREMIUMVERSION, has3mf)
+  threemf_discovery.py         - discovery helper for the bundled 3MF Import/Export addon
+  translation.py               - translations_dict (DE/ZH UI strings)
+  updater.py                   - GitHub/Patreon release checker + auto-download
+  puzzleGenerator.html         - free Puzzle Configurator (browser UI)
+  assets/                      - .blend asset libraries (connectors, holder, other) + progress-overlay SVG icons
+  wheels/                      - bundled Shapely / Mapbox Earcut wheels (per-platform)
   utils/
-    __init__.py         - re-exports from submodules (wildcards OK here, see §10)
-    elevation.py        - elevation API helpers
-    generation.py       - runGeneration() orchestration
-    geo.py              - coordinate math
-    io_gpx.py           - GPX / IGC file parsing
-    mesh_ops.py         - bmesh utilities
-    metadata.py         - custom property helpers
-    osm.py              - Overpass / OSM fetching and caching
-    presets.py          - CSV preset load/save
-    primitives.py       - curve / mesh creation helpers
-    scene.py            - scene-level helpers (show_message_box, etc.)
-    terrain.py          - terrain generation pipeline
-    text_objects.py     - text and icon mesh helpers
-    trail_import.py     - GPX import entry point
+    __init__.py                - re-exports from submodules (wildcards OK here, see §10)
+    elevation.py                - elevation API helpers
+    generation.py                - runGeneration() orchestration
+    geo.py                       - coordinate math
+    geometry2d.py                - Shapely-based 2D geometry helpers (OSM pipeline)
+    io_geojson.py                - GeoJSON boundary import
+    io_gpx.py                    - GPX / IGC file parsing
+    mesh_ops.py                  - bmesh utilities
+    metadata.py                  - custom property helpers
+    osm.py                       - Overpass / OSM fetching and caching
+    presets.py                   - CSV preset load/save
+    primitives.py                - curve / mesh creation helpers
+    scene.py                     - scene-level helpers (show_message_box, etc.)
+    terrain.py                   - terrain generation pipeline
+    text_objects.py              - text and icon mesh helpers
+    trail_import.py              - GPX import entry point
+
+premium/                       - Premium-only source, absent from the free build (see §15)
+  __init__.py
+  operators_pe.py               - premium bpy.types.Operator subclasses
+  utils_pe.py                   - premium-only utility functions
+  multitile_configurator.html   - premium multi-tile map configurator (browser UI)
+  puzzleGenerator_pe.html       - premium Puzzle Configurator (hex/radial piece shapes, multi-GPX)
+  assets/                       - premium-only .blend asset libraries (puzzles.blend)
+
+tests/                         - standalone test suite, run inside Blender's own Python (not pytest)
+  run_all_tests.py              - runs every test_*.py and prints a combined pass/fail summary
+  headless_generate.py          - headless generator with a browser-based config UI (manual/dev use)
+  test_generation_pipeline.py   - end-to-end runGeneration() tests against real elevation/Overpass APIs
+  test_model_shape_matrix.py    - runGeneration() across every shape/shape-extra/medal-handle combo, exported as 3MF
+  test_geo_elevation.py         - unit tests for pure-math functions in geo.py / elevation.py
+  test_geojson_import.py        - tests for the GeoJSON boundary reader
+  test_geometry2d.py            - unit tests for utils/geometry2d.py
+  test_gpx.py                   - tests for the GPX reader
+  test_osm_pipeline.py          - unit/integration tests for the OSM data pipeline
+  test_updater.py               - unit tests for updater.py
+  Resources/                    - GPX/GeoJSON fixture files used by the tests above
+```
+
+Tests run directly with Blender's bundled Python, not `pytest`, e.g.:
+```powershell
+& "C:\Program Files\Blender Foundation\Blender 5.1\blender.exe" --background --factory-startup --python-exit-code 1 -P tests/run_all_tests.py
 ```
 
 ---
@@ -322,3 +360,25 @@ blender --command extension build --source-dir "./TrailPrint3D/"
 ```
 
 This produces a `.zip` in the repo root that can be installed via Blender → Preferences → Add-ons → Install from Disk. Run this after any structural change to verify Blender can load the addon without errors (watch the system console for `RuntimeError` on registration).
+
+---
+
+## 18. CHANGELOG Format
+
+The repo-root `CHANGELOG` file (no extension) tracks user-facing changes per version.
+
+- **Only touch it when explicitly asked.** Do not add entries as a side effect of unrelated work, even in the same session.
+- **Format per line**: `Added:` / `Changed:` / `Fixed:` prefix, one line per entry, no sub-bullets, no nested lists.
+- **Compactness**: a single cohesive feature or rework — even one that touches several behaviors — collapses into **one line** under the category that best fits (usually the most invasive change: `Changed` beats `Added` if the entry is mostly a rework of something existing). Do not split one feature's sub-parts across multiple lines or multiple categories.
+- **Premium tagging**: any entry describing a Patreon/premium-gated feature or option gets a trailing `(Premium)` tag, e.g. `Added: Hexagonal and Concentric-Ring puzzle piece shapes in the Puzzle Configurator (Premium)`.
+- **Placement**: add new entries to the current top-most version block (the open/unreleased one). Do not create a new `Version X.Y` header or bump the version number unless explicitly told to.
+
+```
+# ✅ — one compact line for a multi-part rework
+Changed: Reworked Contour Lines — now subtracts its bands from the map instead of only intersecting, supports real-world-meter distance/offset (elevation-scale aware, enabled by default) alongside mm, generates at the map's own origin instead of the 3D cursor, and warns instead of failing when distance is smaller than thickness
+
+# ❌ — same feature fragmented across lines/categories
+Added: Real-world-meter distance/offset for Contour Lines
+Changed: Contour Lines now generated at the map's own origin
+Fixed: Contour Lines no longer overlap the map
+```

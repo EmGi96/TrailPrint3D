@@ -1,10 +1,12 @@
-import bpy  # type: ignore
-import bmesh  # type: ignore
 import math
-import time
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+import bmesh  # type: ignore
+import bpy  # type: ignore
 from mathutils import Vector  # type: ignore
+
 from .. import progress as _progress
 
 _COLORING_EMPTY = object()
@@ -50,7 +52,7 @@ def _fetch_tiles_parallel(tasks, kind, semaphore, settings=None, max_workers=4):
             try:
                 result = fetch_osm_data(bbox, kind, return_cache_status=True,
                                         settings=settings)
-            except Exception as e:
+            except (OSError, ValueError, KeyError) as e:
                 print(f"[_fetch_tiles_parallel] tile {bbox} failed: {e}")
                 return
         if result:
@@ -119,7 +121,7 @@ def _fetch_all_kinds_parallel(kind_task_pairs, semaphore, settings=None, max_wor
             semaphore.acquire()
         try:
             tile_result = fetch_osm_combined(bbox, kinds, settings=settings, tile_progress=tile_progress)
-        except Exception as e:
+        except (OSError, ValueError, KeyError) as e:
             print(f"[_fetch_all_kinds_parallel] tile {bbox} failed: {e}")
             return
         finally:
@@ -144,12 +146,24 @@ def _fetch_all_kinds_parallel(kind_task_pairs, semaphore, settings=None, max_wor
 
 
 def coloring_main(map, kind="WATER", prefetched_tiles=None):
-    from .osm import fetch_osm_data, build_osm_nodes, extract_multipolygon_bodies  # deferred to avoid circular import at load time
-    from .geo import convert_to_blender_coordinates  # deferred to avoid circular import at load time
-    from .mesh_ops import merge_objects  # deferred to avoid circular import at load time
-    from .scene import show_message_box  # deferred to avoid circular import at load time
-    from .metadata import writeMetadata  # deferred to avoid circular import at load time
     from . import geometry2d as _g2d  # Shapely-based 2D geometry helpers
+    from .geo import (
+        convert_to_blender_coordinates,  # deferred to avoid circular import at load time
+    )
+    from .mesh_ops import (
+        merge_objects,  # deferred to avoid circular import at load time
+    )
+    from .metadata import (
+        writeMetadata,  # deferred to avoid circular import at load time
+    )
+    from .osm import (  # deferred to avoid circular import at load time
+        build_osm_nodes,
+        extract_multipolygon_bodies,
+        fetch_osm_data,
+    )
+    from .scene import (
+        show_message_box,  # deferred to avoid circular import at load time
+    )
 
     _t_color = time.time()          # master timer: whole coloring_main
     _t_tiles_total = 0.0            # accumulated OSM fetch + Shapely ring building
@@ -182,18 +196,20 @@ def coloring_main(map, kind="WATER", prefetched_tiles=None):
 
     if kind == "WATER":
         col_Area = (bpy.context.scene.tp3d.col_wArea)
-    if kind == "FOREST":
+    elif kind == "FOREST":
         col_Area = (bpy.context.scene.tp3d.col_fArea)
-    if kind == "SCREE":
+    elif kind == "SCREE":
         col_Area = (bpy.context.scene.tp3d.col_scrArea)
-    if kind == "CITY":
+    elif kind == "CITY":
         col_Area = (bpy.context.scene.tp3d.col_cArea)
-    if kind == "GREENSPACE":
+    elif kind == "GREENSPACE":
         col_Area = (bpy.context.scene.tp3d.col_grArea)
-    if kind == "FARMLAND":
+    elif kind == "FARMLAND":
         col_Area = (bpy.context.scene.tp3d.col_faArea)
-    if kind == "GLACIER":
+    elif kind == "GLACIER":
         col_Area = (bpy.context.scene.tp3d.col_glArea)
+    else:
+        col_Area = 0.0
 
     elementMode = (bpy.context.scene.tp3d.elementMode)
     exportformat = "STL"
@@ -212,10 +228,8 @@ def coloring_main(map, kind="WATER", prefetched_tiles=None):
     total_fetched = 0
     _api_empty    = False   # set True when OSM responded with 0 usable features
 
-    if maxLat - minLat < lat_step:
-        lat_step = maxLat - minLat
-    if maxLon - minLon < lon_step:
-        lon_step = maxLon - minLon
+    lat_step = min(lat_step, maxLat - minLat)
+    lon_step = min(lon_step, maxLon - minLon)
 
     lats = math.ceil((maxLat - minLat) / lat_step)
     lons = math.ceil((maxLon - minLon) / lon_step)
@@ -231,6 +245,7 @@ def coloring_main(map, kind="WATER", prefetched_tiles=None):
     cntr = 0
     maxcntr = lats * lons
     _t_tiles_start = time.time()
+    _ov = _progress.ProgressOverlay.get()
     if lats * lons < 20 or prefetched_tiles is not None:
         for k in range(lats):
             for l in range(lons):
@@ -270,7 +285,7 @@ def coloring_main(map, kind="WATER", prefetched_tiles=None):
                         src = "cache" if from_cache else "Overpass"
                         print(f"OSM tile ({kind}): loaded from {src} (on-demand)")
 
-                except Exception as e:
+                except (OSError, ValueError, KeyError) as e:
                     show_message_box(f"Something went wrong with fetching OSM data: {e}")
                     _progress.WarningsOverlay.add_warning(f"Something went wrong with fetching OSM data: {e}", "error")
                     continue
@@ -469,7 +484,7 @@ def coloring_main(map, kind="WATER", prefetched_tiles=None):
     # Shift vertex coords so the object origin sits at the 3D cursor.
     # Keeps vertex coordinates close to zero and avoids float32 precision
     # artifacts when the map is far from the world origin.
-    import numpy as _np
+    import numpy as _np  # type: ignore
     _cursor = bpy.context.scene.cursor.location.copy()
     _me = merged_object.data
     _co = _np.empty(len(_me.vertices) * 3, dtype=_np.float32)
@@ -604,8 +619,8 @@ def coloring_main(map, kind="WATER", prefetched_tiles=None):
           f"non-manifold={cutter_nm_v}v/{cutter_nm_e}e  |  "
           f"map: {len(map.data.vertices)}v non-manifold={map_nm_v}v/{map_nm_e}e")
     if cutter_nm_v > 0 or cutter_nm_e > 0:
-        print(f"  [manifold-check] WARNING: cutter has non-manifold geometry — "
-              f"boolean may be a no-op or produce garbage")
+        print("  [manifold-check] WARNING: cutter has non-manifold geometry — "
+              "boolean may be a no-op or produce garbage")
     # ────────────────────────────────────────────────────────────────────────
 
     def _apply_boolean(obj, solver):
@@ -620,6 +635,7 @@ def coloring_main(map, kind="WATER", prefetched_tiles=None):
 
     new_mesh = _apply_boolean(merged_object, 'MANIFOLD')
     solver_used = 'MANIFOLD'
+    result_zs: list = []
 
     if new_mesh.vertices:
         result_zs = [v.co.z for v in new_mesh.vertices]
@@ -726,8 +742,7 @@ def coloring_main(map, kind="WATER", prefetched_tiles=None):
         lowestVert = 100
         for v in bm.verts:
             if abs(v.co.z - min_z) > tol and v.co.z >= bpy.context.scene.tp3d.minThickness:
-                if v.co.z < lowestVert:
-                    lowestVert = v.co.z
+                lowestVert = min(lowestVert, v.co.z)
         for v in bm.verts:
             if abs(v.co.z - min_z) < tol:
                 v.co.z = lowestVert - 1
@@ -773,8 +788,10 @@ def color_map_faces_by_terrain(map_obj, terrain_obj, up_threshold=0.05):
 
     up_threshold = dot(normal, Z) must be greater than this value.
     """
-    from .mesh_ops import recalculateNormals  # deferred to avoid circular import at load time
     from . import geometry2d as _g2d
+    from .mesh_ops import (
+        recalculateNormals,  # deferred to avoid circular import at load time
+    )
 
     if map_obj.type != 'MESH' or terrain_obj.type != 'MESH':
         print("Both inputs must be mesh objects.")
@@ -789,8 +806,7 @@ def color_map_faces_by_terrain(map_obj, terrain_obj, up_threshold=0.05):
         return
     print(f"  [color_faces] footprint build: {time.time()-_t_footprint:.3f}s")
 
-    from shapely.prepared import prep as _prep
-    prepared = _prep(footprint)
+    prepared = _g2d.prep(footprint)
 
     map_mesh = map_obj.data
     bm = bmesh.new()
@@ -813,12 +829,11 @@ def color_map_faces_by_terrain(map_obj, terrain_obj, up_threshold=0.05):
     colored_count = 0
 
     _t_loop = time.time()
-    from shapely.geometry import Point as _Point
     i = 0
     for i, f in enumerate(bm.faces):
         if f.normal.normalized().dot(up) > up_threshold:
             center = mw_map @ f.calc_center_median()
-            if prepared.contains(_Point(center.x, center.y)):
+            if prepared.contains(_g2d.Point(center.x, center.y)):
                 f.material_index = mat_index
                 colored_count += 1
     print(f"  [color_faces] loop: {time.time()-_t_loop:.3f}s  ({i+1} faces checked, {colored_count} colored)")
@@ -829,7 +844,10 @@ def color_map_faces_by_terrain(map_obj, terrain_obj, up_threshold=0.05):
 
 
 def plateInsert(plate, map):
-    from .mesh_ops import selectBottomFaces, recalculateNormals  # deferred to avoid circular import at load time
+    from .mesh_ops import (  # deferred to avoid circular import at load time
+        recalculateNormals,
+        selectBottomFaces,
+    )
 
     bpy.ops.object.select_all(action="DESELECT")
 
@@ -1403,8 +1421,10 @@ def _build_ocean_mesh(open_chains, closed_loops, bbox_bl, tile):
 
     Returns a Blender mesh object or None.
     """
-    from .mesh_ops import merge_objects  # deferred to avoid circular import at load time
-    from . import geometry2d as _g2d    # Shapely-based 2D geometry helpers
+    from . import geometry2d as _g2d  # Shapely-based 2D geometry helpers
+    from .mesh_ops import (
+        merge_objects,  # deferred to avoid circular import at load time
+    )
 
     ocean_faces = []
 
@@ -1575,7 +1595,24 @@ def _build_ocean_mesh(open_chains, closed_loops, bbox_bl, tile):
             (max_x, max_y),
             (min_x, max_y),
         ]
-        face_obj = _make_ocean_face(outer, "full-tile ocean")
+        if island_loops:
+            # Islands need to be cut out as real holes -- route through the
+            # Shapely/earcut pipeline so the result is a valid, triangulated
+            # polygon-with-holes.
+            face_obj = _make_ocean_face(outer, "full-tile ocean")
+        else:
+            # No coastline data at all: the tile is 100% open ocean with no
+            # holes to cut, so build a single flat quad directly rather than
+            # routing a plain rectangle through Shapely validation and
+            # earcut triangulation -- both unnecessary overhead, and earcut
+            # always splits even a convex quad into 2 triangles, which is
+            # avoidable here.
+            mesh = bpy.data.meshes.new("_OceanFace")
+            face_obj = bpy.data.objects.new("_OceanFace", mesh)
+            bpy.context.collection.objects.link(face_obj)
+            coords = [(x, y, 0.0) for x, y in outer]
+            mesh.from_pydata(coords, [], [list(range(len(coords)))])
+            mesh.update()
         if face_obj and len(face_obj.data.vertices) > 0:
             ocean_faces.append(face_obj)
 
@@ -1622,8 +1659,18 @@ def createOcean(prefetched_coastline, scaleHor, tile):
     """
     from .osm import fetch_coastline_ways  # deferred to avoid circular import at load time
     from .scene import set_origin_to_3d_cursor  # deferred to avoid circular import at load time
-    from .mesh_ops import projection, recalculateNormals  # deferred to avoid circular import at load time
+    from .mesh_ops import projection, recalculateNormals, merge_with_map  # deferred to avoid circular import at load time
     from .. import constants as _const  # deferred to avoid circular import at load time
+    from .mesh_ops import (  # deferred to avoid circular import at load time
+        projection,
+        recalculateNormals,
+    )
+    from .osm import (
+        fetch_coastline_ways,  # deferred to avoid circular import at load time
+    )
+    from .scene import (
+        set_origin_to_3d_cursor,  # deferred to avoid circular import at load time
+    )
 
     _t_ocean = time.time()
 
@@ -1687,7 +1734,15 @@ def createOcean(prefetched_coastline, scaleHor, tile):
         projection("paint", tile, ocean_obj)
         return None
     elif elementMode in ("SINGLECOLORMODE", "SINGLECOLORMODE_REMESH"):
-        projection("singleColorMode_remesh", tile, ocean_obj)
+        # Only clip ocean_obj to the plate's footprint here -- do NOT cut the
+        # ocean recess into the plate yet. `tile` (the real plate object,
+        # not a copy) must stay uncut until _rg_apply_single_color_mode has
+        # taken its trail-intersection copy, otherwise the trail curves get
+        # intersected against a plate that's already missing the ocean area.
+        # The recess itself is cut later by _rg_apply_single_color_mode's
+        # TERRAIN_PRIORITY_ORDER loop, which handles 'ocean' like every other
+        # element.
+        merge_with_map(tile, ocean_obj, True)
         mat = bpy.data.materials.get("WATER")
         ocean_obj.data.materials.clear()
         ocean_obj.data.materials.append(mat)
@@ -1707,8 +1762,12 @@ def createOcean(prefetched_coastline, scaleHor, tile):
 
 
 def exaggeratedLayers(objs):
-    from .scene import show_message_box  # deferred to avoid circular import at load time
-    from .metadata import writeMetadata  # deferred to avoid circular import at load time
+    from .metadata import (
+        writeMetadata,  # deferred to avoid circular import at load time
+    )
+    from .scene import (
+        show_message_box,  # deferred to avoid circular import at load time
+    )
 
     selected_objects = objs
 
@@ -1731,9 +1790,8 @@ def exaggeratedLayers(objs):
 
         objs = list(bpy.context.scene.objects)
         for o in objs:
-            if "Object type" in o and "PARENT" in o:
-                if o["PARENT"] == obj and  o["Object type"] == "LINES":
-                    bpy.data.objects.remove(o, do_unlink=True)
+            if "Object type" in o and "PARENT" in o and o["PARENT"] == obj and  o["Object type"] == "LINES":
+                bpy.data.objects.remove(o, do_unlink=True)
 
         # Deselect everything
         bpy.ops.object.select_all(action='DESELECT')
@@ -1742,6 +1800,8 @@ def exaggeratedLayers(objs):
         bpy.ops.mesh.primitive_plane_add(size=size + 10, enter_editmode=False, align='WORLD',
                                         location=bpy.context.scene.cursor.location)
         plane = bpy.context.active_object
+        if plane is None:
+            continue
         plane.name = "CuttingPlane"
         plane.location.z += 0.1 + layerThickness/2
 
@@ -1792,16 +1852,47 @@ def exaggeratedLayers(objs):
     bpy.ops.object.select_all(action='DESELECT')
     for obj in selected_objects:
         obj.select_set(True)
-    bpy.context.view_layer.objects.active = selected_objects[0]
+    if selected_objects:
+        bpy.context.view_layer.objects.active = selected_objects[0]
+
+def _elevation_mm_per_meter(obj):
+    """Model-space mm per real-world elevation meter for this specific map object.
+
+    Derived from the elevation-scale metadata frozen onto the object at
+    generation time (so it stays correct even if the scene's current
+    scaleElevation/autoScale belong to a differently-scaled map generated
+    afterward). Falls back to the scene's current elevation-scale settings
+    if the object predates this metadata.
+    """
+    elev_range_m = obj.get("Elevation Range (m)")
+    lowestZ = obj.get("lowestZ")
+    highestZ = obj.get("highestZ")
+    if elev_range_m and lowestZ is not None and highestZ is not None:
+        z_range = highestZ - lowestZ
+        if z_range:
+            return z_range / elev_range_m
+
+    scale_elevation = bpy.context.scene.tp3d.scaleElevation
+    auto_scale = bpy.context.scene.tp3d.sAutoScale
+    return scale_elevation * auto_scale / 1000
+
 
 def contourLines(objs):
-    from .scene import show_message_box  # deferred to avoid circular import at load time
-    from .metadata import writeMetadata  # deferred to avoid circular import at load time
+    from .metadata import (
+        writeMetadata,  # deferred to avoid circular import at load time
+    )
+    from .scene import (
+        show_message_box,  # deferred to avoid circular import at load time
+    )
+    from .mesh_ops import (
+        boolean_operation,  # deferred to avoid circular import at load time
+    )
 
     selected_objects = objs
     cl_thickness = bpy.context.scene.tp3d.cl_thickness
     cl_distance = bpy.context.scene.tp3d.cl_distance
     cl_offset = bpy.context.scene.tp3d.cl_offset
+    cl_useRealMeters = bpy.context.scene.tp3d.cl_useRealMeters
 
     size = bpy.context.scene.tp3d.objSize
 
@@ -1818,26 +1909,49 @@ def contourLines(objs):
         if obj["Object type"] != "MAP":
             continue
 
+        # cl_distance/cl_offset are entered in real-world elevation meters
+        # when the toggle is on -- convert to this map's own model-space mm
+        # using the elevation scale frozen onto it at generation time.
+        if cl_useRealMeters:
+            mm_per_meter = _elevation_mm_per_meter(obj)
+            cl_distance_eff = cl_distance * mm_per_meter
+            cl_offset_eff = cl_offset * mm_per_meter
+        else:
+            cl_distance_eff = cl_distance
+            cl_offset_eff = cl_offset
+
+        if cl_distance_eff <= cl_thickness:
+            distance_label = (
+                f"{cl_distance:g}m = {cl_distance_eff:.3f}mm" if cl_useRealMeters
+                else f"{cl_distance_eff:.3f}mm"
+            )
+            show_message_box(
+                f"Contour Line distance ({distance_label}) must be greater than the Contour Line "
+                f"thickness ({cl_thickness:.3f}mm) for '{obj.name}'. Skipping."
+            )
+            continue
+
         objs = list(bpy.context.scene.objects)
         for o in objs:
-            if "Object type" in o and "PARENT" in o:
-                if o["PARENT"] == obj and  o["Object type"] == "LINES":
-                    bpy.data.objects.remove(o, do_unlink=True)
+            if "Object type" in o and "PARENT" in o and o["PARENT"] == obj and  o["Object type"] == "LINES":
+                bpy.data.objects.remove(o, do_unlink=True)
 
         # Deselect everything
         bpy.ops.object.select_all(action='DESELECT')
 
-        # Create plane at 3D cursor
+        # Create plane at the map object's own origin
         bpy.ops.mesh.primitive_plane_add(size=size + 10, enter_editmode=False, align='WORLD',
-                                        location=bpy.context.scene.cursor.location)
+                                        location=obj.location)
         plane = bpy.context.active_object
+        if plane is None:
+            continue
         plane.name = "CuttingPlane"
-        plane.location.z += cl_offset
+        plane.location.z += cl_offset_eff
 
         # Add Array modifier in Z direction
         array_mod = plane.modifiers.new(name="ArrayZ", type='ARRAY')
         array_mod.relative_offset_displace = (0, 0, 0)   # disable relative offset
-        array_mod.constant_offset_displace = (0, 0, cl_distance)   # fixed step in Z
+        array_mod.constant_offset_displace = (0, 0, cl_distance_eff)   # fixed step in Z
         array_mod.use_relative_offset = False
         array_mod.use_constant_offset = True
         array_mod.count = 100  # you can adjust how many slices
@@ -1850,6 +1964,16 @@ def contourLines(objs):
         bpy.context.view_layer.objects.active = plane
         bpy.ops.object.modifier_apply(modifier=array_mod.name)
         bpy.ops.object.modifier_apply(modifier=solidify_mod.name)
+
+        # Duplicate the still-blank stack of squares before it gets cut down
+        # to the map's shape -- this copy is used below to carve the same
+        # bands out of the map so the lines don't sit flush on top of it.
+        bpy.ops.object.select_all(action='DESELECT')
+        plane.select_set(True)
+        bpy.context.view_layer.objects.active = plane
+        bpy.ops.object.duplicate()
+        cutter = bpy.context.active_object
+        cutter.name = "CuttingPlaneCutter"
 
         # Add Boolean modifier with INTERSECT mode
         bool_mod = plane.modifiers.new(name="Boolean", type='BOOLEAN')
@@ -1874,9 +1998,15 @@ def contourLines(objs):
 
         bpy.ops.object.modifier_apply(modifier=bool_mod.name)
 
+        # Subtract the same bands from the map itself so the lines aren't
+        # duplicated (coincident) geometry sitting on top of the map surface.
+        boolean_operation(obj, cutter, operation='DIFFERENCE', solver='MANIFOLD')
+        bpy.data.objects.remove(cutter, do_unlink=True)
+
 
 
     bpy.ops.object.select_all(action='DESELECT')
     for obj in selected_objects:
         obj.select_set(True)
-    bpy.context.view_layer.objects.active = selected_objects[0]
+    if selected_objects:
+        bpy.context.view_layer.objects.active = selected_objects[0]

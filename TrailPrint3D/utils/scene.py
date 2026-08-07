@@ -1,8 +1,9 @@
-import bpy  # type: ignore
-import bmesh  # type: ignore
-import random
 import platform
+import random
 import webbrowser
+
+import bmesh  # type: ignore
+import bpy  # type: ignore
 from mathutils import Vector, bvhtree  # type: ignore
 
 
@@ -25,7 +26,7 @@ def zoom_camera_to_objects(objs):
     if not objs:
         return
     try:
-        objs[0].select_set  # raises ReferenceError if the object was freed
+        _ = objs[0].select_set  # raises ReferenceError if the object was freed
     except ReferenceError:
         return
 
@@ -37,7 +38,7 @@ def zoom_camera_to_objects(objs):
             continue
     bpy.context.view_layer.objects.active = objs[0]
 
-    area = [area for area in bpy.context.screen.areas if area.type == "VIEW_3D"][0]
+    area = next(area for area in bpy.context.screen.areas if area.type == "VIEW_3D")
     region = area.regions[-1]
 
     with bpy.context.temp_override(area=area, region=region):
@@ -68,7 +69,7 @@ def set_origin_to_3d_cursor_objects(objs):
     if not objs:
         return
     try:
-        objs[0].select_set  # raises ReferenceError if the object was freed
+        _ = objs[0].select_set  # raises ReferenceError if the object was freed
     except ReferenceError:
         return
 
@@ -141,7 +142,7 @@ def get_object_surface_area(obj, apply_modifiers=True, z_threshold = 0.00):
     if obj.type != 'MESH':
         raise TypeError(f"Object '{obj.name}' is not a mesh.")
 
-    # Get evaluated mesh if needed
+    obj_eval = None
     if apply_modifiers:
         depsgraph = bpy.context.evaluated_depsgraph_get()
         obj_eval = obj.evaluated_get(depsgraph)
@@ -151,27 +152,23 @@ def get_object_surface_area(obj, apply_modifiers=True, z_threshold = 0.00):
         mesh = obj.data
         world_matrix = obj.matrix_world
 
-    # Build bmesh
-    bm = bmesh.new()
-    bm.from_mesh(mesh)
-    bm.normal_update()
+    try:
+        bm = bmesh.new()
+        bm.from_mesh(mesh)
+        bm.normal_update()
 
-    # World-space normal transform
-    normal_matrix = world_matrix.to_3x3()
+        normal_matrix = world_matrix.to_3x3()
+        total_area = 0.0
 
-    total_area = 0.0
+        for f in bm.faces:
+            world_normal = (normal_matrix @ f.normal).normalized()
+            if world_normal.z < z_threshold:
+                total_area += f.calc_area()
 
-    for f in bm.faces:
-        world_normal = (normal_matrix @ f.normal).normalized()
-
-        # Count only faces pointing downward
-        if world_normal.z < z_threshold:
-            total_area += f.calc_area()
-
-    # Cleanup
-    bm.free()
-    if apply_modifiers:
-        obj_eval.to_mesh_clear()
+        bm.free()
+    finally:
+        if obj_eval is not None:
+            obj_eval.to_mesh_clear()
 
     return total_area
 
@@ -247,7 +244,7 @@ def setOriginToTerrainFace(obj,tol=0.1,seed=None,max_tries=200):
         # set origin to cursor
         bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
 
-    except Exception as e:
+    except RuntimeError as e:
         # restore cursor & selection before returning
         scene.cursor.location = prev_cursor
         # restore active & selection
@@ -257,7 +254,7 @@ def setOriginToTerrainFace(obj,tol=0.1,seed=None,max_tries=200):
         if prev_mode:
             try:
                 bpy.ops.object.mode_set(mode=prev_mode)
-            except Exception:
+            except RuntimeError:
                 pass
         return {"success": False, "face_index": face_idx, "center": center_world,
                 "message": f"Error while setting origin: {e}"}
@@ -272,7 +269,7 @@ def setOriginToTerrainFace(obj,tol=0.1,seed=None,max_tries=200):
     if prev_mode:
         try:
             bpy.ops.object.mode_set(mode=prev_mode)
-        except Exception:
+        except RuntimeError:
             pass
 
     return
@@ -394,12 +391,14 @@ def toggle_console():
     try:
         if platform.system() == "Windows":
             bpy.ops.wm.console_toggle()
-    except Exception as e:
+    except RuntimeError as e:
         print(f"Could not toggle console: {e}")
 
 
 def importSVGtoMerge(Mapobject):
-    from .mesh_ops import merge_objects  # deferred to avoid circular import at load time
+    from .mesh_ops import (
+        merge_objects,  # deferred to avoid circular import at load time
+    )
 
     svg_path = bpy.context.scene.tp3d.svg_path
     extrude_depth = 0.01

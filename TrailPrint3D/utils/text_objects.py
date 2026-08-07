@@ -1,16 +1,24 @@
-import bpy  # type: ignore
-import bmesh  # type: ignore
-import math
+﻿import math
 import os
 import platform
+
+import bmesh  # type: ignore
+import bpy  # type: ignore
 from mathutils import Vector  # type: ignore
 
+from .. import temp
 from .mesh_ops import recalculateNormals
 
 try:
-    from ..premium.utils_pe import textIcon
+    from ..premium.utils_pe import textIcon  # type: ignore[import]
 except ImportError:
     def textIcon(*_):
+        return None
+
+try:
+    from ..premium.utils_pe import add_medal_handle  # type: ignore[import]
+except ImportError:
+    def add_medal_handle(*_args, **_kwargs):
         return None
 
 
@@ -142,6 +150,11 @@ def replaceShapeText(textfield, textobj):
     elif "{speed}" in textfield:
         textfield = textfield.replace("{speed}", f"{average_speed:.2f} km/h")
         update_text_object(textobj.name, textfield)
+    elif "{scale}" in textfield:
+        obj_size_mm = bpy.context.scene.tp3d.objSize
+        map_scale_ratio = f"1:{round(bpy.context.scene.tp3d.sMapInKm * 1_000_000 / obj_size_mm)}" if obj_size_mm != 0 else ""
+        textfield = textfield.replace("{scale}", map_scale_ratio)
+        update_text_object(textobj.name, textfield)
     elif "{name}" in textfield:
         nm = bpy.context.scene.tp3d.modelname
         print(f"Name: {nm}")
@@ -239,7 +252,10 @@ def _apply_plate_bevel(obj, bevel_amount, thickness):
 
 def HexagonInnerText(MapObject):
 
-    from . import transform_MapObject, projection  # deferred to avoid circular import at load time
+    from . import (  # deferred to avoid circular import at load time
+        projection,
+        transform_MapObject,
+    )
 
     size = bpy.context.scene.tp3d.objSize
     name = bpy.context.scene.tp3d.modelname
@@ -255,7 +271,6 @@ def HexagonInnerText(MapObject):
     iconString3 = bpy.context.scene.tp3d.iconText3
     xTerrainOffset = bpy.context.scene.tp3d.xTerrainOffset
     yTerrainOffset = bpy.context.scene.tp3d.yTerrainOffset
-    pathScale = bpy.context.scene.tp3d.pathScale
 
     textSize = bpy.context.scene.tp3d.textSize
     textSize2 = bpy.context.scene.tp3d.textSizeTitle
@@ -481,6 +496,10 @@ def HexagonOuterText():
         print("No face selected.")
 
     _apply_plate_bevel(outerHex, bpy.context.scene.tp3d.plateBevel, thickness)
+    recalculateNormals(outerHex)
+
+    if bpy.context.scene.tp3d.handleStyle != 'NONE' and temp.PREMIUMVERSION:
+        add_medal_handle(outerHex, thickness, bpy.context.scene.tp3d.handleStyle, bpy.context.scene.tp3d.plateBevel)
 
     transform_MapObject(outerHex, centerx, centery)
 
@@ -721,14 +740,14 @@ def HexagonFrontText():
         print("No face selected.")
 
     _apply_plate_bevel(outerHex, bpy.context.scene.tp3d.plateBevel, thickness)
+    recalculateNormals(outerHex)
+
+    if bpy.context.scene.tp3d.handleStyle != 'NONE' and temp.PREMIUMVERSION:
+        add_medal_handle(outerHex, thickness, bpy.context.scene.tp3d.handleStyle, bpy.context.scene.tp3d.plateBevel)
 
     transform_MapObject(outerHex, centerx, centery)
 
     dist = outersize/2
-
-    temp_y = math.sin(math.radians(90)) * (dist  * math.cos(math.radians(30)))
-
-
 
     for i, (text_name, angle) in enumerate(zip(["t_name","t_length", "t_elevation", "t_duration"], [90 + text_angle_preset, 210 + text_angle_preset, 270 + text_angle_preset, 330 + text_angle_preset])):
         angle_centered = angle + 90
@@ -914,6 +933,10 @@ def OctagonOuterText():
         print("No face selected.")
 
     _apply_plate_bevel(outerOct, bpy.context.scene.tp3d.plateBevel, thickness)
+    recalculateNormals(outerOct)
+
+    if bpy.context.scene.tp3d.handleStyle != 'NONE' and temp.PREMIUMVERSION:
+        add_medal_handle(outerOct, thickness, bpy.context.scene.tp3d.handleStyle, bpy.context.scene.tp3d.plateBevel)
 
     transform_MapObject(outerOct, centerx, centery)
 
@@ -1035,6 +1058,47 @@ def OctagonOuterText():
     return textobj, plateobj
 
 
+def wrap_mesh_around_circle(obj, radius, base_angle_rad, upper, anchor_x=0.0, anchor_y=0.0):
+    """Bend a flat mesh into an arc of the given radius, centered on base_angle_rad.
+
+    Local X (the flat reading direction) becomes angle around the circle;
+    local Y (the flat "up" direction) becomes radial offset from `radius`.
+    Local Z (extrusion depth) is left untouched.
+
+    The math treats local (anchor_x, anchor_y) as the piece's own visual
+    center, i.e. local coordinates ARE the final world-space position
+    (obj.location must be (0, 0, 0) — see caller). Callers with an icon
+    joined onto the text should pass the anchor measured from the *text
+    alone*, before the icon was joined in: the icon's own bounding box
+    rarely matches the text's, so folding it into the center-of-mass would
+    drag the text off both its target angle and its target radius by
+    however lopsided that particular icon happens to be.
+
+    Upper-half placements keep their "up" pointing outward and read
+    clockwise (angle decreases as X increases); lower-half placements read
+    counter-clockwise with "up" pointing inward. That split is what makes
+    text sitting anywhere on the ring come out right-side up and left-to-
+    right readable to a viewer looking straight down at the medal, matching
+    how text is conventionally arced on a coin/medal.
+    """
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    for v in bm.verts:
+        x, y, z = v.co.x - anchor_x, v.co.y - anchor_y, v.co.z
+        if upper:
+            theta = base_angle_rad - x / radius
+            r = radius + y
+        else:
+            theta = base_angle_rad + x / radius
+            r = radius - y
+        v.co.x = r * math.cos(theta)
+        v.co.y = r * math.sin(theta)
+        v.co.z = z
+    bm.to_mesh(obj.data)
+    bm.free()
+    obj.data.update()
+
+
 def MedalText():
 
     from . import transform_MapObject  # deferred to avoid circular import at load time
@@ -1101,6 +1165,10 @@ def MedalText():
         print("No face selected.")
 
     _apply_plate_bevel(plateObj, bpy.context.scene.tp3d.plateBevel, thickness)
+    recalculateNormals(plateObj)
+
+    if bpy.context.scene.tp3d.handleStyle != 'NONE' and temp.PREMIUMVERSION:
+        add_medal_handle(plateObj, thickness, bpy.context.scene.tp3d.handleStyle, bpy.context.scene.tp3d.plateBevel)
 
     plateObj.name = name
     plateObj.data.name = name
@@ -1108,49 +1176,23 @@ def MedalText():
 
     # --- Curved text in the ring between coin edge and plate edge ---
     # Text sits at the midpoint of the ring so it fits in the open space the map doesn't cover.
+    # Angles: title at top (90°), other three spaced 90° apart around the
+    # lower arc (left/bottom/right), symmetric about the bottom (270°).
     text_radius = (size / 2 + outersize / 2) / 2
-
-    # Create ONE bezier circle that all text objects will follow.
-    # Place it at (centerx, centery, 0.4) — the same Z that create_text ends up at
-    # (create_text receives z=1.4 and does location.z -= 1 internally → z = 0.4).
-    bpy.ops.curve.primitive_bezier_circle_add(
-        radius=text_radius, location=(centerx, centery, 0.4)
-    )
-    circle_path = bpy.context.active_object
-    circle_path.name = name + "_TextCircle"
-
-    # Switch to clockwise so the title at the top reads left-to-right when viewed from +Z.
-    bpy.ops.object.mode_set(mode='EDIT')
-    bpy.ops.curve.switch_direction()
-    bpy.ops.object.mode_set(mode='OBJECT')
-
-    # Angles: title at top (90°), other three distributed around the lower arc.
-    text_angles = [
-        90  + text_angle_preset,
-        210 + text_angle_preset,
-        270 + text_angle_preset,
-        330 + text_angle_preset,
+    text_specs = [
+        ("t_name",      90),
+        ("t_length",    180),
+        ("t_elevation", 270),
+        ("t_duration",  0),
     ]
 
-    for text_name, angle in zip(
-        ["t_name", "t_length", "t_elevation", "t_duration"],
-        text_angles
-    ):
-        # For the CW circle (start = 3-o'clock, going clockwise):
-        # to reach the point at angle θ (CCW from right), travel CW by (360 − θ)°.
-        arc_offset = text_radius * math.radians(360 - angle % 360)
-
-        # create_text positions at (x, y, 1.4) and does z -= 1 → final z = 0.4.
-        # We already include centerx/centery in x/y so transform_MapObject is NOT called.
-        txt_obj = create_text(
-            text_name,
-            text_name.split("_")[1].capitalize(),
-            (arc_offset + centerx, centery, 1.4),
-            1,
-            (0, 0, 0),
-            0.4,
-        )
-        txt_obj.data.follow_curve = circle_path
+    # Build each label flat and unrotated at the local origin. Placing icons
+    # and measuring bounding boxes against flat, un-deformed text (rather
+    # than an already-curved one) is what makes the icon/text spacing land
+    # right — the arc bend is applied afterwards, once, to the finished
+    # icon+text mesh as a single rigid unit.
+    for text_name, base_deg in text_specs:
+        create_text(text_name, text_name.split("_")[1].capitalize(), (0, 0, 1.4), 1, (0, 0, 0), 0.4)
 
     tName      = bpy.data.objects.get("t_name")
     tElevation = bpy.data.objects.get("t_elevation")
@@ -1196,22 +1238,57 @@ def MedalText():
     icon2 = textIcon(iconString2, tElevation, plateObj, False, textSize)
     icon3 = textIcon(iconString3, tDuration,  plateObj, False, textSize)
 
-    convert_text_to_mesh("t_name",      plateObj.name, False)
-    convert_text_to_mesh("t_elevation", plateObj.name, False)
-    convert_text_to_mesh("t_length",    plateObj.name, False)
-    convert_text_to_mesh("t_duration",  plateObj.name, False)
+    text_group = {
+        "t_name":      (tName,      icon0),
+        "t_length":    (tLength,    icon1),
+        "t_elevation": (tElevation, icon2),
+        "t_duration":  (tDuration,  icon3),
+    }
 
-    # Remove the helper bezier circle — follow_curve is now baked into the meshes.
+    # Convert each label to a mesh, fold its icon (still flat) into it, then
+    # bend the combined flat unit into an arc as one rigid piece.
+    for text_name, base_deg in text_specs:
+        txt_obj, icon = text_group[text_name]
+
+        convert_text_to_mesh(text_name, plateObj.name, False)
+
+        # Bake the icon-accommodation shift (appendTextIcon nudges the text
+        # object sideways to make room for the icon) into the mesh and
+        # zero out the object transform. The wrap below treats local
+        # coordinates as final world-space coordinates, so a leftover
+        # object.location here would silently offset the whole label away
+        # from the ring. Measure the text's own center now, before the
+        # icon is joined in, so the icon's shape can't skew it.
+        bpy.ops.object.select_all(action='DESELECT')
+        txt_obj.select_set(True)
+        bpy.context.view_layer.objects.active = txt_obj
+        bpy.ops.object.transform_apply(location=True, rotation=False, scale=False)
+
+        bm = bmesh.new()
+        bm.from_mesh(txt_obj.data)
+        xs = [v.co.x for v in bm.verts]
+        ys = [v.co.y for v in bm.verts]
+        anchor_x = (min(xs) + max(xs)) / 2 if xs else 0.0
+        anchor_y = (min(ys) + max(ys)) / 2 if ys else 0.0
+        bm.free()
+
+        if icon is not None:
+            bpy.ops.object.select_all(action='DESELECT')
+            icon.select_set(True)
+            txt_obj.select_set(True)
+            bpy.context.view_layer.objects.active = txt_obj
+            bpy.ops.object.join()
+
+        angle_deg = base_deg + text_angle_preset
+        # Strict > (not >=) so the two fields that now sit exactly on the
+        # left/right cardinal points (180°/0°, sin == 0) fall in with the
+        # rest of the bottom arc's "lower" convention rather than flipping
+        # to match the title's "upper" one right at that boundary.
+        upper = math.sin(math.radians(angle_deg)) > 0
+        wrap_mesh_around_circle(txt_obj, text_radius, math.radians(angle_deg), upper, anchor_x, anchor_y)
+        transform_MapObject(txt_obj, centerx, centery)
+
     bpy.ops.object.select_all(action='DESELECT')
-    if circle_path.name in bpy.data.objects:
-        bpy.data.objects.remove(circle_path, do_unlink=True)
-
-    bpy.ops.object.select_all(action='DESELECT')
-    if icon0 is not None: icon0.select_set(True)
-    if icon1 is not None: icon1.select_set(True)
-    if icon2 is not None: icon2.select_set(True)
-    if icon3 is not None: icon3.select_set(True)
-
     tName.select_set(True)
     tElevation.select_set(True)
     tLength.select_set(True)
@@ -1239,9 +1316,6 @@ def MedalText():
 def BottomText(obj):
 
     from . import transform_MapObject  # deferred to avoid circular import at load time
-
-    pathScale = bpy.context.scene.tp3d.pathScale
-
 
     name = obj.name
     if "objSize" in obj:

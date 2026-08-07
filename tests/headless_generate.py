@@ -14,15 +14,38 @@ Add-ons > Install from zip).
 
 import bpy
 import os
+import sys
 
 # ---------------------------------------------------------------------------
 # Enable the addon
 # ---------------------------------------------------------------------------
 
-bpy.ops.preferences.addon_enable(module="TrailPrint3D")
+# Blender 5 Extensions register installed add-ons under a namespaced module
+# name: bl_ext.<repo>.<id>.  TrailPrint3D's manifest id is "trailprint3d",
+# so the installed module is "bl_ext.user_default.trailprint3d", not the
+# source folder name "TrailPrint3D".
+_ADDON_MODULE = None
+for key in bpy.context.preferences.addons.keys():
+    if key.lower().endswith(".trailprint3d"):
+        _ADDON_MODULE = key
+        break
+
+if _ADDON_MODULE is None:
+    # Running from the repo without the extension installed: make the
+    # source package importable and enable it directly.
+    _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    if _REPO_ROOT not in sys.path:
+        sys.path.insert(0, _REPO_ROOT)
+    _ADDON_MODULE = "TrailPrint3D"
+
+if _ADDON_MODULE not in bpy.context.preferences.addons:
+    bpy.ops.preferences.addon_enable(module=_ADDON_MODULE)
 
 # Import the headless UI server from the now-registered addon package
-from TrailPrint3D.headless_ui import HeadlessConfigServer
+_headless = __import__(
+    f"{_ADDON_MODULE}.headless_ui", fromlist=["HeadlessConfigServer"]
+)
+HeadlessConfigServer = _headless.HeadlessConfigServer
 
 # ---------------------------------------------------------------------------
 # Apply a config dict to the scene properties

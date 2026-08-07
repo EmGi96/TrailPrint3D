@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# SPDX-FileCopyrightText: 2025 Jack Smith (Clonephaze)
+# SPDX-FileCopyrightText: 2025 Jack
 """
 3MF API Discovery Helper — Copy this file into your addon.
 
@@ -34,12 +34,13 @@ addon-path resolution via ``addon_utils`` when a direct import isn't
 possible (e.g. the extension repo prefix varies between installs).
 """
 
-from typing import TYPE_CHECKING, Optional, Tuple
+from contextlib import suppress
+from typing import TYPE_CHECKING
 
-import bpy
+import bpy  # type: ignore
 
 if TYPE_CHECKING:
-    from io_mesh_3mf import api as ThreeMFAPI
+    from io_mesh_3mf import api as ThreeMFAPI  # type: ignore
 else:
     ThreeMFAPI = None
 
@@ -47,12 +48,12 @@ else:
 _REGISTRY_KEY = "io_mesh_3mf"
 
 # Module-level cache so discovery only runs once per session.
-_cached_api: Optional["ThreeMFAPI"] = None
+_cached_api: "ThreeMFAPI | None" = None
 
 
 # ── Core discovery ────────────────────────────────────────────────────────
 
-def _discover_api() -> Optional["ThreeMFAPI"]:
+def _discover_api() -> "ThreeMFAPI | None":
     """Locate the 3MF API module using a layered fallback strategy.
 
     1. ``bpy.app.driver_namespace`` (instant, set by the addon's register())
@@ -85,8 +86,8 @@ def _discover_api() -> Optional["ThreeMFAPI"]:
 
     # Strategy 3: addon_utils scan — finds the addon regardless of the
     # extension repo prefix (blender_org, user_default, custom, …).
-    try:
-        import addon_utils
+    with suppress(Exception):
+        import addon_utils  # type: ignore
         for mod in addon_utils.modules():
             mod_name = mod.__name__
             if mod_name.endswith("ThreeMF_io") or mod_name == "io_mesh_3mf":
@@ -100,8 +101,6 @@ def _discover_api() -> Optional["ThreeMFAPI"]:
                     return api
                 except ImportError:
                     continue
-    except Exception:
-        pass
 
     return None
 
@@ -117,15 +116,13 @@ def _ensure_registered(api_module) -> None:
             return
         register_fn = getattr(api_module, "_register_api", None)
         if register_fn is not None:
-            try:
+            with suppress(Exception):
                 register_fn()
-            except Exception:
-                pass
 
 
 # ── Public functions ──────────────────────────────────────────────────────
 
-def get_threemf_api() -> Optional["ThreeMFAPI"]:
+def get_threemf_api() -> "ThreeMFAPI | None":
     """Return the 3MF API module, or *None* if the addon isn't available.
 
     This is the **recommended single entry point**.  It resolves the
@@ -164,7 +161,7 @@ def is_threemf_available() -> bool:
     return get_threemf_api() is not None
 
 
-def get_threemf_version() -> Optional[Tuple[int, int, int]]:
+def get_threemf_version() -> tuple[int, int, int] | None:
     """Return the 3MF API version tuple ``(major, minor, patch)``, or *None*.
 
     :return: Version tuple like ``(1, 0, 0)``, or ``None`` if unavailable.
@@ -175,7 +172,7 @@ def get_threemf_version() -> Optional[Tuple[int, int, int]]:
     return None
 
 
-def check_threemf_version(minimum: Tuple[int, int, int]) -> bool:
+def check_threemf_version(minimum: tuple[int, int, int]) -> bool:
     """Check if the installed 3MF API meets a minimum version requirement.
 
     :param minimum: Tuple of ``(major, minor, patch)`` minimum version.

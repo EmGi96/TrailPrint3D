@@ -12,11 +12,11 @@ raises ImportError with a message that tells the user to reinstall from
 the latest .zip.
 """
 
-import bpy      # type: ignore
-import bmesh    # type: ignore
-from mathutils import Vector  # type: ignore
-
 from typing import Any
+
+import bmesh  # type: ignore
+import bpy  # type: ignore
+from mathutils import Vector  # type: ignore
 
 # These values are overwritten by _load_shapely() on success.
 _HAS_SHAPELY: bool = False
@@ -28,6 +28,10 @@ MultiPolygon: Any = None
 LineString: Any = None
 MultiLineString: Any = None
 GeometryCollection: Any = None
+Point: Any = None
+box: Any = None
+orient: Any = None
+prep: Any = None
 _make_valid_compat: Any = None
 _make_valid_v2: Any = None
 unary_union: Any = None
@@ -41,23 +45,47 @@ def _load_shapely():
     """
     global _HAS_SHAPELY, _SHAPELY_MAJOR, _SHAPELY_IMPORT_ERROR, _shapely
     global Polygon, MultiPolygon, LineString, MultiLineString, GeometryCollection
+    global Point, box, orient, prep
     global _make_valid_compat, _make_valid_v2, unary_union, polygonize
     try:
         import shapely as _shapely_mod
+        from shapely import make_valid as _mv2
         from shapely.geometry import (
-            Polygon as _P, MultiPolygon as _MP,
-            LineString as _LS, MultiLineString as _MLS,
             GeometryCollection as _GC,
         )
+        from shapely.geometry import (
+            LineString as _LS,
+        )
+        from shapely.geometry import (
+            MultiLineString as _MLS,
+        )
+        from shapely.geometry import (
+            MultiPolygon as _MP,
+        )
+        from shapely.geometry import (
+            Point as _Pt,
+        )
+        from shapely.geometry import (
+            Polygon as _P,
+        )
+        from shapely.geometry import (
+            box as _box,
+        )
+        from shapely.geometry.polygon import orient as _orient
+        from shapely.ops import polygonize as _pg
+        from shapely.ops import unary_union as _uu
+        from shapely.prepared import prep as _prep
         from shapely.validation import make_valid as _mvc
-        from shapely import make_valid as _mv2
-        from shapely.ops import unary_union as _uu, polygonize as _pg
 
         Polygon = _P
         MultiPolygon = _MP
         LineString = _LS
         MultiLineString = _MLS
         GeometryCollection = _GC
+        Point = _Pt
+        box = _box
+        orient = _orient
+        prep = _prep
         _make_valid_compat = _mvc
         _make_valid_v2 = _mv2
         unary_union = _uu
@@ -81,12 +109,14 @@ if not _HAS_SHAPELY:
 _np = None
 _earcut = None
 _HAS_EARCUT = False
+_EARCUT_IMPORT_ERROR: Exception | None = None
 try:
-    import numpy as _np
-    import mapbox_earcut as _earcut
+    import mapbox_earcut as _earcut  # type: ignore
+    import numpy as _np  # type: ignore
     _HAS_EARCUT = True
-except ImportError:
-    pass
+except ImportError as _ee:
+    _EARCUT_IMPORT_ERROR = _ee
+    print(f"[TrailPrint3D] mapbox_earcut import failed: {_ee!r}")
 
 _SHAPELY_ERR = (
     "TrailPrint3D requires Shapely 2.x. "
@@ -368,7 +398,8 @@ def footprint_with_holes(obj, simplify_tol=None, down_only=False):
             continue
         try:
             p = Polygon(ring)
-        except Exception:
+        except Exception as _exc:  # noqa: BLE001
+            print(f"[TrailPrint3D] geometry2d: skipping degenerate face ring: {_exc!r}")
             continue
         if not p.is_valid:
             p = validate(p)
@@ -399,7 +430,8 @@ def xy_ring_to_polygon(coords_xy):
         return None
     try:
         poly = Polygon(pts)
-    except Exception:
+    except Exception as _exc:  # noqa: BLE001
+        print(f"[TrailPrint3D] geometry2d: failed to build Polygon from ring: {_exc!r}")
         return None
     if poly.is_empty:
         return None
@@ -454,7 +486,8 @@ def _earcut_triangulate(exterior_xy, holes_xy):
     rings = _np.array(ring_ends, dtype=_np.uint32)
     try:
         idx = _earcut.triangulate_float64(arr, rings)
-    except Exception:
+    except Exception as _exc:  # noqa: BLE001
+        print(f"[TrailPrint3D] geometry2d: earcut triangulation failed: {_exc!r}")
         return None
     if idx is None or len(idx) < 3:
         return None

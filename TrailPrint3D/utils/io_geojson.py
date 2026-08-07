@@ -9,8 +9,8 @@ same createTerrainFromSelected() pipeline every other mapmode already uses.
 import json
 import math
 
-import bpy       # type: ignore
-import bmesh     # type: ignore
+import bmesh  # type: ignore
+import bpy  # type: ignore
 
 from . import geometry2d as g2d
 
@@ -172,7 +172,8 @@ def simplify_boundary(polygon, tolerance):
     return _polygon_or_multipolygon(parts)
 
 
-def build_tile_from_polygon(polygon_lonlat, obj_size, num_subdivisions, name="GeoJSON", simplify_tolerance=0.1):
+def build_tile_from_polygon(polygon_lonlat, obj_size, num_subdivisions, name="GeoJSON",
+                             simplify_tolerance=0.1, scale_hor=None, set_auto_scale=True):
     """Build a flat MAP tile mesh shaped like *polygon_lonlat* (lon/lat degrees).
 
     Derives scene.tp3d.sScaleHor from the polygon's own bounding box and
@@ -180,6 +181,24 @@ def build_tile_from_polygon(polygon_lonlat, obj_size, num_subdivisions, name="Ge
     uses (utils.geo.calculate_scale) -- then projects every vertex to Blender
     space and simplifies (map-unit tolerance, same convention as
     el_oRdpEpsilon).
+
+    *scale_hor*, if given, is used verbatim instead of deriving one from this
+    polygon's own bounding box -- for a batch of several boundaries meant to
+    keep their true relative geographic position (multitile_configurator's
+    GeoJSON batch, premium/operators_pe.py's TP3D_OT_map_picker), the caller
+    computes ONE shared scale from the combined bbox of every boundary in the
+    batch and passes it to each build_tile_from_polygon() call, rather than
+    each tile picking its own scale from just its own footprint.
+
+    *set_auto_scale*, when False, skips writing scene.tp3d.sAutoScale/
+    sAdditionalExtrusion (and the elevation-preview fetch that would compute
+    them) -- both are scene-global, so a caller building several tiles in one
+    batch needs to compute and set a single shared pair itself beforehand
+    (mirroring TP3D_OT_map_picker's own combined-bbox preview-elevation pass
+    for its grid-segment batches) rather than have each tile's own call
+    silently overwrite the previous tile's values, leaving every tile but the
+    last with the wrong auto-scale/extrusion once createTerrainFromSelected()
+    processes them all together.
 
     The terrain mesh itself is a regular grid (primitives.create_rectangle,
     the same well-shaped, evenly-subdivided primitive create_hexagon/
@@ -197,10 +216,19 @@ def build_tile_from_polygon(polygon_lonlat, obj_size, num_subdivisions, name="Ge
     Returns the new tagged "MAP" tile object (selected + active), or None on
     a degenerate/empty polygon.
     """
-    from .geo import convert_to_neutral_coordinates, convert_to_blender_coordinates, convert_to_geo  # deferred to avoid circular import at load time
-    from .elevation import compute_and_store_tile_bounds, get_tile_elevation  # deferred to avoid circular import at load time
-    from .primitives import create_rectangle  # deferred to avoid circular import at load time
     from . import mesh_ops  # deferred to avoid circular import at load time
+    from .elevation import (  # deferred to avoid circular import at load time
+        compute_and_store_tile_bounds,
+        get_tile_elevation,
+    )
+    from .geo import (  # deferred to avoid circular import at load time
+        convert_to_blender_coordinates,
+        convert_to_geo,
+        convert_to_neutral_coordinates,
+    )
+    from .primitives import (
+        create_rectangle,  # deferred to avoid circular import at load time
+    )
 
     tp3d = bpy.context.scene.tp3d
 
@@ -210,7 +238,8 @@ def build_tile_from_polygon(polygon_lonlat, obj_size, num_subdivisions, name="Ge
     maxer = max(abs(x2 - x1), abs(y2 - y1))
     if maxer <= 0:
         return None
-    scale_hor = obj_size / maxer
+    if scale_hor is None:
+        scale_hor = obj_size / maxer
     tp3d["sScaleHor"] = scale_hor
 
     def _project_ring(ring):
@@ -247,6 +276,16 @@ def build_tile_from_polygon(polygon_lonlat, obj_size, num_subdivisions, name="Ge
     bpy.context.view_layer.objects.active = tile
     bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
 
+    # writeMetadata() (utils/metadata.py) computes the tile's lat/long from
+    # these two scene properties -- the only other writer is runGeneration's
+    # trail pipeline (utils/generation.py, Phase 6). This mapmode bypasses
+    # that pipeline entirely, so without setting them here they're left at
+    # whatever a previous (differently-scaled) generation left behind; paired
+    # with this tile's own fresh sScaleHor, convert_to_geo's Mercator formula
+    # can overflow on the mismatch.
+    tp3d["o_centerx"] = (px1 + px2) / 2
+    tp3d["o_centery"] = (py1 + py2) / 2
+
     # Solid cutter prism from the (simplified) polygon -- generously tall so
     # it fully spans the still-flat (z=0) grid regardless of scale.
     cutter_verts, cutter_faces = [], []
@@ -274,13 +313,6 @@ def build_tile_from_polygon(polygon_lonlat, obj_size, num_subdivisions, name="Ge
         bpy.data.objects.remove(tile, do_unlink=True)
         return None
 
-    # The cut line can leave a handful of needle-thin sliver faces right at
-    # the boundary ring (wherever the polygon edge grazes a grid line at a
-    # shallow angle) -- collapse those before elevation is sampled, or each
-    # sliver's far-apart vertices can still catch wildly different heights
-    # and show up as a tiny spike. Same cleanup already used on the cutter
-    # itself (mesh_ops._clean_solid_mesh).
-    mesh_ops._clean_solid_mesh(tile.data, dist=1e-3)
 
     # The boolean can leave normals inconsistent -- flip if the average
     # normal points down (same check create_circle runs after fill_grid).
@@ -297,8 +329,22 @@ def build_tile_from_polygon(polygon_lonlat, obj_size, num_subdivisions, name="Ge
 
     tile.name = name
     tile["objType"] = "MAP"
-    tile["Shape"] = "GEOJSON"
+    tile["Shape"] = "CUSTOM"
     tile["objSize"] = maxer * scale_hor
+
+    # Reference outline for the multi-tile configurator's existing-maps layer
+    # (operators._collect_existing_maps / premium/multitile_configurator.html)
+    # -- a CUSTOM tile has no regular hexagon/rectangle shape to reconstruct
+    # from just its bounding box, so store the actual boundary (reprojected
+    # back to lat/lon) it can draw instead. Each part is wrapped in its own
+    # single-ring array ([[ring]] per part, i.e. a 3-level list overall) --
+    # Leaflet's L.polygon reads a 2-level [ring, ring] list as one polygon
+    # with the second ring as a HOLE, so mainland+island parts must each get
+    # their own ring-array to render as separate shapes instead.
+    tile["BoundaryPolygon"] = json.dumps([
+        [[convert_to_geo(x, y) for x, y in part.exterior.coords]]
+        for part in g2d.iter_polygons(projected)
+    ])
 
     bpy.ops.object.select_all(action='DESELECT')
     tile.select_set(True)
@@ -308,7 +354,9 @@ def build_tile_from_polygon(polygon_lonlat, obj_size, num_subdivisions, name="Ge
 
     map_km = bpy.context.scene.tp3d.get("sMapInKm", 0)
     if map_km > _LARGE_AREA_WARN_KM:
-        from .. import progress as _progress  # deferred to avoid circular import at load time
+        from .. import (
+            progress as _progress,  # deferred to avoid circular import at load time
+        )
         _progress.WarningsOverlay.add_warning(
             f"This boundary spans ~{map_km:.0f} km — fetching roads/water/forest over "
             "an area this large can take a while (or time out on the Overpass API).",
@@ -321,22 +369,29 @@ def build_tile_from_polygon(polygon_lonlat, obj_size, num_subdivisions, name="Ge
     # default (fixedElevationScale off) needs no preview fetch at all; only
     # the fixed-scale mode needs a real elevation range, mirroring
     # runGeneration's own fixedElevationScale branch.
-    auto_scale = scale_hor
-    additional_extrusion = 0.0
-    if tp3d.get('fixedElevationScale', False):
-        preview_elevations, preview_diff = get_tile_elevation(tile)
-        auto_scale = 10 / (preview_diff / 1000) if preview_diff > 0 else 10
-        lowest_z = 1000.0
-        obj_matrix = tile.matrix_world
-        for i, vert in enumerate(tile.data.vertices):
-            world_co = obj_matrix @ vert.co
-            vert_lat, _lon = convert_to_geo(world_co.x, world_co.y)
-            merc = 1 / math.cos(math.radians(vert_lat))
-            val = preview_elevations[i] / 1000 * tp3d.scaleElevation * auto_scale * merc
-            lowest_z = min(lowest_z, val)
-        additional_extrusion = lowest_z
+    #
+    # Skipped entirely when set_auto_scale is False -- a batch caller already
+    # computed one shared auto_scale/additional_extrusion (from the combined
+    # bbox of every tile in the batch) and set it itself; doing the same work
+    # here per-tile would both waste an extra elevation-preview fetch and
+    # clobber that shared value with one derived from just this one polygon.
+    if set_auto_scale:
+        auto_scale = scale_hor
+        additional_extrusion = 0.0
+        if tp3d.get('fixedElevationScale', False):
+            preview_elevations, preview_diff = get_tile_elevation(tile)
+            auto_scale = 10 / (preview_diff / 1000) if preview_diff > 0 else 10
+            lowest_z = 1000.0
+            obj_matrix = tile.matrix_world
+            for i, vert in enumerate(tile.data.vertices):
+                world_co = obj_matrix @ vert.co
+                vert_lat, _lon = convert_to_geo(world_co.x, world_co.y)
+                merc = 1 / math.cos(math.radians(vert_lat))
+                val = preview_elevations[i] / 1000 * tp3d.scaleElevation * auto_scale * merc
+                lowest_z = min(lowest_z, val)
+            additional_extrusion = lowest_z
 
-    tp3d.sAutoScale = auto_scale
-    tp3d.sAdditionalExtrusion = additional_extrusion
+        tp3d.sAutoScale = auto_scale
+        tp3d.sAdditionalExtrusion = additional_extrusion
 
     return tile

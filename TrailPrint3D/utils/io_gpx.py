@@ -1,7 +1,8 @@
-import bpy  # type: ignore
-import xml.etree.ElementTree as ET
 import os
-from datetime import datetime
+import xml.etree.ElementTree as ET
+from datetime import datetime, timezone
+
+import bpy  # type: ignore
 
 
 def _parse_points(points, point_type):
@@ -29,7 +30,7 @@ def _parse_points(points, point_type):
                 datetime.fromisoformat(time.text.replace("Z", "+00:00"))
                 if time is not None else None
             )
-        except Exception:
+        except (ValueError, AttributeError):
             timestamp = None
 
         segcoords.append((lat, lon, elevation, timestamp))
@@ -52,7 +53,10 @@ def read_gpx(filepath):
     - files without namespaces
     """
 
-    tree = ET.parse(filepath)
+    try:
+        tree = ET.parse(filepath)
+    except ET.ParseError as exc:
+        raise RuntimeError(f"Malformed GPX file '{filepath}': {exc}") from exc
     root = tree.getroot()
 
     segmentlist = []
@@ -145,25 +149,26 @@ def read_igc(filepath):
                         lon = -lon
 
                     # Extract pressure altitude (in meters)
-                    pressure_alt = int(line[25:30])
+                    _pressure_alt = int(line[25:30]) # if used in the future, remove _ which signifies not using the variable to the IDE
 
                     # Extract GPS altitude (in meters)
                     gps_alt = int(line[30:35])
 
                     # Create timestamp (using current date since IGC files don't store date in B records)
-                    now = datetime.now()
-                    timestamp = datetime(now.year, now.month, now.day, hours, minutes, seconds)
+                    now = datetime.now(tz=timezone.utc)
+                    timestamp = datetime(now.year, now.month, now.day, hours, minutes, seconds, tzinfo=timezone.utc)
 
                     # Use GPS altitude for elevation
                     elevation = gps_alt
 
                     coordinates.append((lat, lon, elevation, timestamp))
 
-                    if elevation < lowestElevation:
-                        lowestElevation = elevation
+                    lowestElevation = min(lowestElevation, elevation)
 
                 except (ValueError, IndexError) as e:
                     print(f"Error parsing IGC line: {line.strip()}")
+                    if bpy.app.debug:
+                        print(f"Exception details: {e}")
                     continue
 
     bpy.context.scene.tp3d["o_verticesPath"] = "Path vertices: " + str(len(coordinates))
@@ -174,9 +179,6 @@ def read_igc(filepath):
 
 def read_gpx_directory(directory_path):
     """Reads all GPX files in a directory and extracts coordinates, elevation, and timestamps."""
-
-    # Define GPX namespace
-    ns = {'default': 'http://www.topografix.com/GPX/1/1'}
 
     # List to store all coordinates from all GPX files, grouped by file.
     # Structure: [[seg1, seg2, ...], [seg1, ...], ...] — one inner list per file,
@@ -190,6 +192,7 @@ def read_gpx_directory(directory_path):
             filepath = os.path.join(directory_path, filename)
 
             file_extension = os.path.splitext(filepath)[1].lower()
+            co = None
             if file_extension == '.gpx':
                 tree = ET.parse(filepath)
                 root = tree.getroot()
@@ -199,6 +202,9 @@ def read_gpx_directory(directory_path):
             elif file_extension == '.igc':
                 co = read_igc(filepath)
 
+            if co is None:
+                print(f"Failed to read coordinates from file: {filename}")
+                return
             # Keep all segments from this file together as a group
             if co:
                 coordinatesByFile.append(co)
@@ -230,7 +236,6 @@ def read_gpx_file():
     if file_extension == '.gpx':
         tree = ET.parse(gpx_file_path)
         root = tree.getroot()
-        version = root.get("version")
 
         ns = {'default': root.tag.split('}')[0].strip('{')}
         GPXsections = len(root.findall(".//default:trkseg", ns))
@@ -313,7 +318,6 @@ def read_gpx_and_create_heightmap(length=100.0, height=20.0):
     curve_obj.select_set(True)
     bpy.ops.object.convert(target='MESH')
 
-    mesh_obj = bpy.context.object
     bpy.ops.object.mode_set(mode='EDIT')
     bpy.ops.mesh.select_all(action='SELECT')
     bpy.ops.mesh.extrude_region_move(TRANSFORM_OT_translate={"value": (0, 0, 1)})

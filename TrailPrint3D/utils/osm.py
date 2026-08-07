@@ -1,14 +1,17 @@
-import bpy  # type: ignore
-import bmesh  # type: ignore
+import hashlib
+import itertools
+import json
 import math
 import os
-import json
 import time
-import requests
-import hashlib
 from collections import deque
 from typing import NamedTuple
+
+import bmesh  # type: ignore
+import bpy  # type: ignore
+import requests
 from mathutils import Vector  # type: ignore
+
 from .. import constants as const
 from .. import progress as _progress
 
@@ -70,17 +73,25 @@ def _overpass_request(query, overpass_url, method='POST', timeout=60, max_retrie
                     print(f"Attempt {attempt + 1}: Invalid JSON response")
                     # fall through to retry
             else:
-                retry_num = attempt + 2
-                print(f"Status ({response.status_code}), retrying... {retry_num}/{max_retries}")
-                if log_callback:
-                    log_callback(f"Overpass error {response.status_code} — retrying {retry_num}/{max_retries}")
+                next_attempt = attempt + 2
+                if next_attempt <= max_retries:
+                    print(f"Status ({response.status_code}), retrying... {next_attempt}/{max_retries}")
+                    if log_callback:
+                        log_callback(f"Overpass error {response.status_code} — retrying {next_attempt}/{max_retries}")
+                else:
+                    print(f"Status ({response.status_code}), giving up after {max_retries} attempts")
+                    if log_callback:
+                        log_callback(f"Overpass error {response.status_code} — giving up")
                 time.sleep(5 + attempt)
 
         except requests.exceptions.Timeout:
-            retry_num = attempt + 2
+            next_attempt = attempt + 2
             print(f"Request timed out (attempt {attempt + 1}/{max_retries})")
             if log_callback:
-                log_callback(f"Timed out — retrying {retry_num}/{max_retries}")
+                if next_attempt <= max_retries:
+                    log_callback(f"Timed out — retrying {next_attempt}/{max_retries}")
+                else:
+                    log_callback(f"Timed out — giving up")
             time.sleep(5)
         except requests.RequestException as e:
             print(f"Request failed: {e}")
@@ -252,6 +263,8 @@ def fetch_osm_data(bbox, kind="WATER", max_cache_age_hours=720, return_cache_sta
                 'relation["natural"="water"]',
                 'way["water"~"river|lake|stream|canal"]',
                 'relation["water"~"river|lake|stream|canal"]',
+                'way["natural"="bay"]',
+                'relation["natural"="bay"]',
             ]
         if small_rivers:
             # No wikidata filter — includes all minor waterways
@@ -425,6 +438,8 @@ def _build_union_query(south, west, north, east, kinds, settings=None):
                 'relation["natural"="water"]',
                 'way["water"~"river|lake|stream|canal"]',
                 'relation["water"~"river|lake|stream|canal"]',
+                'way["natural"="bay"]',
+                'relation["natural"="bay"]',
             ]
         if water_small_rivers:
             filters.append('way["waterway"~"stream|river|canal|ditch|drain"]')
@@ -556,36 +571,33 @@ def _classify_element(element, active_kinds, settings=None):
         natural  = tags.get("natural", "")
         water    = tags.get("water", "")
         waterway = tags.get("waterway", "")
-        if natural == "water":
-            if settings is None or settings.water_ponds:
-                return "WATER"
-        if water in {"river", "lake", "stream", "canal"}:
-            if settings is None or settings.water_ponds:
-                return "WATER"
-        if waterway in {"stream", "river", "canal", "ditch", "drain"}:
-            if settings is None or settings.water_small_rivers:
-                return "WATER"
-            elif settings is not None and settings.water_big_rivers and tags.get("wikidata"):
-                return "WATER"
+
+        is_pond_or_lake = natural in {"water", "bay"} or water in {"river", "lake", "stream", "canal"}
+        is_small_river  = waterway in {"stream", "river", "canal", "ditch", "drain"}
+        is_big_river    = is_small_river and tags.get("wikidata")
+
+        ponds_on = settings is None or settings.water_ponds
+        small_on = settings is None or settings.water_small_rivers
+        big_on   = settings is not None and settings.water_big_rivers
+
+        if (is_pond_or_lake and ponds_on) or (is_small_river and small_on) or (is_big_river and big_on):
+            return "WATER"
 
     # FOREST
-    if "FOREST" in active_kinds:
-        if tags.get("natural") == "wood" or tags.get("landuse") == "forest":
-            return "FOREST"
+    if "FOREST" in active_kinds and (tags.get("natural") == "wood" or tags.get("landuse") == "forest"):
+        return "FOREST"
 
     # GLACIER
     if "GLACIER" in active_kinds and tags.get("natural") == "glacier":
         return "GLACIER"
 
     # SCREE
-    if "SCREE" in active_kinds:
-        if tags.get("natural") in {"scree", "stone", "boulder", "rock", "bare_rock"}:
-            return "SCREE"
+    if "SCREE" in active_kinds and (tags.get("natural") in {"scree", "stone", "boulder", "rock", "bare_rock"}):
+        return "SCREE"
 
     # CITY — urban land use
-    if "CITY" in active_kinds:
-        if tags.get("landuse") in {"residential", "urban", "commercial", "industrial"}:
-            return "CITY"
+    if "CITY" in active_kinds and (tags.get("landuse") in {"residential", "urban", "commercial", "industrial"}):
+        return "CITY"
 
     # GREENSPACE — parks and grassy areas
     if "GREENSPACE" in active_kinds:
@@ -600,9 +612,8 @@ def _classify_element(element, active_kinds, settings=None):
             return "GREENSPACE"
 
     # FARMLAND
-    if "FARMLAND" in active_kinds:
-        if tags.get("landuse") in {"farmland", "farmyard"}:
-            return "FARMLAND"
+    if "FARMLAND" in active_kinds and (tags.get("landuse") in {"farmland", "farmyard"}):
+        return "FARMLAND"
 
     # COASTLINE
     if "COASTLINE" in active_kinds and tags.get("natural") == "coastline":
@@ -853,8 +864,8 @@ def calculate_polygon_area_2d(coords):
 
         n = len(coords)
         for i in range(n):
-            x0, y0, z0 = coords[i]
-            x1, y1, z1 = coords[(i + 1) % n]  # Wrap around to the first point
+            x0, y0, _z0 = coords[i]
+            x1, y1, _z1 = coords[(i + 1) % n]  # Wrap around to the first point
             area += (x0 * y1) - (x1 * y0)
 
     return abs(area) * 0.5
@@ -884,7 +895,7 @@ def _build_terrain_height_sampler(bvh, x_min, x_max, y_min, y_max,
     appear on this is visually indistinguishable from per-vertex raycasting;
     raise *resolution* if roads/buildings cut into or float over steep terrain.
     """
-    import numpy as np
+    import numpy as np  # type: ignore
     ray_down = Vector((0, 0, -1))
     nx = ny = max(2, int(resolution))
     gxs = np.linspace(x_min, x_max, nx)
@@ -917,13 +928,17 @@ def _build_terrain_height_sampler(bvh, x_min, x_max, y_min, y_max,
 
 
 def create_buildings(map, default_height=10, scaleHor=1.0):
-    import numpy as np  # bundled wheel; deferred to keep module import light
-    from .geo import convert_to_blender_coordinates  # deferred to avoid circular import at load time
-    from .mesh_ops import recalculateNormals  # deferred to avoid circular import at load time
-    from .scene import remove_objects  # deferred to avoid circular import at load time
-    from .geometry2d import _earcut_triangulate  # deferred to avoid circular import at load time
-    from . import geometry2d as g2d  # deferred to avoid circular import at load time
+    import numpy as np  # type: ignore - deferred to keep module import light
     from mathutils.bvhtree import BVHTree  # type: ignore
+
+    from . import geometry2d as g2d  # deferred to avoid circular import at load time
+    from .geometry2d import (
+        _earcut_triangulate,  # deferred to avoid circular import at load time
+    )
+    from .mesh_ops import (
+        recalculateNormals,  # deferred to avoid circular import at load time
+    )
+    from .scene import remove_objects  # deferred to avoid circular import at load time
 
     # Mercator scale used by convert_to_blender_coordinates (it reads sScaleHor
     # from the scene). Read once so the vectorized node conversion matches.
@@ -1054,10 +1069,8 @@ def create_buildings(map, default_height=10, scaleHor=1.0):
     lon_step = 2
 
 
-    if maxLat - minLat < lat_step:
-        lat_step = maxLat - minLat
-    if maxLon - minLon < lon_step:
-        lon_step = maxLon - minLon
+    lat_step = min(lat_step, maxLat - minLat)
+    lon_step = min(lon_step, maxLon - minLon)
 
     lats = math.ceil((maxLat - minLat) / lat_step)
     lons = math.ceil((maxLon - minLon) / lon_step)
@@ -1088,6 +1101,7 @@ def create_buildings(map, default_height=10, scaleHor=1.0):
                     print("No Building data returned")
                     continue
 
+                assert isinstance(data, dict)
                 n_buildings = len([e for e in data['elements'] if e['type'] == 'way'])
                 if _ov.active:
                     _ov.update(message=f"Buildings: tile {_cntr}/{_maxcntr} — calculating {n_buildings} buildings…")
@@ -1120,14 +1134,12 @@ def create_buildings(map, default_height=10, scaleHor=1.0):
                         if s.endswith('m'):
                             s = s[:-1].strip()
                         return float(s)
-                    except Exception:
+                    except (ValueError, TypeError):
                         return float(default_height)
 
 
                 # Build a lookup for ways by id, so relations can reference them
                 ways_by_id = {e['id']: e for e in data['elements'] if e['type'] == 'way'}
-
-                relation_elements = [e for e in data['elements'] if e['type'] == 'relation']
 
                 _t0 = time.time()
                 _tile_total = max(1, len(data['elements']))
@@ -1239,9 +1251,18 @@ def highway_default_width(highway):
 
 
 def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
-    from .geo import convert_to_blender_coordinates  # deferred to avoid circular import at load time
-    from .mesh_ops import extrude_plane, selectBottomFacesByZ, remeshClearing, boolean_operation  # deferred to avoid circular import at load time
-    from .scene import set_origin_to_3d_cursor  # deferred to avoid circular import at load time
+    from .geo import (
+        convert_to_blender_coordinates,  # deferred to avoid circular import at load time
+    )
+    from .mesh_ops import (  # deferred to avoid circular import at load time
+        boolean_operation,
+        extrude_plane,
+        remeshClearing,
+        selectBottomFacesByZ,
+    )
+    from .scene import (
+        set_origin_to_3d_cursor,  # deferred to avoid circular import at load time
+    )
 
     minLat = bpy.context.scene.tp3d.minLat
     minLon = bpy.context.scene.tp3d.minLon
@@ -1255,14 +1276,17 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
     lon_step = 2
 
 
-    if maxLat - minLat < lat_step:
-        lat_step = maxLat - minLat
-    if maxLon - minLon < lon_step:
-        lon_step = maxLon - minLon
+    lat_step = min(lat_step, maxLat - minLat)
+    lon_step = min(lon_step, maxLon - minLon)
 
     lats = math.ceil((maxLat - minLat) / lat_step)
     lons = math.ceil((maxLon - minLon) / lon_step)
-
+    
+    _ov = _progress.ProgressOverlay.get()
+    created_objects = []
+    original_active = None
+    original_selection = []
+    any_adjusted = False
 
     if lats * lons < 20:
         for k in range(lats):
@@ -1270,7 +1294,6 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
                 _cntr = (k) * lons + l + 1
                 _maxcntr = lats * lons
                 print(f"Roads loop: {_cntr}/{_maxcntr}")
-                _ov = _progress.ProgressOverlay.get()
                 if _ov.active:
                     _ov.update(message=f"Roads: tile {_cntr}/{_maxcntr} — processing…")
                     _ov.set_fetch_progress('roads', 0.0)
@@ -1291,6 +1314,7 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
                     print("No Road data returned")
                     return None
 
+                assert isinstance(data, dict)
                 # Build node dict (id -> (lat, lon))
                 nodes = {el['id']:(el['lat'], el['lon']) for el in data['elements'] if el['type'] == "node"}
                 print(f"Road nodes: {len(nodes)}")
@@ -1301,7 +1325,7 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
                 # Cache converted coordinates per node id (as Vector)
                 coord_cache = {}
                 for nid, (lat, lon) in nodes.items():
-                    x, y, z = convert_to_blender_coordinates(lat, lon, 0, scaleHor)
+                    x, y, _z = convert_to_blender_coordinates(lat, lon, 0, scaleHor)
                     coord_cache[nid] = Vector((x, y, 0))
 
                 wm = bpy.context.window_manager
@@ -1330,15 +1354,14 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
                     if "width" in tags:
                         try:
                             s = str(tags["width"]).strip().lower()
-                            if s.endswith("m"):
-                                s = s[:-1]
+                            s = s.removesuffix("m")
                             width_m = float(s)
-                        except Exception:
+                        except (ValueError, TypeError):
                             width_m = None
                     if width_m is None and "lanes" in tags:
                         try:
                             width_m = float(tags["lanes"]) * 3.0
-                        except Exception:
+                        except (ValueError, TypeError):
                             width_m = None
                     if width_m is None:
                         width_m = highway_default_width(tags.get("highway"))
@@ -1364,7 +1387,7 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
 
                     # Compute segment directions and per-node perpendiculars (2D perp)
                     seg_dirs = []
-                    for a, b in zip(pts[:-1], pts[1:]):
+                    for a, b in itertools.pairwise(pts):
                         d = (b - a)
                         if d.length == 0:
                             seg_dirs.append(Vector((0.0, 0.0, 0.0)))
@@ -1423,7 +1446,6 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
                     _ov.update(message=f"Roads: tile {_cntr}/{_maxcntr} — creating {n_roads} road mesh…")
 
                 # Create mesh objects for each group
-                created_objects = []
                 for key in sorted(groups.keys()):
                     group = groups[key]
                     if not group['verts'] or not group['faces']:
@@ -1437,7 +1459,7 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
                     mesh.from_pydata(group['verts'], [], group['faces'])
                     mesh.update(calc_edges=True)
 
-                    obj_name = f"Road_{str(key)}"
+                    obj_name = f"Road_{key!s}"
                     obj = bpy.data.objects.new(obj_name, mesh)
                     bpy.context.collection.objects.link(obj)
 
@@ -1480,12 +1502,12 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
                         # in some contexts modifier_apply may fail; print and continue
                         print(f"Failed to apply modifier {mname} on {obj.name}: {e}")
                 obj.select_set(False)
-            except Exception as e:
+            except (RuntimeError, AttributeError) as e:
                 print(f"Error applying modifiers on {obj.name}: {e}")
 
         if _ov.active:
             _ov.set_fetch_progress('roads', 0.65)
-            _ov.update(message=f"Roads: Merge road segments into single object")
+            _ov.update(message="Roads: Merge road segments into single object")
 
 
         # Merge (join) all created objects into a single object
@@ -1497,7 +1519,7 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
 
         try:
             bpy.ops.object.join()
-        except Exception as e:
+        except RuntimeError as e:
             print(f"Join failed: {e}")
 
         if _ov.active:
@@ -1509,8 +1531,8 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
         # Shade flat and assign material
         try:
             bpy.ops.object.shade_flat()
-        except Exception:
-            pass
+        except RuntimeError as e:
+            print(f"Failed to shade flat on {merged_obj.name}: {e}")
 
         # restore selection / active if needed (optional)
         bpy.ops.object.select_all(action='DESELECT')
@@ -1533,7 +1555,7 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize = 1):
         bpy.ops.object.mode_set(mode='OBJECT')
 
         if _ov.active:
-            _ov.update(message=f"Roads: Remeshing roads for clean geometry")
+            _ov.update(message="Roads: Remeshing roads for clean geometry")
             _ov.set_fetch_progress('roads', 0.75)
 
         remeshClearing(roads, 0.2, 0, map)
@@ -1590,6 +1612,7 @@ def fetch_coastline_ways(prefetched_tiles, scaleHor):
     scaleHor         : float  horizontal scale factor
     """
     import math as _math
+
     from .. import constants as _const  # type: ignore
 
     def _ll_to_bl(lat, lon):
@@ -1601,7 +1624,9 @@ def fetch_coastline_ways(prefetched_tiles, scaleHor):
     chains = []
     seen_way_ids = set()
 
-    for bbox, (data, _from_cache) in prefetched_tiles.items():
+    for bbox, (data, _from_cache) in prefetched_tiles.items():  # noqa: PERF102 (data, _from_cache) requires key-value pairs.
+
+
         if not data or "elements" not in data:
             continue
 

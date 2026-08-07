@@ -381,7 +381,7 @@ class _Handler(BaseHTTPRequestHandler):
         if self.path == "/generate":
             try:
                 config = json.loads(body)
-            except Exception:
+            except (json.JSONDecodeError, UnicodeDecodeError):
                 config = {}
             with _lock:
                 _pending_config = config
@@ -477,6 +477,7 @@ def _run_ps(command: str) -> str:
         ["powershell", "-NoProfile", "-NonInteractive", "-Command",
          "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; " + command],
         capture_output=True,
+        check=False,
     )
     return result.stdout.decode("utf-8", errors="replace").strip()
 

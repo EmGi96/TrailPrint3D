@@ -6,14 +6,12 @@ Uses a real département boundary from tests/Resources/:
 
 Run with:
   & "C:\Program Files\Blender Foundation\Blender 5.1\blender.exe" --background --factory-startup --python-exit-code 1 -P tests/test_geojson_import.py
-"""
+"""  # noqa: W605
 
-import sys
-import os
 import json
+import os
+import sys
 import traceback
-
-import bpy  # type: ignore
 
 # ---------------------------------------------------------------------------
 # Path setup
@@ -37,7 +35,7 @@ def _run(name, fn):
         fn()
         print(f"  PASS  {name}")
         _passed += 1
-    except Exception:
+    except Exception:  # noqa: BLE001 - wide exception needeed to keep test runner going
         print(f"  FAIL  {name}")
         traceback.print_exc()
         _failed += 1
@@ -100,7 +98,6 @@ def test_no_holes_in_source():
 # ---------------------------------------------------------------------------
 
 def test_bare_geometry_top_level():
-    from TrailPrint3D.utils import geometry2d as g2d
     from TrailPrint3D.utils.io_geojson import _geometry_to_polygons
     bare = {"type": "Polygon", "coordinates": [[[0, 0], [4, 0], [4, 4], [0, 4], [0, 0]]]}
     polys = _geometry_to_polygons(bare)
@@ -112,6 +109,7 @@ def test_feature_collection_keeps_all_parts():
     # Mainland + island: both separate polygon parts must survive as one
     # MultiPolygon, not get reduced to just the larger one.
     import tempfile
+
     from TrailPrint3D.utils.io_geojson import read_geojson_file
     fc = {
         "type": "FeatureCollection",
@@ -138,6 +136,7 @@ def test_read_geojson_files_fuses_adjacent_boundaries():
     # Two files sharing an exact edge (like two neighbouring departements)
     # must merge into ONE seamless Polygon, not stay as two separate parts.
     import tempfile
+
     from TrailPrint3D.utils.io_geojson import read_geojson_files
     left = {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]]}
     right = {"type": "Polygon", "coordinates": [[[1, 0], [2, 0], [2, 1], [1, 1], [1, 0]]]}
@@ -213,6 +212,7 @@ def test_simplify_zero_tolerance_is_noop():
 
 def test_subdivide_grid_fill_adds_faces_not_just_verts():
     import bmesh
+
     from TrailPrint3D.utils import geometry2d as g2d
 
     # A simple pentagon cap, triangulated via the same polygon_to_mesh() path
@@ -248,12 +248,13 @@ def test_missing_file_raises():
     try:
         read_geojson_file("/nonexistent/path/file.geojson")
         assert False, "Expected an exception for missing file"
-    except Exception:
-        pass  # any exception is acceptable (FileNotFoundError, JSONDecodeError, etc.)
+    except Exception as e:  # noqa: BLE001 - wide exception needeed to keep test runner going
+        print(f"GeoJSON import error: {e}")
 
 
 def test_malformed_json_raises():
     import tempfile
+
     from TrailPrint3D.utils.io_geojson import read_geojson_file
     with tempfile.NamedTemporaryFile(mode="w", suffix=".geojson", delete=False, encoding="utf-8") as f:
         f.write("{ this is not valid json ]")
@@ -262,14 +263,15 @@ def test_malformed_json_raises():
         try:
             read_geojson_file(tmp_path)
             assert False, "Expected an exception for malformed JSON"
-        except Exception:
-            pass
+        except Exception as e:  # noqa: BLE001 - wide exception needeed to keep test runner going
+            print(f"GeoJSON read error: {e}")
     finally:
         os.unlink(tmp_path)
 
 
 def test_non_polygon_geometry_raises():
     import tempfile
+
     from TrailPrint3D.utils.io_geojson import read_geojson_file
     line = {"type": "LineString", "coordinates": [[0, 0], [1, 1]]}
     with tempfile.NamedTemporaryFile(mode="w", suffix=".geojson", delete=False, encoding="utf-8") as f:
@@ -279,8 +281,8 @@ def test_non_polygon_geometry_raises():
         try:
             read_geojson_file(tmp_path)
             assert False, "Expected a ValueError for a file with no Polygon/MultiPolygon geometry"
-        except Exception:
-            pass
+        except Exception as e:  # noqa: BLE001 - wide exception needeed to keep test runner going
+            print(f"GeoJSON non-polygon geometry error: {e}")
     finally:
         os.unlink(tmp_path)
 

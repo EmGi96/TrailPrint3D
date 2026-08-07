@@ -1,14 +1,16 @@
-import bpy  # type: ignore
+import io
+import json
 import math
 import os
-import json
-import time
-import zlib
 import struct
+import time
 import zipfile
-import io
+import zlib
+from datetime import datetime, timezone
+
+import bpy  # type: ignore
 import requests  # type: ignore
-from datetime import date, datetime
+
 from .. import constants as const
 from .. import progress as _progress
 
@@ -19,7 +21,7 @@ def load_counter():
             with open(const.counter_file, "r") as f:
                 data = json.load(f)
                 return data.get("count_openTopodata", 0), data.get("date_openTopoData", ""), data.get("count_openElevation",0), data.get("date_openElevation","")
-        except:
+        except (OSError, json.JSONDecodeError, ValueError, KeyError):
             return 0, "", 0, ""
     return 0, "", 0, ""
 
@@ -33,7 +35,7 @@ def load_generation_counter():
             with open(const.generation_counter_file, "r") as f:
                 data = json.load(f)
                 return data.get("total_maps_generated", 0)
-        except:
+        except (OSError, json.JSONDecodeError, ValueError, KeyError):
             return 0
     return 0
 
@@ -45,8 +47,8 @@ def update_request_counter():
 
     api = bpy.context.scene.tp3d.api
 
-    today_date = date.today().isoformat()
-    today_month = date.today().month
+    today_date = datetime.now(tz=timezone.utc).date().isoformat()
+    today_month = datetime.now(tz=timezone.utc).date().month
     count_openTopodata, date_openTopoData, count_openElevation, date_openElevation = load_counter()
 
     # Reset counter if the date has changed
@@ -71,7 +73,7 @@ def send_api_request(addition = ""):
     api = bpy.context.scene.tp3d.api
 
     request_count = update_request_counter()
-    now = datetime.now()
+    now = datetime.now(tz=timezone.utc)
     if api == "OPENTOPODATA":
         print(f"{now.hour:02d}:{now.minute:02d} | Fetching: {addition} | API Usage: {request_count} | {dataset}")
     elif api == "OPEN-ELEVATION":
@@ -89,8 +91,8 @@ def load_elevation_cache():
         try:
             with open(const.elevation_cache_file, "r") as f:
                 const._elevation_cache = json.load(f)
-        except Exception as e:
-            print(f"Error loading elevation cache: {str(e)}")
+        except (OSError, json.JSONDecodeError, ValueError) as e:
+            print(f"Error loading elevation cache: {e!s}")
             const._elevation_cache = {}
     else:
         const._elevation_cache = {}
@@ -109,8 +111,8 @@ def save_elevation_cache():
     try:
         with open(const.elevation_cache_file, "w") as f:
             json.dump(const._elevation_cache, f)
-    except Exception as e:
-        print(f"Error saving elevation cache: {str(e)}")
+    except OSError as e:
+        print(f"Error saving elevation cache: {e!s}")
 
 def get_cached_elevation(lat, lon, api_type="opentopodata"):
     """Get elevation from cache if available"""
@@ -405,14 +407,14 @@ def get_elevation_TerrainTiles(coords, lenv=0, pointsDone=0, zoom=10, progress_c
     for i, ((xtile, ytile), idx_lat_lon_list) in enumerate(tile_dict.items(), 1):
         percent_complete = int((i/ total_tiles) * 100)
         if percent_complete in progress_intervals:
-            print(f"{datetime.now().strftime('%H:%M:%S')} - Elevation {percent_complete}% complete, {i}")
+            print(f"{datetime.now(tz=timezone.utc).strftime('%H:%M:%S')} - Elevation {percent_complete}% complete, {i}")
             progress_intervals.remove(percent_complete)
             if progress_cb:
                 progress_cb(percent_complete)
         try:
             png_bytes = fetch_terrarium_tile_raw(zoom, xtile, ytile)
             rgb_array = parse_png_rgb_data(png_bytes)
-        except Exception as e:
+        except (requests.RequestException, OSError, AssertionError, ValueError, struct.error, zlib.error) as e:
             print(f"Failed to fetch or parse tile {zoom}/{xtile}/{ytile}: {e}")
             for idx, _, _ in idx_lat_lon_list:
                 elevations[idx] = 0
@@ -471,9 +473,9 @@ def parse_webp_rgb_data(webp_path):
         row = []
         for x in range(width):
             i = (y * width + x) * 4
-            r = int(round(pixels[i]     * 255))
-            g = int(round(pixels[i + 1] * 255))
-            b = int(round(pixels[i + 2] * 255))
+            r = round(pixels[i]     * 255)
+            g = round(pixels[i + 1] * 255)
+            b = round(pixels[i + 2] * 255)
             row.append((r, g, b))
         rgb_array.append(row)
     return rgb_array
@@ -518,7 +520,7 @@ def get_elevation_Mapterhorn(coords, lenv=0, pointsDone=0, zoom=10, progress_cb=
     for i, ((xtile, ytile), idx_lat_lon_list) in enumerate(tile_dict.items(), 1):
         percent_complete = int((i / total_tiles) * 100)
         if percent_complete in progress_intervals:
-            print(f"{datetime.now().strftime('%H:%M:%S')} - Mapterhorn elevation {percent_complete}% ({i}/{total_tiles})")
+            print(f"{datetime.now(tz=timezone.utc).strftime('%H:%M:%S')} - Mapterhorn elevation {percent_complete}% ({i}/{total_tiles})")
             progress_intervals.discard(percent_complete)
             if progress_cb:
                 progress_cb(percent_complete)
@@ -540,7 +542,7 @@ def get_elevation_Mapterhorn(coords, lenv=0, pointsDone=0, zoom=10, progress_cb=
                     continue
                 print(f"Failed to fetch Mapterhorn tile {actual_zoom}/{actual_xtile}/{actual_ytile}: {e}")
                 break
-            except Exception as e:
+            except (requests.RequestException, OSError) as e:
                 print(f"Failed to fetch Mapterhorn tile {actual_zoom}/{actual_xtile}/{actual_ytile}: {e}")
                 break
 
@@ -552,7 +554,7 @@ def get_elevation_Mapterhorn(coords, lenv=0, pointsDone=0, zoom=10, progress_cb=
 
         try:
             rgb_array = parse_webp_rgb_data(tile_path)
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError, AttributeError) as e:
             print(f"Failed to parse Mapterhorn tile {actual_zoom}/{actual_xtile}/{actual_ytile}: {e}")
             invalidElevations += len(idx_lat_lon_list)
             for idx, _, _ in idx_lat_lon_list:
@@ -648,7 +650,7 @@ def get_elevation_openTopography(coords, lenv=0, pointsDone=0, progress_cb=None)
         # Plain-text .asc response
         try:
             asc_data = content.decode('utf-8')
-        except Exception as e:
+        except (UnicodeDecodeError, AttributeError) as e:
             _progress.WarningsOverlay.add_warning(
                 f"OpenTopography: could not decode response — {e}", "error")
             return [0.0] * len(coords)
@@ -694,8 +696,8 @@ def get_elevation_openTopography(coords, lenv=0, pointsDone=0, progress_cb=None)
         progress_cb(80)
 
     def _sample(lat, lon):
-        col_i = int(round((lon - xll) / cellsize))
-        row_i = int(round((nrows - 1) - (lat - yll) / cellsize))
+        col_i = round((lon - xll) / cellsize)
+        row_i = round((nrows - 1) - (lat - yll) / cellsize)
         col_i = max(0, min(col_i, ncols - 1))
         row_i = max(0, min(row_i, nrows - 1))
         if row_i < len(grid_rows) and col_i < len(grid_rows[row_i]):
@@ -813,9 +815,7 @@ def fix_invalid_elevations(elevations):
     def is_invalid(e):
         if e < -500 or e > 9000:
             return True
-        if std > 0 and abs(e - mean) > 8 * std:
-            return True
-        return False
+        return bool(std > 0 and abs(e - mean) > 8 * std)
 
     count = sum(1 for e in elevations if is_invalid(e))
     if count == 0:
@@ -847,7 +847,10 @@ def compute_and_store_tile_bounds(obj):
 
     Returns (world_verts, num_subdivisions, disable_cache, minLat, maxLat, minLon, maxLon).
     """
-    from .geo import convert_to_geo, haversine  # deferred to avoid circular import at load time
+    from .geo import (  # deferred to avoid circular import at load time
+        convert_to_geo,
+        haversine,
+    )
 
     mesh = obj.data
     vertices = list(mesh.vertices)
@@ -930,7 +933,7 @@ def get_tile_elevation(obj, progress_cb=None):
                 return elevations, diff
             else:
                 print(f"Elevation cache vertex count mismatch ({len(elevations)} vs {len(world_verts)}) — refetching")
-        except Exception as _e:
+        except (OSError, zlib.error, struct.error) as _e:
             print(f"Elevation cache read error: {_e} — refetching")
     # ─────────────────────────────────────────────────────────────────────────
 
@@ -980,7 +983,7 @@ def get_tile_elevation(obj, progress_cb=None):
             _packed = struct.pack("<I", _n) + struct.pack(f"<{_n}f", *elevations)
             with open(_cache_path, "wb") as _f:
                 _f.write(zlib.compress(_packed, level=1))
-        except Exception as _e:
+        except (OSError, struct.error, zlib.error) as _e:
             print(f"Elevation cache write error: {_e}")
 
     lowestElevation = min(elevations)

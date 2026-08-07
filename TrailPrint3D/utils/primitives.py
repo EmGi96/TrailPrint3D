@@ -1,10 +1,9 @@
-import bpy  # type: ignore
-import bmesh  # type: ignore
 import math
 import time
-from mathutils import Vector  # type: ignore
 
-from .text_objects import _apply_plate_bevel
+import bmesh  # type: ignore
+import bpy  # type: ignore
+from mathutils import Vector  # type: ignore
 
 
 def _setup_material(name, color):
@@ -114,7 +113,6 @@ def simplify_curve(points_with_extra, min_distance=0.1000):
             last_xyz = current_xyz
         else:
             skipped += 1
-            pass
 
     print(f"Smooth curve: Removed {skipped} vertices")
     return simplified
@@ -182,7 +180,7 @@ def create_rectangle(width, height, num_subdivisions = 1, name="Rectangle"):
 
     # 2. Calculate cuts needed to keep cells square
     target_cell_size = width/cuts
-    cuts_y = max(0, int(round(height / target_cell_size)) - 1)
+    cuts_y = max(0, round(height / target_cell_size) - 1)
 
     # 3. Apply the cuts
     bpy.context.view_layer.objects.active = obj
@@ -308,7 +306,7 @@ def create_circle(radius, num_subdivisions = 1, name = "Circle", num_segments=64
     # Ensure we are in Object Mode
     try:
         bpy.ops.object.mode_set(mode='OBJECT')
-    except:
+    except RuntimeError:
         pass
 
     # Create a new mesh and object
@@ -321,7 +319,6 @@ def create_circle(radius, num_subdivisions = 1, name = "Circle", num_segments=64
 
     # Generate circle vertices
     verts = []
-    faces = []
 
     for i in range(num_segments):
         angle = math.radians(360 * i / num_segments)
@@ -378,7 +375,7 @@ def create_ellipse(radius, num_subdivisions = 1, name = "Ellipse", aspect_ratio 
     # Ensure we are in Object Mode
     try:
         bpy.ops.object.mode_set(mode='OBJECT')
-    except:
+    except RuntimeError:
         pass
 
     # Create a new mesh and object
@@ -391,7 +388,6 @@ def create_ellipse(radius, num_subdivisions = 1, name = "Ellipse", aspect_ratio 
 
     # Generate circle vertices
     verts = []
-    faces = []
 
     for i in range(num_segments):
         angle = math.radians(360 * i / num_segments)

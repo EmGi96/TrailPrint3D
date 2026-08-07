@@ -14,3 +14,9 @@ build.py
 __pycache__/
 .claude
 **/wheels/_extracted/
+
+# Test-generated output
+tests/output/
+
+# Local editor settings
+.vscode/settings.json

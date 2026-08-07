@@ -13,9 +13,8 @@ import subprocess as sp
 import sys
 import tempfile
 import threading
-import webbrowser
 from http.server import BaseHTTPRequestHandler, HTTPServer
-
+from typing import cast
 
 _HTML_PATH = pathlib.Path(__file__).parent / 'premium' / 'multitile_configurator.html'
 
@@ -122,7 +121,7 @@ def _bring_blender_to_foreground() -> None:
             user32.SetForegroundWindow(hwnd)
             if user32.GetForegroundWindow() != hwnd:
                 print("[TP3D picker_server] Minimize/restore fallback also didn't take foreground.")
-    except Exception as e:
+    except (OSError, ImportError, AttributeError) as e:
         print(f"[TP3D picker_server] _bring_blender_to_foreground failed: {e}")
 
 def _free_port() -> int:
@@ -204,13 +203,41 @@ class _Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
+        if self.path.startswith('/get_gpx_content?'):
+            from urllib.parse import parse_qs, urlparse
+            query = parse_qs(urlparse(self.path).query)
+            raw_path = query.get('path', [''])[0]
+            # Only ever re-serves a file /upload_gpx itself just wrote (same
+            # temp dir, same 'trailprint_' name prefix) -- not an arbitrary
+            # local-file read. Used so a picker page can redraw a
+            # previously-imported trail on reopen (saveState/restoreState
+            # only persist the path/name, not the raw GPX content itself).
+            candidate = pathlib.Path(raw_path)
+            expected_dir = pathlib.Path(tempfile.gettempdir())
+            if candidate.parent != expected_dir or not candidate.name.startswith('trailprint_'):
+                self.send_response(403)
+                self.end_headers()
+                return
+            try:
+                body = candidate.read_bytes()
+            except OSError:
+                self.send_response(404)
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/gpx+xml')
+            self.send_header('Content-Length', str(len(body)))
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if self.path != '/':
             self.send_response(404)
             self.end_headers()
             return
         body = (
             self.html_path.read_text(encoding='utf-8')
-            .replace('__PORT__', str(self.server.server_address[1]))
+            .replace('__PORT__', str(cast(tuple[str, int], self.server.server_address)[1]))
             .replace('__OBJSIZE__', str(self.obj_size))
             .encode('utf-8')
         )
@@ -234,7 +261,7 @@ class _Handler(BaseHTTPRequestHandler):
             try:
                 self.state_path.write_bytes(body)
                 print(f"[TP3D picker] /save_state wrote {len(body)} bytes to {self.state_path}")
-            except Exception as e:
+            except OSError as e:
                 print(f"[TP3D picker] /save_state FAILED to write {self.state_path}: {e}")
             self.send_response(200)
             self.send_header('Content-Type', 'text/plain')
@@ -242,11 +269,12 @@ class _Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(b'ok')
             return
-        if self.path == '/upload_gpx':
+        if self.path == '/upload_gpx' or self.path == '/upload_geojson':
             import tempfile
             length = int(self.headers.get('Content-Length', 0))
             body = self.rfile.read(length)
-            raw_name = self.headers.get('X-Filename', 'trail.gpx')
+            default_name = 'trail.gpx' if self.path == '/upload_gpx' else 'boundary.geojson'
+            raw_name = self.headers.get('X-Filename', default_name)
             safe = ''.join(c if c.isalnum() or c in '-_.' else '_' for c in raw_name)
             out_path = pathlib.Path(tempfile.gettempdir()) / f'trailprint_{safe}'
             out_path.write_bytes(body)
@@ -265,12 +293,21 @@ class _Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get('Content-Length', 0))
         body = self.rfile.read(length)
         pathlib.Path(self.result_path).write_text(body.decode('utf-8'), encoding='utf-8')
+        # Must run before the response is sent: the picker page calls
+        # window.close() as soon as it sees the response, and this function
+        # AttachThreadInput's onto that browser window's thread. Doing that
+        # while the window is mid-teardown (racing the client's close())
+        # is a known way to wedge Windows' shared input queue -- symptom is
+        # Blender's own window silently stops taking clicks/keys, which only
+        # becomes noticeable once generation finishes and the user tries to
+        # interact again. Running it first, against a still-open window,
+        # removes the race.
+        _bring_blender_to_foreground()
         self.send_response(200)
         self.send_header('Content-Type', 'text/plain')
         self.send_header('Access-Control-Allow-Origin', '*')
         self.end_headers()
         self.wfile.write(b'ok')
-        _bring_blender_to_foreground()
         threading.Thread(target=self.server.shutdown, daemon=True).start()
 
 
@@ -307,8 +344,8 @@ def start_picker(result_path: str, existing_maps: list | None = None, existing_t
     if _active_server is not None:
         try:
             _active_server.shutdown()
-        except Exception:
-            pass
+        except OSError as e:
+            print(f"[TP3D picker] Failed to shut down previous server: {e}")
         _active_server = None
 
     html_path = pathlib.Path(html_path) if html_path else _HTML_PATH

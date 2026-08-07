@@ -54,6 +54,14 @@
         .legend-swatch.line { width: 16px; height: 0; border-top: 2.5px dashed; background: none; border-radius: 0; }
         .shape-btn { padding: 12px 20px; background: #333; color: #eee; border: 2px solid #444; border-radius: 4px; cursor: pointer; font-weight: bold; transition: all 0.2s; }
         .shape-btn:hover { background: #444; border-color: #007bff; }
+        .shape-toggle-btn { width: 32px; height: 32px; padding: 0; background: #333; color: #eee; border: 1px solid #444; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+        .shape-toggle-btn:hover { background: #444; border-color: #007bff; }
+        .shape-toggle-btn.active { background: #007bff; border-color: #007bff; }
+        .shape-toggle-btn.locked { position: relative; opacity: 0.45; cursor: not-allowed; }
+        .shape-toggle-btn.locked:hover { background: #333; border-color: #444; }
+        .shape-toggle-btn.locked .lock-badge { position: absolute; bottom: -3px; right: -3px; font-size: 9px;
+            background: #1a1a1a; border-radius: 50%; width: 13px; height: 13px; display: flex;
+            align-items: center; justify-content: center; line-height: 1; }
         #drawActions { position: absolute; top: 80px; left: 10px; z-index: 1000; display: flex; flex-direction: column; gap: 6px;
             background: rgba(26,26,26,0.85); border: 1px solid #444; border-radius: 4px; padding: 6px; }
         #drawActions .shape-btn.icon-btn { width: 32px; height: 32px; padding: 0; display: flex; align-items: center; justify-content: center; }
@@ -95,19 +103,49 @@
             font-size: 11px; color: #E97826; line-height: 1.4; box-shadow: 0 4px 12px rgba(0,0,0,0.4);
             opacity: 0; visibility: hidden; transition: opacity 0.15s; z-index: 1000; pointer-events: none; }
         .info-note:hover .info-tooltip, .info-note:focus-within .info-tooltip { opacity: 1; visibility: visible; }
+        .btn-plate-settings { padding: 10px 20px; background: #333; color: #eee; border: 1px solid #444;
+            border-radius: 4px; cursor: pointer; font-weight: bold; }
+        .btn-plate-settings:hover { background: #444; border-color: #007bff; }
+        #plateSettingsModal { display: none; position: fixed; inset: 0; z-index: 2000;
+            background: rgba(0,0,0,0.6); align-items: center; justify-content: center; }
+        #plateSettingsModal.open { display: flex; }
+        #plateSettingsBox { background: #222; border: 1px solid #444; border-radius: 8px; width: 260px;
+            max-height: 85vh; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+        #plateSettingsBox .modal-header { display: flex; align-items: center; justify-content: space-between; }
+        #plateSettingsBox .modal-header span { font-weight: bold; font-size: 14px; }
+        #plateSettingsCloseBtn { background: none; border: none; color: #aaa; font-size: 18px; line-height: 1;
+            cursor: pointer; padding: 2px 6px; }
+        #plateSettingsCloseBtn:hover { color: #fff; }
     </style>
 </head>
 <body>
     <div id="sidebar">
         <div style="font-weight: bold; font-size: 14px; margin-bottom: 10px;">TrailPrint3D Puzzle</div>
+        <div class="field-row">
+            <label>Piece Shape</label>
+            <div style="display: flex; gap: 4px;">
+                <button type="button" id="shapeSquareBtn" class="shape-toggle-btn active" title="Square pieces">
+                    <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="14" height="14"/></svg>
+                </button>
+                <button type="button" id="shapeHexBtn" class="shape-toggle-btn locked" title="Hexagonal pieces — Premium feature">
+                    <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polygon points="10,2.5 16.5,6.25 16.5,13.75 10,17.5 3.5,13.75 3.5,6.25"/></svg>
+                    <span class="lock-badge">🔒</span>
+                </button>
+                <button type="button" id="shapeRadialBtn" class="shape-toggle-btn locked" title="Concentric-ring pieces — Premium feature">
+                    <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="10" cy="10" r="7.5"/><circle cx="10" cy="10" r="4"/><line x1="10" y1="2.5" x2="10" y2="17.5"/><line x1="2.5" y1="10" x2="17.5" y2="10"/></svg>
+                    <span class="lock-badge">🔒</span>
+                </button>
+            </div>
+        </div>
         <hr class="sidebar-divider">
-        <input type="file" id="gpxInput" accept=".gpx" multiple style="display: none;">
+        <input type="file" id="gpxInput" accept=".gpx" style="display: none;">
         <button id="importGpx" style="padding: 12px 20px; background: #2a8a2a; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Import GPX</button>
         <div id="gpxList" style="display:none; font-size:11px; color:#aaa; line-height:1.8;"></div>
         <button id="clearGpx" style="display:none; padding:5px 10px; background:#2a1e1e; color:#cc6666; border:1px solid #553333; border-radius:4px; cursor:pointer; font-size:11px;">Clear GPX</button>
         <hr class="sidebar-divider">
         <div style="display: flex; flex-direction: column; gap: 10px;">
-            <div class="field-row">
+            <div class="field-row" id="sizeRowRect">
                 <label>Size (mm)</label>
                 <div style="display: flex; align-items: center; gap: 4px;">
                     <input type="number" id="lengthInput" min="0" step="1" value="100" title="Length" style="width: 50px;">
@@ -117,7 +155,7 @@
             </div>
         </div>
         <div style="display: flex; flex-direction: column; gap: 10px;">
-            <div class="field-row">
+            <div class="field-row" id="gridRowRect">
                 <label>Grid (cols × rows)</label>
                 <div style="display: flex; align-items: center; gap: 4px;">
                     <input type="number" id="colsInput" min="1" max="20" step="1" value="3" title="Columns" style="width: 50px;">
@@ -147,6 +185,10 @@
                     <input type="number" id="jitterInput" min="0" max="13" step="0.1" value="4">
                 </div>
                 <div class="field-row">
+                    <label for="puzzleSeedInput">Seed</label>
+                    <input type="number" id="puzzleSeedInput" step="1" placeholder="random">
+                </div>
+                <div class="field-row" id="puzzleCornerRadiusRow">
                     <label for="puzzleCornerRadiusInput">Corner Radius</label>
                     <input type="number" id="puzzleCornerRadiusInput" min="0" max="30" step="1.0" value="4">
                 </div>
@@ -158,37 +200,7 @@
                 <label for="holderEnabled">Generate Holder</label>
                 <input type="checkbox" id="holderEnabled">
             </div>
-            <div id="holderOptions" style="display:none; flex-direction: column; gap: 10px;">
-                <div class="field-row">
-                    <label for="holderTextInput">Text</label>
-                    <input type="text" id="holderTextInput" placeholder="Label">
-                </div>
-                <div class="field-row">
-                    <label for="holderWallWidthInput">Frame Thickness</label>
-                    <input type="number" id="holderWallWidthInput" min="1" max="20" step="1" value="10">
-                </div>
-                <div class="field-row">
-                    <label for="holderCornerRadiusInput">Corner Radius</label>
-                    <input type="number" id="holderCornerRadiusInput" min="0" max="30" step="1" value="5">
-                </div>
-                <div class="field-row">
-                    <label for="holderFontSelect">Font</label>
-                    <select id="holderFontSelect">
-                        <option value="">Default</option>
-                        <option value="arial.ttf">Arial</option>
-                        <option value="arialbd.ttf">Arial Bold</option>
-                        <option value="ariblk.ttf">Arial Black</option>
-                        <option value="impact.ttf">Impact</option>
-                        <option value="times.ttf">Times New Roman</option>
-                        <option value="comic.ttf">Comic Sans MS</option>
-                    </select>
-                </div>
-                <div class="field-row">
-                    <label for="holderTextSizeInput">Text Size (mm)</label>
-                    <input type="number" id="holderTextSizeInput" min="1" max="50" step="0.5" value="8">
-                </div>
-                <div id="holderTextPreview"></div>
-            </div>
+            <button type="button" id="plateSettingsBtn" class="btn-plate-settings" style="display:none;">Plate Settings…</button>
         </div>
         <div id="status">Draw a rectangle to begin.</div>
         <div class="info-note" tabindex="0">
@@ -232,6 +244,48 @@
         </div>
     </div>
 
+    <div id="plateSettingsModal">
+        <div id="plateSettingsBox">
+            <div class="modal-header">
+                <span>Plate Settings</span>
+                <button type="button" id="plateSettingsCloseBtn" title="Close">✕</button>
+            </div>
+            <div class="field-row">
+                <label for="holderTextInput">Text</label>
+                <input type="text" id="holderTextInput" placeholder="Label">
+            </div>
+            <div class="field-row">
+                <label for="holderWallWidthInput">Frame Thickness</label>
+                <input type="number" id="holderWallWidthInput" min="1" max="20" step="1" value="10">
+            </div>
+            <div class="field-row" id="holderCornerRadiusRow">
+                <label for="holderCornerRadiusInput">Corner Radius</label>
+                <input type="number" id="holderCornerRadiusInput" min="0" max="30" step="1" value="5">
+            </div>
+            <div class="field-row">
+                <label for="holderSeamEngravingInput">Engrave Puzzle Pattern</label>
+                <input type="checkbox" id="holderSeamEngravingInput" checked>
+            </div>
+            <div class="field-row">
+                <label for="holderFontSelect">Font</label>
+                <select id="holderFontSelect">
+                    <option value="">Default</option>
+                    <option value="arial.ttf">Arial</option>
+                    <option value="arialbd.ttf">Arial Bold</option>
+                    <option value="ariblk.ttf">Arial Black</option>
+                    <option value="impact.ttf">Impact</option>
+                    <option value="times.ttf">Times New Roman</option>
+                    <option value="comic.ttf">Comic Sans MS</option>
+                </select>
+            </div>
+            <div class="field-row">
+                <label for="holderTextSizeInput">Text Size (mm)</label>
+                <input type="number" id="holderTextSizeInput" min="1" max="50" step="0.5" value="8">
+            </div>
+            <div id="holderTextPreview"></div>
+        </div>
+    </div>
+
     <script>
         var PORT = __PORT__;
         var map = L.map('map').setView([46.57, 7.98], 11);
@@ -247,8 +301,13 @@
                 attribution: '&copy; OpenStreetMap contributors'
             })
         };
-        baseLayers['Voyager'].addTo(map);
+        var activeBaseLayerName = 'OpenStreetMap';
+        baseLayers[activeBaseLayerName].addTo(map);
         L.control.layers(baseLayers, null, { position: 'bottomleft' }).addTo(map);
+        map.on('baselayerchange', function (e) {
+            activeBaseLayerName = e.name;
+            saveState();
+        });
 
         var drawnItems = new L.FeatureGroup();
         map.addLayer(drawnItems);
@@ -263,6 +322,17 @@
         var pieces = [];         // current jigsaw pieces: [{row, col, points: [[x,y],...]}, ...]
         var gpxPaths = [];
         var gpxNames = [];
+        // Only the square grid is available in the free version -- hex and
+        // concentric-ring pieces are a Premium feature (their actual
+        // generation code lives entirely in the Premium build's own
+        // puzzleGenerator_pe.html, not here, so there's nothing to unlock
+        // by tampering with this page: the two buttons below are just a
+        // locked preview).
+        function showPremiumShapeLockedMessage() {
+            alert('Hexagonal and Circular puzzle pieces are exclusive to the Premium version. Support development on Patreon to unlock them!');
+        }
+        document.getElementById('shapeHexBtn').addEventListener('click', showPremiumShapeLockedMessage);
+        document.getElementById('shapeRadialBtn').addEventListener('click', showPremiumShapeLockedMessage);
 
         // ── Go-to-location panel ────────────────────────────────────────────
         // Collapsed to a single pin-icon button by default; expands to a
@@ -408,6 +478,10 @@
         }
 
         function updateGpxList() {
+            // The free puzzle generator only ever holds one trail at a time
+            // (see the gpxInput 'change' handler, which replaces rather than
+            // adds) -- unlike multitile_configurator.html/puzzleGenerator_pe.html,
+            // there's no multi-file "N trails imported" summary to render.
             var listEl = document.getElementById('gpxList');
             var clearBtn = document.getElementById('clearGpx');
             if (gpxNames.length === 0) {
@@ -415,13 +489,9 @@
             }
             listEl.style.display = 'block';
             clearBtn.style.display = 'block';
-            var items = gpxNames.map(function(n) { return '<div>+ ' + n + '</div>'; }).join('');
-            if (gpxNames.length > 1) {
-                listEl.innerHTML = '<details><summary>' + gpxNames.length + ' trails imported</summary>'
-                    + '<div class="gpx-list-body">' + items + '</div></details>';
-            } else {
-                listEl.innerHTML = items;
-            }
+            listEl.innerHTML = '<div>+ ' + gpxNames[0] + '</div>'
+                + '<div style="color:#888; font-style:italic; margin-top:2px;">'
+                + 'Multiple trails can be imported in the Premium version.</div>';
         }
 
         function saveState() {
@@ -439,6 +509,7 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     lat: c.lat, lng: c.lng, zoom: map.getZoom(),
+                    baseLayer: activeBaseLayerName,
                     length: document.getElementById('lengthInput').value,
                     width: document.getElementById('widthInput').value,
                     rows: document.getElementById('rowsInput').value,
@@ -447,6 +518,7 @@
                     tolerance: document.getElementById('toleranceInput').value,
                     tabSize: document.getElementById('tabSizeInput').value,
                     jitter: document.getElementById('jitterInput').value,
+                    puzzleSeed: document.getElementById('puzzleSeedInput').value,
                     puzzleCornerRadius: document.getElementById('puzzleCornerRadiusInput').value,
                     coords: coords,
                     gpxPaths: gpxPaths,
@@ -455,6 +527,7 @@
                     holderText: document.getElementById('holderTextInput').value,
                     holderWallWidth: document.getElementById('holderWallWidthInput').value,
                     holderCornerRadius: document.getElementById('holderCornerRadiusInput').value,
+                    holderSeamEngraving: document.getElementById('holderSeamEngravingInput').checked,
                     holderFont: document.getElementById('holderFontSelect').value,
                     holderTextSize: document.getElementById('holderTextSizeInput').value
                 })
@@ -467,6 +540,11 @@
                 .then(function(s) {
                     console.log('[TP3D picker] /get_state returned:', s);
                     if (!s) return;
+                    if (s.baseLayer && baseLayers[s.baseLayer] && s.baseLayer !== activeBaseLayerName) {
+                        map.removeLayer(baseLayers[activeBaseLayerName]);
+                        baseLayers[s.baseLayer].addTo(map);
+                        activeBaseLayerName = s.baseLayer;
+                    }
                     if (s.length != null) document.getElementById('lengthInput').value = s.length;
                     if (s.width != null) document.getElementById('widthInput').value = s.width;
                     if (s.rows) document.getElementById('rowsInput').value = s.rows;
@@ -478,11 +556,13 @@
                     if (s.tolerance != null) document.getElementById('toleranceInput').value = s.tolerance;
                     if (s.tabSize != null) document.getElementById('tabSizeInput').value = s.tabSize;
                     if (s.jitter != null) document.getElementById('jitterInput').value = s.jitter;
+                    if (s.puzzleSeed != null) document.getElementById('puzzleSeedInput').value = s.puzzleSeed;
                     if (s.puzzleCornerRadius != null) document.getElementById('puzzleCornerRadiusInput').value = s.puzzleCornerRadius;
                     if (s.holderEnabled != null) document.getElementById('holderEnabled').checked = s.holderEnabled;
                     if (s.holderText != null) document.getElementById('holderTextInput').value = s.holderText;
                     if (s.holderWallWidth != null) document.getElementById('holderWallWidthInput').value = s.holderWallWidth;
                     if (s.holderCornerRadius != null) document.getElementById('holderCornerRadiusInput').value = s.holderCornerRadius;
+                    if (s.holderSeamEngraving != null) document.getElementById('holderSeamEngravingInput').checked = s.holderSeamEngraving;
                     if (s.holderFont != null) document.getElementById('holderFontSelect').value = s.holderFont;
                     if (s.holderTextSize != null) document.getElementById('holderTextSizeInput').value = s.holderTextSize;
                     updateHolderVisibility();
@@ -491,6 +571,21 @@
                         gpxPaths = s.gpxPaths;
                         gpxNames = s.gpxNames || [];
                         updateGpxList();
+                        // saveState only persists the path/name, not the
+                        // raw GPX content -- re-fetch each file's content
+                        // from the server (which still has it on disk at
+                        // gpxPaths[i], via the new /get_gpx_content) so the
+                        // trail is visibly redrawn here too, not just
+                        // listed. Not fitBounds'd afterward -- the map's
+                        // own view is separately restored below from
+                        // s.lat/s.lng/s.zoom, and jumping to the trail's
+                        // bounds instead would fight that.
+                        gpxPaths.forEach(function(p) {
+                            fetch('http://127.0.0.1:' + PORT + '/get_gpx_content?path=' + encodeURIComponent(p))
+                                .then(function(r) { return r.ok ? r.text() : null; })
+                                .then(function(xmlText) { if (xmlText) drawGpxXmlOnMap(xmlText); })
+                                .catch(function() {});
+                        });
                     }
                     if (s.coords) {
                         coords = s.coords;
@@ -529,6 +624,25 @@
         // handles curved edges for free without needing real polygon-offset
         // math in JS.
 
+        // Seeded PRNG so puzzle generation can be repeated exactly: same
+        // settings + same seed always produce the same tab curves. Falls
+        // back to Math.random when the Seed field is left blank.
+        var puzzleRng = Math.random;
+        function mulberry32(seed) {
+            var a = seed >>> 0;
+            return function() {
+                a |= 0; a = (a + 0x6D2B79F5) | 0;
+                var t = Math.imul(a ^ (a >>> 15), 1 | a);
+                t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+                return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+            };
+        }
+        function seedPuzzleRng(seedValue) {
+            var s = (seedValue == null) ? '' : String(seedValue).trim();
+            var n = Number(s);
+            puzzleRng = (s === '' || isNaN(n)) ? Math.random : mulberry32(Math.floor(n));
+        }
+
         function makeTabParamSequence(tabSize, jitter) {
             // Threads continuous random state along one row/column (mirrors
             // the original's first()/next()): `flip` and the jitter offset
@@ -536,11 +650,11 @@
             // adjacent tabs blend smoothly at the shared lattice corner
             // instead of just being smooth within their own curve.
             var flip = false;
-            function jrand() { return (Math.random() * 2 - 1) * jitter; }
+            function jrand() { return (puzzleRng() * 2 - 1) * jitter; }
             var e = jrand();
             return function nextParams() {
                 var flipOld = flip;
-                flip = Math.random() > 0.5;
+                flip = puzzleRng() > 0.5;
                 var a = (flip === flipOld) ? -e : e;
                 var b = jrand(), c = jrand(), d = jrand();
                 e = jrand();
@@ -602,7 +716,9 @@
             var len = Math.sqrt(dx * dx + dy * dy);
             var ex = dx / len, ey = dy / len;
             var px = -ey, py = ex; // 90° CCW from edge direction
-            var unit = flattenTab(params, 8);
+            // 24 segments per curve (not 8) gives smoother preview curves
+            // at negligible extra cost.
+            var unit = flattenTab(params, 24);
             return unit.map(function(u) {
                 var ux = u[0] * len, uy = u[1] * len;
                 return [p0.x + ux * ex + uy * px, p0.y + ux * ey + uy * py];
@@ -803,7 +919,16 @@
 
         function updateHolderVisibility() {
             var enabled = document.getElementById('holderEnabled').checked;
-            document.getElementById('holderOptions').style.display = enabled ? 'flex' : 'none';
+            document.getElementById('plateSettingsBtn').style.display = enabled ? 'block' : 'none';
+            if (!enabled) closePlateSettings();
+        }
+
+        function openPlateSettings() {
+            document.getElementById('plateSettingsModal').classList.add('open');
+        }
+
+        function closePlateSettings() {
+            document.getElementById('plateSettingsModal').classList.remove('open');
         }
 
         // Maps the <select id="holderFontSelect"> filenames (the actual font
@@ -873,9 +998,9 @@
             var marginMm = HOLDER_CLEARANCE_MM / 2 + wallWidth;
             var marginFracX = (geo.scale * marginMm) / fullX;
             var marginFracY = (geo.scale * marginMm) / fullY;
+
             var hx0 = geo.frac.nx0 - marginFracX, hx1 = geo.frac.nx1 + marginFracX;
             var hy0 = geo.frac.ny0 - marginFracY, hy1 = geo.frac.ny1 + marginFracY;
-
             var cornerRadiusMm = parseFloat(document.getElementById('holderCornerRadiusInput').value) || 0;
             var radiusFracX = (geo.scale * cornerRadiusMm) / fullX;
             var radiusFracY = (geo.scale * cornerRadiusMm) / fullY;
@@ -894,6 +1019,8 @@
             var tabSize = (parseFloat(document.getElementById('tabSizeInput').value) || 20) / 200;
             var jitter = (parseFloat(document.getElementById('jitterInput').value) || 4) / 100;
             var cornerRadius = parseFloat(document.getElementById('puzzleCornerRadiusInput').value) || 0;
+            // Reseed once per pass so the same seed yields the same pieces.
+            seedPuzzleRng(document.getElementById('puzzleSeedInput').value);
             var geo = computePuzzleGeometry(coords);
             pieces = buildPuzzlePieces(rows, cols, tabSize, jitter, geo, cornerRadius);
             pieces.forEach(function(p) {
@@ -952,10 +1079,41 @@
             document.getElementById('gpxInput').click();
         });
 
+        function drawGpxXmlOnMap(xmlText) {
+            // Shared by both a fresh import (raw content already in hand
+            // from the file picker) and restoreState (re-fetched from the
+            // server via /get_gpx_content, since saveState/restoreState
+            // only persist the path/name across reopens, not the raw GPX
+            // content itself). Returns null on a genuine XML parse error,
+            // false for validly-parsed XML with no track points (not an
+            // error -- still worth uploading), true if a trail was drawn.
+            var gpxDoc = new DOMParser().parseFromString(xmlText, 'text/xml');
+            if (gpxDoc.getElementsByTagName('parsererror').length) return null;
+            var trkpts = gpxDoc.getElementsByTagName('trkpt');
+            if (trkpts.length === 0) return false;
+            var pts = [];
+            for (var i = 0; i < trkpts.length; i++) {
+                var lat = parseFloat(trkpts[i].getAttribute('lat'));
+                var lon = parseFloat(trkpts[i].getAttribute('lon'));
+                pts.push([lat, lon]);
+            }
+            gpxLayer.addLayer(L.polyline(pts, { color: 'red', weight: 3, opacity: 0.7 }));
+            return true;
+        }
+
         document.getElementById('gpxInput').addEventListener('change', function(e) {
-            var files = Array.from(e.target.files);
+            // The free puzzle generator only supports a single imported
+            // trail (multi-trail import is a Premium feature -- see
+            // puzzleGenerator_pe.html) -- only the first selected file is
+            // used, and it replaces whatever was previously imported rather
+            // than adding to it.
+            var files = Array.from(e.target.files).slice(0, 1);
             this.value = '';
             if (!files.length) return;
+            if (gpxPaths.length > 0) {
+                gpxPaths = []; gpxNames = [];
+                gpxLayer.clearLayers();
+            }
             // Wait for every file in this batch to finish, then fit to
             // gpxLayer's combined bounds exactly once (see multitile_configurator.html
             // for why per-file fitBounds is wrong with multiple files).
@@ -964,18 +1122,7 @@
                 var reader = new FileReader();
                 reader.onload = function(event) {
                     try {
-                        var gpxDoc = new DOMParser().parseFromString(event.target.result, 'text/xml');
-                        if (gpxDoc.getElementsByTagName('parsererror').length) { alert('Error parsing ' + file.name); return; }
-                        var trkpts = gpxDoc.getElementsByTagName('trkpt');
-                        if (trkpts.length > 0) {
-                            var pts = [];
-                            for (var i = 0; i < trkpts.length; i++) {
-                                var lat = parseFloat(trkpts[i].getAttribute('lat'));
-                                var lon = parseFloat(trkpts[i].getAttribute('lon'));
-                                pts.push([lat, lon]);
-                            }
-                            gpxLayer.addLayer(L.polyline(pts, { color: 'red', weight: 3, opacity: 0.7 }));
-                        }
+                        if (drawGpxXmlOnMap(event.target.result) === null) { alert('Error parsing ' + file.name); return; }
                         fetch('http://127.0.0.1:' + PORT + '/upload_gpx', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/gpx+xml', 'X-Filename': file.name },
@@ -1040,6 +1187,7 @@
         document.getElementById('colsInput').addEventListener('input', function() { regeneratePuzzle(); saveState(); });
         document.getElementById('tabSizeInput').addEventListener('input', function() { regeneratePuzzle(); saveState(); });
         document.getElementById('jitterInput').addEventListener('input', function() { regeneratePuzzle(); saveState(); });
+        document.getElementById('puzzleSeedInput').addEventListener('input', function() { regeneratePuzzle(); saveState(); });
         document.getElementById('puzzleCornerRadiusInput').addEventListener('input', function() { regeneratePuzzle(); saveState(); });
         document.getElementById('resolutionSlider').addEventListener('input', function() {
             document.getElementById('resolutionValue').textContent = this.value;
@@ -1058,6 +1206,13 @@
         document.getElementById('holderTextInput').addEventListener('input', function() { updateHolderOutline(); updateHolderTextPreview(); saveState(); });
         document.getElementById('holderFontSelect').addEventListener('change', function() { updateHolderTextPreview(); saveState(); });
         document.getElementById('holderTextSizeInput').addEventListener('input', function() { updateHolderTextPreview(); saveState(); });
+        document.getElementById('holderSeamEngravingInput').addEventListener('change', saveState);
+
+        document.getElementById('plateSettingsBtn').addEventListener('click', openPlateSettings);
+        document.getElementById('plateSettingsCloseBtn').addEventListener('click', closePlateSettings);
+        document.getElementById('plateSettingsModal').addEventListener('click', function(e) {
+            if (e.target === this) closePlateSettings();
+        });
 
         map.on(L.Draw.Event.CREATED, function(e) {
             var layer = e.layer;
@@ -1095,6 +1250,7 @@
                 cols: parseInt(document.getElementById('colsInput').value) || 1,
                 resolution: parseInt(document.getElementById('resolutionSlider').value) || 4,
                 tolerance: parseFloat(document.getElementById('toleranceInput').value) || 0,
+                puzzleSeed: document.getElementById('puzzleSeedInput').value || '',
                 puzzleCornerRadius: parseFloat(document.getElementById('puzzleCornerRadiusInput').value) || 0,
                 gpx_paths: gpxPaths,
                 holder: {
@@ -1102,6 +1258,7 @@
                     text: document.getElementById('holderTextInput').value || '',
                     wallWidth: parseFloat(document.getElementById('holderWallWidthInput').value) || 4,
                     cornerRadius: parseFloat(document.getElementById('holderCornerRadiusInput').value) || 0,
+                    seamEngraving: document.getElementById('holderSeamEngravingInput').checked,
                     font: document.getElementById('holderFontSelect').value || '',
                     textSize: parseFloat(document.getElementById('holderTextSizeInput').value) || 0
                 }
