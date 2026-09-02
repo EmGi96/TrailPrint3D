@@ -384,8 +384,10 @@ class TP3D_PT_advanced(bpy.types.Panel):
                 box.operator("tp3d.terrain_dummy", text=_("Pin on City"), icon="LOCKED")
 
             box.separator(factor=0.5)
-            box.operator("tp3d.cut_pin_socket", text=_("Cut Pin Socket"), icon="MOD_BOOLEAN")
-            draw_wrapped_label(box, context, _("Select map(s) first, then Shift-click the pin"))
+            box.prop(props, "pinCutout", icon="CHECKBOX_HLT" if props.pinCutout else "CHECKBOX_DEHLT")
+            if props.pinCutout:
+                box.prop(props, "pinCutoutClearance")
+                draw_wrapped_label(box, context, _("New pins cut a socket into the map and elements at their position"))
 
         # --- SPECIAL ---
         layout.prop(props, "show_special", icon="TRIA_DOWN" if props.show_special else "TRIA_RIGHT", emboss=False)
