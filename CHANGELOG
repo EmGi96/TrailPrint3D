@@ -1,5 +1,5 @@
-Version 3.21
-Upcoming
+Version 3.2.1
+03.08.2026
 
 Fixed: Dovetail Cutouts doing nothing due to an inverted condition from a previous refactor
 -----------------------------
