@@ -250,7 +250,7 @@ class TP3D_PG_properties(bpy.types.PropertyGroup):
         default="SRTMGL1"
     )# type: ignore
 
-    apiRetries: IntProperty(name= _("Overpass API reuqest retries"), default = 5, min = 1, max = 20,description = _("How many Retries per Request before canceling")) # type: ignore
+    apiRetries: IntProperty(name= _("Overpass API request retries"), default = 5, min = 1, max = 20,description = _("How many retries per request before canceling")) # type: ignore
 
     dataset: EnumProperty(
         name = "Dataset",
