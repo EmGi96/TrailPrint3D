@@ -4,7 +4,6 @@
 # Leaflet.js map.  The user draws a rectangle; clicking "Confirm → Blender"
 # POSTs the coordinates to /confirm and writes them to a temp JSON file that
 # the Blender operator polls via a modal timer.
-
 import json
 import pathlib
 import queue
@@ -620,11 +619,13 @@ def start_picker(result_path: str, existing_maps: list | None = None, existing_t
 
         threading.Thread(target=_cleanup_profile, daemon=True).start()
     else:
-        if sys.platform == 'win32':
-            sp.Popen(['cmd', '/c', 'start', '', url])
-        elif sys.platform == 'darwin':
-            sp.Popen(['open', url])
-        else:
-            sp.Popen(['xdg-open', url])
+        import bpy  # type: ignore
+        bpy.ops.wm.url_open(url=url)
+        # if sys.platform == 'win32':
+        #     sp.Popen(['cmd', '/c', 'start', '', url])
+        # elif sys.platform == 'darwin':
+        #     sp.Popen(['open', url])
+        # else:
+        #     sp.Popen(['xdg-open', url])
 
     return server

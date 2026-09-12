@@ -127,9 +127,9 @@ def _reset_scene_defaults():
     tp3d.trailName = ""
     tp3d.api = "MAPTERHORN"
     tp3d.col_fActive = False
-    tp3d.col_wPondsActive = False
-    tp3d.col_wSmallRiversActive = False
-    tp3d.col_wBigRiversActive = False
+    tp3d.col_wBodiesActive = False
+    tp3d.col_wMinorActive = False
+    tp3d.col_wMajorActive = False
     tp3d.col_cActive = False
     tp3d.col_scrActive = False
     tp3d.col_grActive = False
@@ -285,7 +285,7 @@ def test_hexagon_paint_forest_water():
     stats = _run_generation_scenario(
         "hexagon_paint_forest_water",
         "3BergeTour.gpx",
-        {"col_fActive": True, "col_wPondsActive": True},
+        {"col_fActive": True, "col_wBodiesActive": True},
     )
     _print_stats("hexagon / paint / real forest+water (3BergeTour)", stats)
 
@@ -308,7 +308,7 @@ def test_separate_mode_forest_water_city():
         {
             "elementMode": "SEPARATE",
             "col_fActive": True,
-            "col_wPondsActive": True,
+            "col_wBodiesActive": True,
             "col_cActive": True,
         },
     )
@@ -345,7 +345,7 @@ def test_singlecolormode_remesh_forest_water():
             "elementMode": "SINGLECOLORMODE_REMESH",
             "singleColorMode": True,
             "col_fActive": True,
-            "col_wPondsActive": True,
+            "col_wBodiesActive": True,
         },
     )
     _print_stats("hexagon / singlecolormode_remesh / real forest+water (3BergeTour)", stats)
@@ -367,7 +367,7 @@ def test_long_route_exaggerated_singlecolor_forest_water():
             "scaleElevation": 3.0,
             "singleColorMode": True,
             "col_fActive": True,
-            "col_wPondsActive": True,
+            "col_wBodiesActive": True,
         },
     )
     _print_stats("hexagon / paint / scaleElevation=3 / singleColorMode / real forest+water (100KmTour)", stats)
@@ -384,7 +384,7 @@ def test_separate_forest_water_long_route():
     stats = _run_generation_scenario(
         "separate_forest_water_long_route",
         "100KmTour.gpx",
-        {"elementMode": "SEPARATE", "col_fActive": True, "col_wPondsActive": True},
+        {"elementMode": "SEPARATE", "col_fActive": True, "col_wBodiesActive": True},
     )
     _print_stats("hexagon / separate / real forest+water (100KmTour)", stats)
 

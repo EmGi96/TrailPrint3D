@@ -175,7 +175,7 @@ def _rg_build_terrain_elements(
         (
             "water",
             lambda t: (
-                t.col_wPondsActive or t.col_wSmallRiversActive or t.col_wBigRiversActive
+                t.col_wBodiesActive or t.col_wMinorActive or t.col_wMajorActive
             ),
             const.WATER_MAXSIZE,
             "Water",
@@ -256,9 +256,9 @@ def _rg_build_terrain_elements(
     _water_feat_active = (
         gen.settings.elementSource == "OSM"
         and (
-            tp3d.col_wPondsActive
-            or tp3d.col_wSmallRiversActive
-            or tp3d.col_wBigRiversActive
+            tp3d.col_wBodiesActive
+            or tp3d.col_wMinorActive
+            or tp3d.col_wMajorActive
         )
         and map_km <= const.WATER_MAXSIZE
     )
@@ -292,9 +292,9 @@ def _rg_build_terrain_elements(
             api_retries=tp3d.apiRetries,
             mapsize=tp3d.sMapInKm,
             road_tiers={tier: get_road_active(tp3d, tier) for tier in TIER_TAGS},
-            water_ponds=bool(tp3d.col_wPondsActive),
-            water_small_rivers=bool(tp3d.col_wSmallRiversActive),
-            water_big_rivers=bool(tp3d.col_wBigRiversActive),
+            water_ponds=bool(tp3d.col_wBodiesActive),
+            water_small_rivers=bool(tp3d.col_wMinorActive),
+            water_big_rivers=bool(tp3d.col_wMajorActive),
             exclude_alleys=True,
         )
         _active_kind_tasks = (

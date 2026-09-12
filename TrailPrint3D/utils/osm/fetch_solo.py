@@ -42,9 +42,9 @@ def fetch_osm_data(
         disableCache = bpy.context.scene.tp3d.disableCache
         apiRetries = bpy.context.scene.tp3d.apiRetries
         mapsize = bpy.context.scene.tp3d.sMapInKm
-        water_ponds = bool(bpy.context.scene.tp3d.col_wPondsActive)
-        water_small_rivers = bool(bpy.context.scene.tp3d.col_wSmallRiversActive)
-        water_big_rivers = bool(bpy.context.scene.tp3d.col_wBigRiversActive)
+        water_ponds = bool(bpy.context.scene.tp3d.col_wBodiesActive)
+        water_small_rivers = bool(bpy.context.scene.tp3d.col_wMinorActive)
+        water_big_rivers = bool(bpy.context.scene.tp3d.col_wMajorActive)
         exclude_alleys = True
     road_tiers = resolve_road_tiers(settings)
 
@@ -124,7 +124,7 @@ def fetch_osm_data(
 
     OSM_QUERY_BUILDERS = {
         "WATER": lambda s, w, n, e, ponds=True, small_rivers=True, big_rivers=True, **_: (
-            _build_water_query(s, w, n, e, ponds, small_rivers, big_rivers)
+        _build_water_query(s, w, n, e, ponds, small_rivers, big_rivers)
         ),
         "FOREST": lambda s, w, n, e, **_: _simple_query(
             s,
@@ -234,20 +234,17 @@ def fetch_osm_data(
                 'way["water"~"river|lake|stream|canal"]',
                 'relation["water"~"river|lake|stream|canal"]',
             ]
+
+        if big_rivers:
+            filters.append('way["waterway"~"river|canal"]')
+
         if small_rivers:
-            # No wikidata filter — includes all minor waterways
-            filters.append('way["waterway"~"stream|river|canal|ditch|drain"]')
-        elif big_rivers:
-            # Only major named rivers (wikidata-tagged)
-            filters.append(
-                'way["waterway"~"stream|river|canal|ditch|drain"]["wikidata"]'
-            )
-        if big_rivers and small_rivers:
-            # small_rivers already covers big ones; wikidata filter would be redundant
-            pass
+            filters.append('way["waterway"~"stream|ditch|drain"]')
+
         if not filters:
             # Fallback: return an empty result query
             return f"{_bbox_header(s, w, n, e)};\n(  );\nout body;\n>;\nout skel qt;"
+
         return _simple_query(s, w, n, e, filters)
 
     def _build_streets_query(s, w, n, e, mapsize, tier_active, exclude_alleys=True):

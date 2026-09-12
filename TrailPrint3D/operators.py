@@ -1977,7 +1977,14 @@ class TP3D_OT_pick_gpx_file(bpy.types.Operator):
     filter_glob: StringProperty(default="*.gpx;*.igc", options={'HIDDEN'})  # type: ignore
 
     def execute(self, context):
-        context.scene.tp3d.file_path = self.filepath
+        tp3d = context.scene.tp3d
+        tp3d.file_path = self.filepath
+        bounds = utils.compute_gpx_bounds(self.filepath)
+        if bounds is not None:
+            tp3d.cachedTrailMinLat, tp3d.cachedTrailMaxLat, tp3d.cachedTrailMinLon, tp3d.cachedTrailMaxLon = bounds
+            tp3d.cachedTrailBoundsValid = True
+        else:
+            tp3d.cachedTrailBoundsValid = False
         return {'FINISHED'}
 
     def invoke(self, context, event):
@@ -2640,8 +2647,8 @@ class TP3D_OT_puzzle_configurator(bpy.types.Operator):
         preview_elevations, preview_diff = utils.get_tile_elevation(gen, progress_cb=_puzzle_elev_progress)
         overlay.sub_percent = None
 
-        if props.fixedElevationScale:
-            auto_scale = 10 / (preview_diff / 1000) if preview_diff > 0 else 10
+        if props.elevationMode == "FIXED":
+            auto_scale = props.fixedHeightMM / (preview_diff / 1000) if preview_diff > 0 else props.fixedHeightMM
         else:
             auto_scale = fixed_scale
         props.sAutoScale = auto_scale
@@ -3072,11 +3079,11 @@ class TP3D_OT_map_generator(bpy.types.Operator):
             preview_elevations, preview_diff = utils.get_tile_elevation(gen, progress_cb=_elev_progress)
             overlay.sub_percent = None
 
-            if props.fixedElevationScale:
-                auto_scale = 10 / (preview_diff / 1000) if preview_diff > 0 else 10
-            else:
-                auto_scale = fixed_scale
-            props.sAutoScale = auto_scale
+        if props.elevationMode == "FIXED":
+            auto_scale = props.fixedHeightMM / (preview_diff / 1000) if preview_diff > 0 else props.fixedHeightMM
+        else:
+            auto_scale = fixed_scale
+        props.sAutoScale = auto_scale
 
             overlay.update(0.32, "Analyzing terrain…", "Calculating elevation range…")
             lowest_z = 1000

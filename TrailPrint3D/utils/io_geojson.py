@@ -345,9 +345,9 @@ def build_tile_from_polygon(polygon_lonlat, obj_size, num_subdivisions, name="Ge
     # Seed autoScale/additionalExtrusion before createTerrainFromSelected()
     # runs -- it reads scene.tp3d.sAutoScale directly with no fallback
     # computation of its own (utils/generation.py:_ctfs_load_props). The
-    # default (fixedElevationScale off) needs no preview fetch at all; only
-    # the fixed-scale mode needs a real elevation range, mirroring
-    # runGeneration's own fixedElevationScale branch.
+    # default (Proportional elevation mode) needs no preview fetch at all;
+    # only Fixed Height mode needs a real elevation range, mirroring
+    # runGeneration's own elevationMode branch.
     #
     # Skipped entirely when set_auto_scale is False -- a batch caller already
     # computed one shared auto_scale/additional_extrusion (from the combined
@@ -357,9 +357,10 @@ def build_tile_from_polygon(polygon_lonlat, obj_size, num_subdivisions, name="Ge
     if set_auto_scale:
         auto_scale = scale_hor
         additional_extrusion = 0.0
-        if tp3d.get('fixedElevationScale', False):
+        if tp3d.get('elevationMode', 'PROPORTIONAL') == 'FIXED':
             preview_elevations, preview_diff = get_tile_elevation(tile)
-            auto_scale = 10 / (preview_diff / 1000) if preview_diff > 0 else 10
+            target_height_mm = tp3d.get('fixedHeightMM', 10)
+            auto_scale = target_height_mm / (preview_diff / 1000) if preview_diff > 0 else target_height_mm
             lowest_z = 1000.0
             obj_matrix = tile.matrix_world
             for i, vert in enumerate(tile.data.vertices):

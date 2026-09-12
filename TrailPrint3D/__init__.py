@@ -7,7 +7,16 @@ import os
 
 import bpy
 
-from . import addon_preferences, progress, props, temp, translation, updater, utils
+from . import (
+    addon_preferences,
+    panel_guides,
+    progress,
+    props,
+    temp,
+    translation,
+    updater,
+    utils,
+)
 from . import constants as const
 
 try:
@@ -25,9 +34,9 @@ from . import export, operators, panels
 classes = [
     progress.TP3D_OT_warnings_mouse,
     panels.TP3D_UL_road_types,
+    *panel_guides.classes,
     panels.TP3D_PT_generate,
     panels.TP3D_PT_advanced,
-    panels.TP3D_PT_shapes,
     panels.TP3D_OT_show_custom_props_popup,
     panels.TP3D_MT_generators_menu,
     operators.TP3D_OT_run_generation,
@@ -96,10 +105,8 @@ _PREMIUM_CLASS_NAMES = [
 ]
 
 
-
-
 @persistent
-def startup_function(scene, dummy = None):
+def startup_function(scene, dummy=None):
 
     print("Trailprint3D Launching Startup functions")
 
@@ -117,7 +124,8 @@ def startup_function(scene, dummy = None):
         else:
             updater.start_check()
 
-    #utils.load_myproperties_from_csv(bpy.context.scene.preset_list)
+    # utils.load_myproperties_from_csv(bpy.context.scene.preset_list)
+
 
 def register():
     # Ensure cache/preset dirs exist before anything else uses them.
@@ -126,13 +134,18 @@ def register():
     # Detect premium here — register() is called after Blender finishes reloading
     # all submodules, so temp.py can no longer reset PREMIUMVERSION to False after us.
     _addon_dir = os.path.dirname(__file__)
-    temp.PREMIUMVERSION = os.path.exists(os.path.join(_addon_dir, "premium", "operators_pe.py"))
+    temp.PREMIUMVERSION = os.path.exists(
+        os.path.join(_addon_dir, "premium", "operators_pe.py")
+    )
 
     ops_pe = None
     if temp.PREMIUMVERSION:
         try:
             import importlib
-            importlib.import_module(".premium.utils_pe", __package__)   # loads into sys.modules
+
+            importlib.import_module(
+                ".premium.utils_pe", __package__
+            )  # loads into sys.modules
             ops_pe = importlib.import_module(".premium.operators_pe", __package__)
         except ImportError as e:
             print(f"TrailPrint3D: Error loading premium modules: {e}")
@@ -204,6 +217,7 @@ def unregister():
 
     if temp.PREMIUMVERSION:
         import sys
+
         ops_pe = sys.modules.get(f"{__package__}.premium.operators_pe")
         if ops_pe:
             for name in reversed(_PREMIUM_CLASS_NAMES):
@@ -249,4 +263,3 @@ def unregister():
         del bpy.types.Scene.preset_list
     except AttributeError:
         pass
-

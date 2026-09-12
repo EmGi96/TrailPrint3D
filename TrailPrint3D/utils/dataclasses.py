@@ -36,11 +36,13 @@ class RunSettings:
     scaleLat2: float
     shapeRotation: int
     overwritePathElevation: bool
-    fixedElevationScale: bool
+    elevationMode: str
+    fixedHeightMM: float
     minThickness: float
     xTerrainOffset: float
     yTerrainOffset: float
     singleColorMode: bool
+    elementChoice: bool
     elementMode: str
     elementSource: str
     disableCache: bool

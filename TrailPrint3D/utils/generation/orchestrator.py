@@ -218,7 +218,7 @@ def runGeneration(type, locked_scale=None):
         _rg_assign_materials(gen)
 
         # --- Phase 17: Rasterise OSM polygons into UV texture ---
-        if gen.texture.useTexture:
+        if gen.texture.useTexture and gen.settings.elementChoice:
             overlay.update(0.96, "Texture", "Rasterising OSM texture…")
             _rg_apply_texture(gen)
             _lo = bpy.context.scene.tp3d.lowestZ

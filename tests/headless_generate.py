@@ -69,9 +69,9 @@ def apply_config(cfg: dict):
     tp3d.singleColorMode    = bool(cfg.get("single_color_mode", False))
 
     # OSM elements
-    tp3d.col_wPondsActive       = bool(cfg.get("water", False))
-    tp3d.col_wBigRiversActive   = bool(cfg.get("rivers_big", False))
-    tp3d.col_wSmallRiversActive = bool(cfg.get("rivers_small", False))
+    tp3d.col_wBodiesActive       = bool(cfg.get("water", False))
+    tp3d.col_wMajorActive   = bool(cfg.get("rivers_big", False))
+    tp3d.col_wMinorActive = bool(cfg.get("rivers_small", False))
     tp3d.col_fActive            = bool(cfg.get("forest", False))
     tp3d.col_cActive            = bool(cfg.get("cities", False))
     tp3d.col_grActive           = bool(cfg.get("greenspace", False))

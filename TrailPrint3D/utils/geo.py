@@ -11,8 +11,9 @@ def calculate_scale(mapSize, coordinates, gen_type, diagonal=False):
     scalemode = bpy.context.scene.tp3d.scalemode
     pathScale = bpy.context.scene.tp3d.pathScale
 
-    print(f"Scalemode: {scalemode}")
-    print(f"Gen_type: {gen_type}")
+    if bpy.app.debug:
+        print(f"Scalemode: {scalemode}")
+        print(f"Gen_type: {gen_type}")
 
     min_lat = min(point[0] for point in coordinates)
     max_lat = max(point[0] for point in coordinates)
@@ -52,16 +53,19 @@ def calculate_scale(mapSize, coordinates, gen_type, diagonal=False):
     maxer = max(width, height, distance) if diagonal else max(width, height)
     scale = 1
     if scalemode == "COORDINATES" or gen_type == 2 or gen_type == 3:
-        print("scalemode1")
+        if bpy.app.debug:
+            print("scalemode1")
         scale = mapSize / maxer
     elif scalemode == "FACTOR":
-        print("scalemode2")
+        if bpy.app.debug:
+            print("scalemode2")
         scale = (mapSize * pathScale) / maxer
     elif scalemode == "SCALE":
-        print("scalemode3")
+        if bpy.app.debug:
+            print("scalemode3")
         scale = pathScale * mf
-
-    print(f"Scale: {scale}")
+    if bpy.app.debug:
+        print(f"Scale: {scale}")
 
     return scale
 

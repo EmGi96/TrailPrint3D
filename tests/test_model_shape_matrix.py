@@ -169,9 +169,9 @@ def _reset_scene_defaults():
     tp3d.api = "MAPTERHORN"
     # No terrain elements for any scenario in this matrix.
     tp3d.col_fActive = False
-    tp3d.col_wPondsActive = False
-    tp3d.col_wSmallRiversActive = False
-    tp3d.col_wBigRiversActive = False
+    tp3d.col_wBodiesActive = False
+    tp3d.col_wMinorActive = False
+    tp3d.col_wMajorActive = False
     tp3d.col_cActive = False
     tp3d.col_scrActive = False
     tp3d.col_grActive = False

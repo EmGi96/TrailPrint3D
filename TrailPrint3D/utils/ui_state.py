@@ -26,7 +26,7 @@ COLORING_ELEMENTS = [
     (
         "water",
         lambda t: (
-            t.col_wPondsActive or t.col_wSmallRiversActive or t.col_wBigRiversActive
+            t.col_wBodiesActive or t.col_wMinorActive or t.col_wMajorActive
         ),
         const.WATER_MAXSIZE,
         "Water",
@@ -90,9 +90,9 @@ def build_fetch_items(map_km=None):
     for key, flag, max_size, icon, label in defs:
         if key == "water":
             water_feats = (
-                tp3d.col_wPondsActive
-                or tp3d.col_wSmallRiversActive
-                or tp3d.col_wBigRiversActive
+                tp3d.col_wBodiesActive
+                or tp3d.col_wMinorActive
+                or tp3d.col_wMajorActive
             ) and map_km <= const.WATER_MAXSIZE
             active = water_feats or (
                 tp3d.el_oActive == 1 and map_km <= const.COASTLINE_MAXSIZE
@@ -140,12 +140,12 @@ _ELEMENT_SINGLE_FLAGS = {
 _ELEMENT_COMPOSITE_FLAGS = {
     "water": (
         (
-            "col_wPondsActive",
-            "col_wSmallRiversActive",
-            "col_wBigRiversActive",
+            "col_wBodiesActive",
+            "col_wMinorActive",
+            "col_wMajorActive",
             "el_oActive",
         ),
-        "col_wPondsActive",
+        "col_wBodiesActive",
     ),
 }
 
@@ -254,7 +254,8 @@ def apply_element_toggle(tp3d, key):
 # construction.
 _SETTINGS_ROW_FIELDS = {
     "scaleElevation": ("scaleElevation", float),
-    "fixedElevationScale": ("fixedElevationScale", bool),
+    "elevationMode": ("elevationMode", str),
+    "fixedHeightMM": ("fixedHeightMM", float),
     "pathThickness": ("pathThickness", float),
     "overwritePathElevation": ("overwritePathElevation", bool),
     "objSize": ("objSize", int),
@@ -316,19 +317,19 @@ _ADVANCED_SETTINGS_FIELDS = [
     },
     {
         "key": "colWPondsActive",
-        "attr": "col_wPondsActive",
+        "attr": "col_wBodiesActive",
         "type": bool,
         "group": "Water",
     },
     {
         "key": "colWSmallRiversActive",
-        "attr": "col_wSmallRiversActive",
+        "attr": "col_wMinorActive",
         "type": bool,
         "group": "Water",
     },
     {
         "key": "colWBigRiversActive",
-        "attr": "col_wBigRiversActive",
+        "attr": "col_wMajorActive",
         "type": bool,
         "group": "Water",
     },
