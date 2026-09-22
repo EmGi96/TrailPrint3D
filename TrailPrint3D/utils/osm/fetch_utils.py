@@ -14,17 +14,62 @@ class OsmFetchSettings(NamedTuple):
     disable_cache: int
     api_retries: int
     mapsize: float
-    road_big: bool
-    road_med: bool
-    road_small: bool
+    road_tiers: "dict[str, bool]"  # {tier_id: active} -- see utils.osm.roads.TIER_TAGS
     water_ponds: bool
     water_small_rivers: bool
     water_big_rivers: bool
-    # Trailing defaults so existing call sites (tests, older callers) that
-    # don't know about these options keep working unchanged.
+    # Trailing default so existing call sites (tests, older callers) that
+    # don't know about this option keep working unchanged.
     exclude_alleys: bool = True
-    road_footways: bool = False
-    road_service: bool = False
+
+
+def resolve_road_tiers(settings) -> "dict[str, bool]":
+    """Return {tier_id: active} for every tier in TIER_TAGS.
+
+    Reads from *settings* (worker-thread snapshot) when given, otherwise
+    live from bpy.context.scene.tp3d (main thread only).
+    """
+    from .roads import TIER_TAGS  # deferred -- see roads.py's own deferred imports
+
+    if settings is not None:
+        return dict(settings.road_tiers)
+
+    import bpy  # local: only the live-context branch needs it
+
+    from ...props import get_road_active  # deferred to avoid circular import at load time
+
+    tp3d = bpy.context.scene.tp3d
+    return {tier: get_road_active(tp3d, tier) for tier in TIER_TAGS}
+
+
+def allowed_road_tiers(mapsize: float) -> "set[str]":
+    """Tiers not dropped for performance at the given map size (km).
+
+    Dense, short-segment tiers (residential/service/footway/cycle_bridle/
+    path) are dropped above STREETS_PRIMARY_THRESHOLD to avoid width-scaled
+    roads fusing into solid blocks on zoomed-out maps. Sparse, long-segment
+    tiers (highways/major/minor/track) survive up to ROADS_MAXSIZE.
+    """
+    from ... import constants as const
+    from .roads import DENSE_TIERS, SPARSE_TIERS
+
+    if mapsize > const.ROADS_MAXSIZE:
+        return {"highways", "major"}
+    if mapsize > const.STREETS_PRIMARY_THRESHOLD:
+        return set(SPARSE_TIERS)
+    return set(SPARSE_TIERS | DENSE_TIERS)
+
+
+def requested_highway_tags(tier_active: "dict[str, bool]", mapsize: float) -> set:
+    """Union of raw OSM highway=* tags to fetch, given tier checkboxes + mapsize."""
+    from .roads import TIER_TAGS
+
+    allowed_tiers = allowed_road_tiers(mapsize)
+    requested = set()
+    for tier, tags in TIER_TAGS.items():
+        if tier_active.get(tier) and tier in allowed_tiers:
+            requested |= tags
+    return requested
 
 
 def _overpass_request(

@@ -6,39 +6,31 @@
 try:
     from ..premium.utils_pe import textIcon  # type: ignore[import]
 except ImportError:
+
     def textIcon(*_):
         return None
 
+
 from ..export import *
+from .dataclasses import (  # noqa: F401
+    GenerationContext,
+    GenerationError,
+    ValidationError,
+)
 from .elevation import *
-from .generation import *
-from .generation import (
-    _GEN_FLAGS as _GEN_FLAGS,
+from .generation.elements import (
+    _rg_apply_single_color_mode,
+    _rg_build_terrain_elements,
 )
-from .generation import (
-    _rg_apply_single_color_mode as _rg_apply_single_color_mode,
+from .generation.tile_orchestrator import runTileGeneration, generateJustTrail
+from .generation.input import (
+    _rg_compute_trail_stats,
+    _rg_load_coordinates,
+    _rg_validate_inputs,
 )
-from .generation import (
-    _rg_assign_materials as _rg_assign_materials,
-)
-from .generation import (
-    _rg_build_terrain_elements as _rg_build_terrain_elements,
-)
-from .generation import (
-    _rg_compute_trail_stats as _rg_compute_trail_stats,
-)
-from .generation import (
-    _rg_create_map_object as _rg_create_map_object,
-)
-from .generation import (
-    _rg_export as _rg_export,
-)
-from .generation import (
-    _rg_load_coordinates as _rg_load_coordinates,
-)
-from .generation import (
-    _rg_validate_inputs as _rg_validate_inputs,
-)
+from .generation.orchestrator import _GEN_FLAGS, runGeneration
+from .generation.output import _rg_assign_materials, _rg_export
+from .generation.terrain_gen import _rg_create_map_object
 from .geo import *
 from .geometry2d import *
 from .io_gpx import *
@@ -49,3 +41,4 @@ from .primitives import *
 from .scene import *
 from .terrain import *
 from .text_objects import *
+from .ui_state import *

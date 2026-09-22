@@ -177,6 +177,23 @@ def read_igc(filepath):
     return segmentlist
 
 
+def compute_gpx_bounds(filepath):
+    """Return (min_lat, max_lat, min_lon, max_lon) for a GPX file, or None on
+    failure. Used to cache a trail's geographic bounding box at file-pick
+    time -- cheap (no network, just XML parsing), so the panel can estimate
+    the generated map's real-world size without needing a full generation
+    run. See TP3D_OT_pick_gpx_file."""
+    try:
+        segments = read_gpx(filepath)
+    except (RuntimeError, OSError):
+        return None
+    lats = [pt[0] for seg in segments for pt in seg]
+    lons = [pt[1] for seg in segments for pt in seg]
+    if not lats or not lons:
+        return None
+    return (min(lats), max(lats), min(lons), max(lons))
+
+
 def read_gpx_directory(directory_path):
     """Reads all GPX files in a directory and extracts coordinates, elevation, and timestamps."""
 

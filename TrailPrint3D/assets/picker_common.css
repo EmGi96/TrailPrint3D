@@ -1,0 +1,330 @@
+/* Shared TrailPrint3D picker "look" -- reused by every 2D-map picker page
+   (puzzleGenerator.html, premium/puzzleGenerator_pe.html,
+   premium/multitile_generator.html) via __COMMON_CSS__ in picker_server.py.
+   Page-specific rules stay in each page's own <style> block, and can
+   override anything here since this block is always emitted first. */
+* { box-sizing: border-box; }
+/* Each page's own Draw button clicks the toolbar's rectangle tool
+   programmatically -- the toolbar's own icon is redundant, hide it but
+   keep it functional (a synthetic .click() on it still fires while hidden). */
+.leaflet-draw { display: none !important; }
+body { font-family: 'Segoe UI', sans-serif; background: #1a1a1a; color: #eee; margin: 0; overflow: hidden; display: flex; height: 100vh; }
+#sidebar { width: 200px; background: #222; border-right: 1px solid #444; padding: 20px; display: flex; flex-direction: column; gap: 15px; overflow-y: auto; }
+#mapColumn { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+#map { flex: 1; position: relative; min-height: 0; }
+.settings-gear-btn { flex-shrink: 0; display: flex; align-items: center; gap: 6px;
+    background: none; border: 1px solid #444; border-radius: 4px; padding: 5px 12px; color: #aaa;
+    font-size: 13px; font-family: inherit; cursor: pointer; }
+.settings-gear-btn:hover { background: rgba(255,255,255,0.08); border-color: #007bff; color: #eee; }
+/* Generic modal chrome, shared by every popup dialog a picker page adds --
+   currently just the Settings popup, styled to match the puzzle pages' own
+   pre-existing (page-local) #plateSettingsModal look. */
+.tp3d-modal { display: none; position: fixed; inset: 0; z-index: 3000;
+    background: rgba(0,0,0,0.6); align-items: center; justify-content: center; }
+.tp3d-modal.open { display: flex; }
+.tp3d-modal-box { background: #222; border: 1px solid #444; border-radius: 8px; width: 320px;
+    max-height: 85vh; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+.tp3d-modal-box .modal-header { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+.tp3d-modal-box .modal-header span { font-weight: bold; font-size: 14px; }
+.tp3d-modal-close-btn { background: none; border: none; color: #aaa; font-size: 18px; line-height: 1;
+    cursor: pointer; padding: 2px 6px; }
+.tp3d-modal-close-btn:hover { color: #fff; }
+.adv-field-row { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    font-size: 14px; color: #aaa; min-width: 0; }
+.adv-field-row input[type=number] { width: 76px; background: #2a2a2a; color: #eee; border: 1px solid #444;
+    border-radius: 4px; padding: 5px 8px; font-size: 14px; }
+.adv-field-row input[type=checkbox] { width: 18px; height: 18px; accent-color: #007bff; cursor: pointer; }
+/* Groups a checkbox field with its own `companion` number input (e.g.
+   Smooth Terrain + its Strength, tp3dBuildFieldRow) on the same row's
+   right-hand side, instead of the label/single-control 50-50 split
+   .adv-field-row's own `justify-content: space-between` assumes. */
+.adv-field-controls { display: flex; align-items: center; gap: 8px; }
+/* min-width:0 at every level here -- flex/grid items default to
+   min-width:auto, which lets a native <input type=range>'s own intrinsic
+   width refuse to shrink below its browser default (~130-170px). Without
+   overriding that down the whole chain (grid column -> row -> this ->
+   the range input itself), that intrinsic width silently became the
+   floor for this grid COLUMN, making it wider than the other one and
+   pushing its content out past the panel's border. */
+.range-with-number { display: flex; align-items: center; gap: 8px; flex: 1; max-width: 180px; min-width: 0; }
+.range-with-number input[type=range] { flex: 1; min-width: 0; accent-color: #007bff; }
+.range-with-number input[type=number] { width: 58px; flex-shrink: 0; background: #2a2a2a; color: #eee;
+    border: 1px solid #444; border-radius: 4px; padding: 5px 6px; font-size: 14px; }
+/* Generic "this field has a preview GIF" building block -- tp3dWithPreview()
+   in settings_modal.js wraps any label/title in .preview-wrap next to a
+   .preview-btn when a `preview` URL is set, so this same pair of rules
+   covers Map-tab fields, card-field labels, checklist rows, and card
+   titles alike; nothing field-specific lives in the CSS. */
+.preview-wrap { display: inline-flex; align-items: center; gap: 5px; }
+.preview-btn { cursor: pointer; flex-shrink: 0; display: inline-flex; align-items: center;
+    justify-content: center; width: 20px; height: 20px; background: #2a2a2a; border: 1px solid #444;
+    border-radius: 4px; padding: 0; font-size: 11px; line-height: 1; color: #ccc; }
+.preview-btn:hover { background: rgba(255,255,255,0.08); border-color: #007bff; color: #eee; }
+.preview-btn:active { background: rgba(255,255,255,0.16); }
+/* The Settings popup specifically: bigger box, a left tab column (Map /
+   Elements) and a right-hand preview panel that starts collapsed (no
+   preview picked yet -- box sized to just the left column, so it reads as
+   centered rather than leaving an empty gap) and grows smoothly open the
+   first time a `preview`-linked field is clicked (tp3dShowPreview adds
+   .preview-active to the box). */
+.settings-modal-box { width: 820px; max-width: 95vw; overflow: visible;
+    transition: width 0.3s ease; }
+.settings-modal-box.preview-active { width: 1440px; }
+/* Fixed, not min-height -- Map and Elements have very different amounts of
+   content, and a min-height still let the box grow for Elements then snap
+   back down for Map every time you switched tabs. Sized with margin above
+   what the Elements tab actually needs (see elements-row below) so neither
+   tab ever needs to scroll vertically either. */
+.settings-modal-body { display: flex; height: 640px; }
+.settings-modal-left { flex: 1 1 auto; display: flex; flex-direction: column;
+    min-width: 0; min-height: 0; }
+.settings-modal-tabs { display: flex; gap: 4px; flex-shrink: 0; }
+.settings-modal-tab-btn { background: #2a2a2a; border: 1px solid #444; border-bottom: none;
+    border-radius: 4px 4px 0 0; color: #aaa; padding: 6px 14px; font-size: 12px; font-family: inherit;
+    cursor: pointer; }
+.settings-modal-tab-btn.active { background: #1c1c1c; border-color: #007bff; color: #eee; }
+.settings-modal-tab-btn .tab-arrow { display: inline-block; transition: transform 0.2s ease; }
+.settings-modal-tab-btn.active .tab-arrow { transform: rotate(90deg); }
+.settings-modal-tab-panel { display: none; flex: 1; overflow-y: auto; border: 1px solid #444;
+    border-radius: 0 4px 4px 4px; padding: 12px; background: #1c1c1c; }
+.settings-modal-tab-panel.active { display: block; }
+/* Collapsed by default: zero width/margin/padding and transparent border so
+   it takes no visible space and doesn't just clip at width:0 -- .preview-active
+   (added once a preview is ever shown) restores all of it together. */
+.settings-modal-right { flex: 0 0 0; height: 450px; align-self: flex-start; margin-left: 0;
+    position: relative; overflow: hidden; opacity: 0; padding: 0; border: 1px solid transparent;
+    border-radius: 4px; background: #2a2a2a; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 8px; color: #666; font-size: 11px; text-align: center;
+    transition: flex-basis 0.3s ease, margin-left 0.3s ease, padding 0.3s ease, opacity 0.3s ease; }
+.settings-modal-right .preview-close-btn { position: absolute; top: 6px; right: 6px; z-index: 1;
+    width: 22px; height: 22px; display: flex; align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.55); border: 1px solid #444; border-radius: 4px; color: #ccc;
+    font-size: 12px; line-height: 1; padding: 0; cursor: pointer; }
+.settings-modal-right .preview-close-btn:hover { background: rgba(0,0,0,0.75); border-color: #007bff; color: #fff; }
+/* flex-basis, not width -- flex-grow/shrink are both 0 above, so flex-basis
+   alone (not `width`) is what actually governs this item's rendered size;
+   overriding only `width` here left flex-basis pinned at 0, so the panel
+   stayed ~0-width no matter what, and the leftover space flex-grow:1 gave
+   to .settings-modal-left instead -- which is what looked like the left
+   column "expanding" when a preview was clicked. */
+.settings-modal-box.preview-active .settings-modal-right { flex-basis: 600px; margin-left: 14px;
+    opacity: 1; padding: 12px; border-color: #444; }
+.settings-modal-right img, .settings-modal-right video {
+    flex: 1; min-height: 0; max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 4px; }
+/* Optional caption (tp3dShowPreview's second argument) shown below the
+   image -- stays out of the image's way (flex-shrink:0) so a multi-line
+   caption never gets squeezed by the image's own flex:1 sizing above. */
+.settings-modal-right .preview-caption { flex-shrink: 0; font-size: 11px; color: #aaa; text-align: center;
+    line-height: 1.4; }
+.map-tab-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    column-gap: 28px; row-gap: 16px; align-content: start; }
+/* Spans both columns, separating the map-wide fields above from the
+   trail-specific ones below (tp3dBuildMapTab's { type: 'divider' } marker
+   in SETTINGS_MODAL_MAP_FIELDS). Grid auto-placement can't fit a 2-column
+   item into a row where column 1 is already taken (as it is after an odd
+   number of single-column fields), so this always lands on its own full
+   row without any explicit row index needed. */
+.map-tab-divider { grid-column: 1 / -1; width: 100%; border: none; border-top: 1px solid #444; margin: 2px 0; }
+/* Two fixed rows -- simple on/off elements on top, Water/Roads below --
+   rather than one wrapping grid, so a narrower left column scrolls
+   horizontally instead of silently reflowing cards onto a second line. */
+.elements-grid { display: flex; flex-direction: column; gap: 14px; }
+/* OSM/ESA WorldCover switch (settings_modal.js's tp3dBuildElementSourceSwitch) --
+   same look as the sidebar's Draw/Extend .shape-btn pair, just full-width
+   at the top of the Elements tab instead of floating over the map. */
+.element-source-label { font-size: 12px; font-weight: bold; color: #aaa; margin-bottom: 6px; }
+.element-source-switch { display: flex; gap: 6px; }
+.element-source-switch .shape-btn { flex: 1; padding: 8px 6px; font-size: 13px; }
+.elements-row { display: flex; flex-wrap: nowrap; justify-content: center; gap: 10px;
+    overflow-x: auto; padding-bottom: 4px; }
+.element-card { background: #232323; border: 1px solid #444; border-radius: 6px; padding: 8px 10px;
+    display: flex; flex-direction: column; align-items: center; gap: 6px; width: 88px; flex-shrink: 0; }
+.element-card.composite { width: 190px; align-items: stretch; }
+/* Visible, raised button chrome at rest (not just on :hover) -- a bare
+   colored SVG with no background didn't read as clickable to a new user.
+   Rounded-square + shadow to match the rest of this modal's actual buttons
+   (.settings-gear-btn, .preview-btn, the tab buttons) rather than a circle,
+   which nothing else here uses; the inset highlight + shadow + :active
+   press give it a tactile, obviously-pushable look. */
+.element-card .card-icon { width: 36px; height: 36px; padding: 7px; display: flex; align-items: center;
+    justify-content: center; cursor: pointer; border-radius: 8px; border: 1px solid #4a4a4a;
+    background: #333; box-shadow: 0 1px 3px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.06);
+    transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease, box-shadow 0.1s ease; }
+.element-card .card-icon svg { width: 100%; height: 100%; }
+.element-card .card-icon:hover { background: #3d3d3d; border-color: #007bff; }
+.element-card .card-icon:active { background: #2a2a2a; transform: translateY(1px);
+    box-shadow: 0 0 1px rgba(0,0,0,0.4); }
+.element-card .card-icon.enabled { color: #4caf50; border-color: rgba(76,175,80,0.7); }
+.element-card .card-icon.disabled { color: #666; }
+.element-card .card-label { font-size: 11px; font-weight: bold; text-align: center; line-height: 1.3; }
+/* Reserves exactly 2 lines' worth of height (2 * the line-height set just
+   above -- computed, not guessed, so it can't fall short of the browser's
+   own "normal" line-height the way a plain min-height estimate did) on
+   every non-composite card's title. Only "City Boundaries" actually wraps
+   at this card width, but without this, its card alone is taller up top,
+   pushing its own field(s) lower than every other simple card's --
+   reserving the same space on all of them keeps every field row starting
+   at the same height regardless of which label happens to wrap. Composite
+   cards (Water/Roads) put their label next to the icon in a row instead,
+   so they're excluded. */
+.element-card:not(.composite) .card-label { min-height: 2.6em; display: flex; align-items: center;
+    justify-content: center; }
+.element-card.composite .card-head { display: flex; align-items: center; gap: 8px; }
+.element-card.composite .card-label { text-align: left; }
+.element-card .card-field { display: flex; flex-direction: column; gap: 2px; font-size: 10px; color: #aaa; width: 100%; }
+.element-card .card-field input[type=number] { width: 100%; background: #2a2a2a; color: #eee; border: 1px solid #444;
+    border-radius: 4px; padding: 3px 5px; font-size: 11px; }
+.element-card .card-checklist { display: flex; flex-direction: column; gap: 3px; width: 100%; margin: 2px 0; }
+.element-card .card-checklist label { display: flex; align-items: center; gap: 5px; font-size: 11px;
+    color: #ccc; cursor: pointer; }
+/* Shown while the checkbox's own composite category (Water/Roads) is off --
+   the checkbox still reflects its remembered value but can't be edited
+   until the category is turned back on. */
+.element-card .card-checklist label.locked { color: #777; cursor: not-allowed; }
+.element-card input[type=checkbox] { width: 13px; height: 13px; accent-color: #007bff; cursor: pointer; flex-shrink: 0; }
+.element-card input[type=checkbox]:disabled { cursor: not-allowed; }
+#elementStatus { flex-shrink: 0; display: flex; align-items: center; gap: 16px; padding: 10px 16px;
+    background: #202020; border-bottom: 1px solid #444; overflow-x: auto; }
+.element-chip-wrap { flex-shrink: 0; }
+/* Hover flyout with a Water/Roads chip's sub-categories (element_status.js). Fixed so the
+   strip's overflow-x can't clip it; no gap to the chip so the hover isn't lost on the way down. */
+.element-flyout { position: fixed; z-index: 2000; display: flex; flex-direction: column; gap: 6px; padding: 10px 12px;
+    background: #2a2a2a; border: 1px solid #555; border-radius: 0 0 6px 6px; box-shadow: 0 6px 16px rgba(0,0,0,0.5); }
+.element-flyout label { display: flex; align-items: center; gap: 7px; font-size: 12px; color: #ddd; white-space: nowrap; cursor: pointer; }
+.element-flyout label.locked { color: #777; cursor: not-allowed; }
+.element-flyout input[type=checkbox] { width: 13px; height: 13px; accent-color: #007bff; cursor: pointer; flex-shrink: 0; }
+.element-flyout input[type=checkbox]:disabled { cursor: not-allowed; }
+.element-chip { display: flex; align-items: center; gap: 7px; flex-shrink: 0;
+    background: none; border: none; padding: 5px 8px; border-radius: 4px; font: inherit; color: inherit; }
+/* Same reasoning and look as .card-icon above -- a persistent, raised
+   rounded-square button background so the icon itself reads as clickable,
+   not just the chip's own (hover-only) background. */
+.element-chip .element-icon { width: 26px; height: 26px; padding: 5px; display: flex; align-items: center;
+    justify-content: center; border-radius: 6px; border: 1px solid #4a4a4a; background: #333;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.06);
+    transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease, box-shadow 0.1s ease; }
+.element-chip .element-icon svg { width: 100%; height: 100%; }
+.element-chip:hover .element-icon { border-color: #007bff; background: #3d3d3d; }
+.element-chip:active .element-icon { background: #2a2a2a; transform: translateY(1px);
+    box-shadow: 0 0 1px rgba(0,0,0,0.4); }
+.element-chip.enabled .element-icon { border-color: rgba(76,175,80,0.7); }
+.element-chip .element-label { font-size: 12px; white-space: nowrap; }
+button.element-chip { cursor: pointer; }
+button.element-chip:hover { background: rgba(255,255,255,0.08); }
+button.element-chip:active { background: rgba(255,255,255,0.16); }
+.element-chip.enabled { color: #4caf50; }
+.element-chip.disabled { color: #666; }
+#legend { position: absolute; bottom: 10px; right: 10px; z-index: 1000; background: rgba(26,26,26,0.85);
+    border: 1px solid #444; border-radius: 4px; padding: 8px 10px; font-size: 11px; color: #eee;
+    display: flex; flex-direction: column; gap: 5px; pointer-events: none; }
+#coordSearch { position: absolute; top: 10px; right: 10px; z-index: 1000;
+    display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+#coordSearchToggle { width: 32px; height: 32px; padding: 0; display: flex; align-items: center;
+    justify-content: center; background: rgba(26,26,26,0.85); color: #eee; border: 1px solid #444;
+    border-radius: 4px; cursor: pointer; }
+#coordSearchToggle:hover { background: #444; border-color: #007bff; }
+#coordSearchToggle.active { background: #007bff; border-color: #007bff; }
+#coordSearchBody { display: none; flex-direction: column; gap: 8px; width: 190px;
+    background: rgba(26,26,26,0.85); border: 1px solid #444; border-radius: 4px;
+    padding: 8px 10px; font-size: 11px; color: #aaa; }
+#coordSearchBody.open { display: flex; }
+#coordSearchBody .coord-row { display: flex; gap: 4px; }
+#coordSearchBody .coord-sep { text-align: center; color: #666; font-size: 10px; }
+#coordSearchBody input[type=text] { flex: 1; min-width: 0; background: #2a2a2a; color: #eee;
+    border: 1px solid #444; border-radius: 4px; padding: 4px 6px; font-size: 12px; }
+#coordSearchBody button { padding: 4px 8px; font-size: 12px; background: #333; color: #eee;
+    border: 1px solid #444; border-radius: 4px; cursor: pointer; font-weight: bold; flex-shrink: 0; }
+#coordSearchBody button:hover { background: #444; border-color: #007bff; }
+.leaflet-control-layers { background: rgba(26,26,26,0.9) !important; border: 1px solid #444 !important;
+    color: #eee !important; }
+.leaflet-control-layers-toggle { filter: invert(1) brightness(1.5); }
+.leaflet-control-layers-expanded { padding: 8px 10px !important; font-size: 12px; }
+.leaflet-control-layers-selector { accent-color: #007bff; }
+.leaflet-control-layers-separator { border-top: 1px solid #444 !important; }
+.legend-row { display: flex; align-items: center; gap: 6px; }
+.legend-swatch { width: 14px; height: 14px; border-radius: 2px; flex-shrink: 0; }
+.legend-swatch.line { width: 16px; height: 0; border-top: 2.5px dashed; background: none; border-radius: 0; }
+.shape-btn { padding: 12px 20px; background: #333; color: #eee; border: 2px solid #444; border-radius: 4px; cursor: pointer; font-weight: bold; transition: all 0.2s; }
+.shape-btn:hover { background: #444; border-color: #007bff; }
+#drawActions { position: absolute; top: 80px; left: 10px; z-index: 1000; display: flex; flex-direction: column; gap: 6px;
+    background: rgba(26,26,26,0.85); border: 1px solid #444; border-radius: 4px; padding: 6px; }
+#drawActions .shape-btn.icon-btn { width: 32px; height: 32px; padding: 0; display: flex; align-items: center; justify-content: center; }
+.shape-btn.active { background: #007bff; border-color: #007bff; }
+/* left/z-index/look shared by every page; each page's own <style> adds just
+   a `top` offset (170px on rectangle-only puzzle pages, 338px on pages with
+   an extra #shapeToggle row above it). */
+#drawModeToggle { position: absolute; left: 10px; z-index: 1000; display: flex; flex-direction: column; gap: 6px;
+    background: rgba(26,26,26,0.85); border: 1px solid #444; border-radius: 4px; padding: 6px; }
+#drawModeToggle .shape-btn.icon-btn { width: 32px; height: 32px; padding: 0; display: flex; align-items: center; justify-content: center; }
+.edge-handle { width: 10px; height: 10px; background: #fff; border: 2px solid #007bff; border-radius: 2px;
+    box-shadow: 0 0 2px rgba(0,0,0,0.6); cursor: move; }
+.move-handle { width: 22px; height: 22px; background: #007bff; border: 2px solid #fff; border-radius: 50%;
+    box-shadow: 0 0 3px rgba(0,0,0,0.6); cursor: move; display: flex; align-items: center; justify-content: center; }
+.move-handle svg { pointer-events: none; }
+.btn-send { padding: 12px 20px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; margin-top: auto; }
+.btn-send:disabled { background: #444; cursor: not-allowed; }
+#status { padding: 10px; background: #2a2a2a; border-radius: 4px; font-size: 12px; text-align: center; }
+.sidebar-divider { width: 100%; border: none; border-top: 1px solid #444; margin: 0; }
+#advancedSection { border: 1px solid #444; border-radius: 4px; }
+#advancedSection summary { padding: 8px 10px; font-size: 12px; font-weight: bold; color: #ccc;
+    cursor: pointer; list-style: none; }
+#advancedSection summary::-webkit-details-marker { display: none; }
+#advancedSection summary::before { content: '▶'; display: inline-block; margin-right: 6px; font-size: 9px;
+    transition: transform 0.15s; }
+#advancedSection[open] summary::before { transform: rotate(90deg); }
+.field-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: #aaa; }
+.field-row input[type=number] { width: 64px; background: #2a2a2a; color: #eee; border: 1px solid #444; border-radius: 4px; padding: 4px 6px; }
+/* Shared by every "imported file(s)" sidebar list -- GPX trails, GeoJSON
+   boundaries, the imported SVG shape -- so a new list type only needs its
+   own #id in this selector list to pick up the same
+   collapsible-list-with-per-item-remove-button look. */
+#gpxList details, #geojsonList details, #svgShapeList details { border: 1px solid #444; border-radius: 4px; }
+#gpxList summary, #geojsonList summary, #svgShapeList summary { padding: 5px 8px; cursor: pointer; list-style: none; color: #ccc; }
+#gpxList summary::-webkit-details-marker, #geojsonList summary::-webkit-details-marker, #svgShapeList summary::-webkit-details-marker { display: none; }
+#gpxList summary::before, #geojsonList summary::before, #svgShapeList summary::before { content: '▶'; display: inline-block; margin-right: 6px; font-size: 9px;
+    transition: transform 0.15s; }
+#gpxList details[open] summary::before, #geojsonList details[open] summary::before, #svgShapeList details[open] summary::before { transform: rotate(90deg); }
+#gpxList .gpx-list-body, #geojsonList .gpx-list-body, #svgShapeList .gpx-list-body { padding: 0 8px 6px; }
+#gpxList .gpx-item, #geojsonList .gpx-item, #svgShapeList .gpx-item { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+#gpxList .gpx-item-name, #geojsonList .gpx-item-name, #svgShapeList .gpx-item-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1 1 auto; cursor: pointer; }
+.gpx-name-clip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#gpxList .gpx-item-name:hover, #geojsonList .gpx-item-name:hover, #svgShapeList .gpx-item-name:hover { color: #4da3ff; text-decoration: underline; }
+#gpxList .gpx-remove-btn, #geojsonList .gpx-remove-btn, #svgShapeList .gpx-remove-btn { width: 16px; height: 16px; flex-shrink: 0; display: flex; align-items: center;
+    justify-content: center; background: rgba(255,255,255,0.06); border: 1px solid #555; border-radius: 50%;
+    color: #ccc; font-size: 11px; font-weight: bold; line-height: 1; padding: 0; cursor: pointer; transition: all 0.15s; }
+#gpxList .gpx-remove-btn:hover, #geojsonList .gpx-remove-btn:hover, #svgShapeList .gpx-remove-btn:hover { background: #e74c3c; border-color: #e74c3c; color: #fff; }
+
+/* "Prefetch Elements" (assets/prefetch_layer.js) -- map generator pages only. */
+#prefetchInfo { display: none; font-size: 11px; color: #ccc; border: 1px solid #444; border-radius: 4px; padding: 4px 8px; }
+#prefetchInfo .prefetch-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; line-height: 1.9; }
+#prefetchInfo .prefetch-kind { cursor: pointer; display: flex; align-items: center; min-width: 0; }
+#prefetchInfo .prefetch-kind:hover { color: #4da3ff; }
+#prefetchInfo .prefetch-swatch { width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; flex-shrink: 0; border: 1px solid rgba(0,0,0,0.4); }
+#prefetchInfo .prefetch-count { cursor: pointer; color: #aaa; font-variant-numeric: tabular-nums; }
+#prefetchInfo .prefetch-count:hover { color: #fff; text-decoration: underline; }
+#elementStatus .prefetch-bar { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+/* Same understated look as the Settings gear next to the element chips. */
+.prefetch-bar-btn { flex-shrink: 0; background: none; border: 1px solid #444; border-radius: 4px; padding: 5px 12px;
+    color: #aaa; font-size: 13px; font-family: inherit; cursor: pointer; white-space: nowrap; }
+.prefetch-bar-btn:hover:not(:disabled) { background: rgba(255,255,255,0.08); border-color: #007bff; color: #eee; }
+.prefetch-bar-btn:disabled { opacity: 0.5; cursor: progress; }
+.prefetch-bar-btn.source-disabled:disabled { opacity: 0.35; cursor: not-allowed; }
+/* Fixed hover info for prefetched elements: bottom centre of the map. */
+#prefetchTip { display: none; position: absolute; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 1000;
+    max-width: 70%; padding: 6px 12px; background: rgba(32,32,32,0.92); border: 1px solid #555; border-radius: 4px;
+    color: #eee; font-size: 12px; text-align: center; pointer-events: none; }
+#prefetchTip small { color: #aaa; }
+/* Self-dismissing notice (e.g. Prefetch clicked with no element enabled). */
+#prefetchToast { position: absolute; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 1100;
+    max-width: 70%; padding: 8px 14px; background: rgba(32,32,32,0.95); border: 1px solid #cc8a2e; border-radius: 4px;
+    color: #eee; font-size: 12px; text-align: center; pointer-events: none;
+    opacity: 0; transition: opacity 0.25s; }
+#prefetchToast.show { opacity: 1; }
+/* Spinner shown inside the Prefetch button while elements are fetching/loading. */
+.prefetch-spinner { display: inline-block; width: 11px; height: 11px; margin-right: 7px; vertical-align: -1px;
+    border: 2px solid rgba(255,255,255,0.25); border-top-color: #4da3ff; border-radius: 50%;
+    animation: prefetch-spin 0.8s linear infinite; }
+@keyframes prefetch-spin { to { transform: rotate(360deg); } }
+#prefetchInfo .prefetch-subrow { padding-left: 16px; font-size: 10.5px; line-height: 1.7; }
+#prefetchInfo .prefetch-subrow .prefetch-swatch { width: 7px; height: 7px; }

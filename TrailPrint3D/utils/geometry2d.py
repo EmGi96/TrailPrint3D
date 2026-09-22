@@ -12,11 +12,15 @@ raises ImportError with a message that tells the user to reinstall from
 the latest .zip.
 """
 
+import math
+import time
 from typing import Any
 
 import bmesh  # type: ignore
 import bpy  # type: ignore
-from mathutils import Vector  # type: ignore
+import numpy as np  # type: ignore
+
+from .dataclasses import GenerationContext
 
 # These values are overwritten by _load_shapely() on success.
 _HAS_SHAPELY: bool = False
@@ -34,7 +38,7 @@ orient: Any = None
 prep: Any = None
 _make_valid_compat: Any = None
 _make_valid_v2: Any = None
-unary_union: Any = None
+union_all: Any = None
 polygonize: Any = None
 
 
@@ -47,10 +51,11 @@ def _load_shapely():
     global _HAS_SHAPELY, _SHAPELY_MAJOR, _SHAPELY_IMPORT_ERROR, _shapely
     global Polygon, MultiPolygon, LineString, MultiLineString, GeometryCollection
     global Point, box, orient, prep
-    global _make_valid_compat, _make_valid_v2, unary_union, polygonize
+    global _make_valid_compat, _make_valid_v2, union_all, polygonize
     try:
         import shapely as _shapely_mod
         from shapely import make_valid as _mv2
+        from shapely import union_all as _uu
         from shapely.geometry import (
             GeometryCollection as _GC,
         )
@@ -74,7 +79,6 @@ def _load_shapely():
         )
         from shapely.geometry.polygon import orient as _orient
         from shapely.ops import polygonize as _pg
-        from shapely.ops import unary_union as _uu
         from shapely.prepared import prep as _prep
         from shapely.validation import make_valid as _mvc
 
@@ -89,7 +93,7 @@ def _load_shapely():
         prep = _prep
         _make_valid_compat = _mvc
         _make_valid_v2 = _mv2
-        unary_union = _uu
+        union_all = _uu
         polygonize = _pg
         _shapely = _shapely_mod
         _HAS_SHAPELY = True
@@ -106,19 +110,6 @@ def _load_shapely():
 _load_shapely()
 if not _HAS_SHAPELY:
     print(f"[TrailPrint3D] Shapely import failed: {_SHAPELY_IMPORT_ERROR!r}")
-
-_np = None
-_earcut = None
-_HAS_EARCUT = False
-_EARCUT_IMPORT_ERROR: Exception | None = None
-try:
-    import mapbox_earcut as _earcut  # type: ignore
-    import numpy as _np  # type: ignore
-
-    _HAS_EARCUT = True
-except ImportError as _ee:
-    _EARCUT_IMPORT_ERROR = _ee
-    print(f"[TrailPrint3D] mapbox_earcut import failed: {_ee!r}")
 
 _SHAPELY_ERR = (
     "TrailPrint3D requires Shapely 2.x. "
@@ -167,18 +158,21 @@ def _require_shapely():
 # ---------------------------------------------------------------------------
 
 
-def validate(geom, method="structure", keep_collapsed=False):
+def validate(geom, method="structure", keep_collapsed=False, force=False):
     """Repair a Shapely geometry using make_valid(method='structure').
 
     'structure' treats outer rings as area and inner rings as holes, merges
     overlapping shells and subtracts holes — the correct behaviour for OSM
     polygons.  Returns the repaired geometry (Polygon / MultiPolygon /
     GeometryCollection).  Empty or None geometries pass through unchanged.
+
+    force=True bypasses the is_valid check — required for figure-8 self-touching
+    rings that Shapely considers valid but earcut triangulates incorrectly.
     """
     _require_shapely()
     if geom is None or geom.is_empty:
         return geom
-    if geom.is_valid:
+    if geom.is_valid and not force:
         return geom
     if _SHAPELY_MAJOR >= 2:
         return _make_valid_v2(geom, method=method, keep_collapsed=keep_collapsed)
@@ -201,6 +195,39 @@ def iter_polygons(geom, min_area=0.0):
             yield from iter_polygons(part, min_area)
 
 
+def drop_small_holes(geom, min_area):
+    """Remove interior holes (islands) below *min_area* from a Polygon or
+    MultiPolygon, folding those small land pockets back into the surrounding
+    area instead of leaving them punched out.
+
+    This is the polygon-with-holes equivalent of the min_area island-skip
+    logic in terrain.py::_polygonize_ocean_faces (which works from
+    face-classification instead, since it builds the ocean polygon up from
+    raw coastline chains rather than receiving a finished polygon) -- used
+    for ocean sources that hand back a ready-made water polygon with real
+    holes for islands, e.g. the global water-polygon dataset.
+    """
+    _require_shapely()
+    if geom is None or geom.is_empty or min_area <= 0:
+        return geom
+
+    def _fix_poly(p):
+        if not p.interiors:
+            return p
+        kept = [r for r in p.interiors if Polygon(r).area >= min_area]
+        if len(kept) == len(p.interiors):
+            return p
+        return Polygon(p.exterior, kept)
+
+    if isinstance(geom, Polygon):
+        return _fix_poly(geom)
+    if isinstance(geom, (MultiPolygon, GeometryCollection)):
+        return MultiPolygon(
+            [_fix_poly(p) for p in geom.geoms if isinstance(p, Polygon)]
+        )
+    return geom
+
+
 def union(geoms):
     """Return the unary union of *geoms* (list / iterable of Shapely geometries).
 
@@ -211,7 +238,7 @@ def union(geoms):
     valid = [g for g in geoms if g is not None and not g.is_empty]
     if not valid:
         return None
-    result = unary_union(valid)
+    result = union_all(valid)
     return result if not result.is_empty else None
 
 
@@ -226,6 +253,126 @@ def subtract(geom, neg_geom):
     if geom is None or geom.is_empty:
         return geom
     return geom.difference(neg_geom)
+
+
+def _smooth_polygon_taubin_pinned(geom, is_pinned, **taubin_kwargs):
+    """Core Taubin smoothing pass shared by smooth_polygon_taubin() and
+    smooth_polygon_taubin_bbox_pinned() -- smooths a Shapely Polygon or
+    MultiPolygon, restoring any vertex for which is_pinned(x, y) is True back
+    to its exact original coordinate after smoothing.
+
+    is_pinned -- callable(x, y) -> bool, so callers can pin against either a
+    shared outline boundary or a tile bbox edge.
+    taubin_kwargs -- passed straight through to shapelysmooth.taubin_smooth
+    (factor, mu, steps).
+    """
+    from shapelysmooth import taubin_smooth
+
+    _require_shapely()
+
+    def _smooth_ring(coords):
+        # Keep the ring CLOSED (first == last) when handing it to
+        # taubin_smooth -- that's how it distinguishes a closed ring from
+        # an open polyline. Stripping the closing point here would make it
+        # treat the seam as two endpoints instead of interior nodes.
+        pts = list(coords)
+        if len(pts) < 4:  # 3 real points + closing duplicate
+            return pts
+
+        pinned_mask = [is_pinned(px, py) for px, py in pts]
+        smoothed = taubin_smooth(pts, **taubin_kwargs)
+
+        result = [pts[i] if pinned_mask[i] else smoothed[i] for i in range(len(pts))]
+        result[-1] = result[0]  # guard against float drift breaking closure
+        return result
+
+    def _smooth_polygon(poly):
+        ext = _smooth_ring(list(poly.exterior.coords))
+        holes = [_smooth_ring(list(ir.coords)) for ir in poly.interiors]
+        try:
+            result = Polygon(ext, holes)
+            return validate(result) if not result.is_valid else result
+        except Exception as _exc:  # noqa: BLE001
+            print(
+                f"[TrailPrint3D] geometry2d: smoothing produced an invalid polygon, keeping original: {_exc!r}"
+            )
+            return poly
+
+    if geom is None or geom.is_empty:
+        return geom
+    if geom.geom_type == "Polygon":
+        return _smooth_polygon(geom)
+    if geom.geom_type in ("MultiPolygon", "GeometryCollection"):
+        flat = []
+        for part in iter_polygons(geom):
+            flat.extend(iter_polygons(_smooth_polygon(part)))
+        if not flat:
+            return geom
+        return flat[0] if len(flat) == 1 else MultiPolygon(flat)
+    return geom
+
+
+def smooth_polygon_taubin(
+    gen: GenerationContext, geom, pin_tolerance=1e-3, **taubin_kwargs
+):
+    """Smooth a Shapely Polygon or MultiPolygon using Taubin smoothing
+    (shapelysmooth), preserving vertex count/order so outline-touching
+    vertices can be pinned back to their exact original position afterward.
+
+    taubin_kwargs -- passed straight through to shapelysmooth.taubin_smooth
+    (factor, mu, steps). Omitted here to use the library's own defaults;
+    tune once you've seen real output.
+
+    Pins any vertex lying on gen.runtime.mapOutline's boundary (within
+    pin_tolerance) so touching elements stay stitched together at that edge.
+    """
+    _require_shapely()
+    outline = gen.runtime.mapOutline
+    # mapOutline is stored in the map object's LOCAL space (pre-transform); geom
+    # is in absolute Mercator space, so translate to match before pin-checking.
+    if outline is not None and gen.runtime.mapObject is not None:
+        from shapely.affinity import translate as _shp_translate
+
+        outline = _shp_translate(
+            outline,
+            xoff=gen.runtime.mapObject.location.x,
+            yoff=gen.runtime.mapObject.location.y,
+        )
+    pin_geom = (
+        outline.boundary
+        if outline is not None and hasattr(outline, "boundary")
+        else outline
+    )
+
+    def _is_pinned(px, py):
+        if pin_geom is None:
+            return False
+        return pin_geom.distance(Point(px, py)) <= pin_tolerance
+
+    return _smooth_polygon_taubin_pinned(geom, _is_pinned, **taubin_kwargs)
+
+
+def smooth_polygon_taubin_bbox_pinned(geom, bbox, pin_tolerance=1e-3, **taubin_kwargs):
+    """Smooth a Shapely Polygon or MultiPolygon using Taubin smoothing,
+    pinning any vertex lying on the edges of *bbox* (min_x, min_y, max_x,
+    max_y) back to its exact original coordinate.
+
+    Intended for per-tile geometry (e.g. the ocean mesh) whose boundary must
+    stay exactly on the tile's bbox so adjacent tiles keep stitching
+    together seamlessly -- only interior vertices actually move.
+    """
+    _require_shapely()
+    min_x, min_y, max_x, max_y = bbox
+
+    def _is_pinned(px, py):
+        return (
+            abs(px - min_x) <= pin_tolerance
+            or abs(px - max_x) <= pin_tolerance
+            or abs(py - min_y) <= pin_tolerance
+            or abs(py - max_y) <= pin_tolerance
+        )
+
+    return _smooth_polygon_taubin_pinned(geom, _is_pinned, **taubin_kwargs)
 
 
 def line_to_ribbon(coords_xy, half_width, cap_style="round", join_style="round"):
@@ -268,7 +415,7 @@ def polylines_to_ribbon(
     Buffering a MultiLineString already merges overlapping road areas into a
     single clean polygon, so there is no need to node/union the centrelines
     first -- a buffer is a Minkowski dilation of the underlying point set, and
-    `unary_union(lines).buffer(w)` yields the identical region as
+    `union_all(lines).buffer(w)` yields the identical region as
     `MultiLineString(lines).buffer(w)`.  Skipping that union avoids noding the
     entire network (computing every intersection), which for a dense city of
     ~200k nodes is by far the most expensive step.
@@ -359,38 +506,71 @@ def map_footprint_polygon(obj):
 
     # A closed solid map (base + side walls + top) has NO single-face edges, so
     # the above finds nothing. Fall back to the top-surface silhouette: an edge
-    # is on the outline when exactly one of its linked faces points upward (its
-    # other neighbour is a vertical wall). This recovers the map outline for a
-    # watertight terrain block.
+    # is on the outline when exactly one of its linked faces is a perimeter
+    # wall (its other neighbour is real terrain). This recovers the map
+    # outline for a watertight terrain block.
+    #
+    # A face's normal alone can't tell a perimeter wall from steep terrain --
+    # both can be near-vertical. What's unique to the extruded perimeter wall
+    # is that it's the only geometry spanning all the way down to the flat
+    # base plate (the solidify step always drops the base *below* the lowest
+    # terrain point, by minThickness); no terrain face, however steep, ever
+    # reaches that low. So classify by touching the base, not by normal --
+    # normal-based classification mistook steep cliffs/ridges for walls and
+    # carved holes out of the map outline there, silently dropping buildings
+    # and roads on steep terrain.
     if not segs:
+        world_zs = [(mw @ v.co).z for v in bm.verts]
+        z_min_mesh = min(world_zs) if world_zs else 0.0
+        z_eps = max(1e-4, 1e-4 * (max(world_zs) - z_min_mesh)) if world_zs else 1e-4
+
+        def _is_wall_face(f):
+            if abs(f.normal.normalized().z) >= 0.1:
+                return False  # not near-vertical -> definitely terrain
+            return min((mw @ v.co).z for v in f.verts) <= z_min_mesh + z_eps
+
         for e in bm.edges:
-            up = sum(1 for f in e.link_faces if f.normal.normalized().z > 0.5)
-            if up == 1:
+            wall_count = sum(1 for f in e.link_faces if _is_wall_face(f))
+            if wall_count == 1:
                 s = _seg(e)
                 if s is not None:
                     segs.append(s)
 
     bm.free()
-    if not segs:
-        return None
-    merged = unary_union(segs)
-    polys = list(polygonize(merged))
-    if not polys:
-        return None
-    # Union every polygon big enough to be real map area, not just the
-    # single biggest one -- a mesh with several disjoint islands (e.g. a
-    # pre-cut multi-tile puzzle blank) polygonizes into one boundary loop
-    # per island, and every one of them is genuine map area that OSM
-    # elements (roads/buildings) must still be clipped to. Small artifact
-    # loops (magnet-hole cutouts, etc.) are filtered relative to the
-    # largest piece found.
-    max_area = max(p.area for p in polys)
-    keep = [p for p in polys if p.area >= max_area * 0.01]
-    footprint = unary_union(keep)
-    return validate(footprint)
+    if segs:
+        merged = union_all(segs)
+        polys = list(polygonize(merged))
+        if polys:
+            # Union every polygon big enough to be real map area, not just the
+            # single biggest one -- a mesh with several disjoint islands (e.g. a
+            # pre-cut multi-tile puzzle blank) polygonizes into one boundary loop
+            # per island, and every one of them is genuine map area that OSM
+            # elements (roads/buildings) must still be clipped to. Small artifact
+            # loops (magnet-hole cutouts, etc.) are filtered relative to the
+            # largest piece found.
+            max_area = max(p.area for p in polys)
+            keep = [p for p in polys if p.area >= max_area * 0.01]
+            footprint = validate(union_all(keep))
+            if footprint is not None and not footprint.is_empty:
+                return footprint
+
+    # Boundary-edge tracing found nothing (or an open, non-polygonizable
+    # chain): a sharp/thin outline feature (e.g. the heart shape's cusp) can
+    # produce sliver wall faces whose near-degenerate normal fails the
+    # near-vertical wall test, leaving a gap in the traced ring. Fall back to
+    # projecting the solid's downward-facing faces (the base plate), which
+    # covers the full footprint regardless of how the walls triangulated.
+    footprint = footprint_with_holes(obj, down_only=True)
+    if footprint is not None and not footprint.is_empty:
+        return footprint
+    # A flat, single-layer map (no base/walls) has no downward faces at all --
+    # project every face instead as a last resort.
+    return footprint_with_holes(obj, down_only=False)
 
 
-def footprint_with_holes(obj, simplify_tol=None, down_only=False, method="structure", keep_collapsed=False):
+def footprint_with_holes(
+    obj, simplify_tol=None, down_only=False, method="structure", keep_collapsed=False
+):
     """Return the true 2D footprint of a mesh as a Shapely Polygon/MultiPolygon.
 
     Projects faces to the (x, y) plane and unions them.  Because the union is
@@ -433,7 +613,7 @@ def footprint_with_holes(obj, simplify_tol=None, down_only=False, method="struct
     bm.free()
     if not polys:
         return None
-    merged = unary_union(polys)
+    merged = union_all(polys)
     if merged.is_empty:
         return None
     if simplify_tol:
@@ -479,60 +659,60 @@ def _ring_coords_3d(ring):
     return [(x, y, 0.0) for x, y in coords]
 
 
-def _earcut_triangulate(exterior_xy, holes_xy):
-    """Triangulate a polygon-with-holes using mapbox_earcut.
+def _cdt_triangulate(polygon, exterior_xy, holes_xy):
+    """Triangulate using shapely.constrained_delaunay_triangles (GEOS 3.11+).
 
-    exterior_xy -- list of (x, y) for the outer ring (no closing duplicate)
-    holes_xy    -- list of lists of (x, y), one per hole (no closing dup)
+    Ring boundary vertices are pre-registered in the shared vertex array in
+    their original order so _extrude_flat_polygon's wall quads keep working.
+    CDT Steiner points (if any) are appended after the ring vertices.
 
-    Returns (verts2d, tris) where:
-      verts2d -- list of (x, y) tuples, the SHARED vertex array (outer ring
-                 first, then each hole appended in order)
-      tris    -- list of (i, j, k) index triples into verts2d
-
-    The triangulation references every vertex by index with NO duplication, so
-    the resulting 2D surface is manifold (interior edges shared by exactly two
-    triangles, ring edges by one).  Returns None on failure / degenerate input.
-
-    earcut is a modified ear-slicing algorithm that handles holes, concavity,
-    twisted polygons and self-intersections robustly -- the same engine trimesh
-    uses for Shapely -> mesh conversion.  Unlike mathutils.tessellate_polygon it
-    does not emit overlapping triangles or duplicate vertices for complex rings.
+    Returns (verts2d, tris, ring_idx_lists), or None.
     """
-    if not _HAS_EARCUT:
-        return None
-    verts2d = list(exterior_xy)
-    ring_ends = [len(verts2d)]
-    for hole in holes_xy:
-        verts2d.extend(hole)
-        ring_ends.append(len(verts2d))
-    if len(verts2d) < 3:
-        return None
-    arr = _np.array(verts2d, dtype=_np.float64).reshape(-1, 2)
-    rings = _np.array(ring_ends, dtype=_np.uint32)
+    _require_shapely()
     try:
-        idx = _earcut.triangulate_float64(arr, rings)
-    except Exception as _exc:  # noqa: BLE001
-        print(f"[TrailPrint3D] geometry2d: earcut triangulation failed: {_exc!r}")
+        tris_geom = _shapely.constrained_delaunay_triangles(polygon)
+    except Exception:  # noqa: BLE001 — AttributeError on old GEOS, others on degenerate input
         return None
-    if idx is None or len(idx) < 3:
+    if tris_geom is None or tris_geom.is_empty:
         return None
-    tris = [tuple(int(i) for i in idx[t : t + 3]) for t in range(0, len(idx) - 2, 3)]
-    if not tris:
-        return None
-    return verts2d, tris
+
+    verts2d = []
+    vert_map = {}
+
+    def _get(x, y):
+        k = (round(x, 8), round(y, 8))
+        if k not in vert_map:
+            vert_map[k] = len(verts2d)
+            verts2d.append((x, y))
+        return vert_map[k]
+
+    # Register ring vertices first, in order, and record the actual indices
+    # (dedup may collapse coincident coords, so we can't assume linear offsets).
+    ring_idx_lists = []
+    ext_idxs = [_get(x, y) for x, y in exterior_xy]
+    ring_idx_lists.append(ext_idxs)
+    for hole in holes_xy:
+        ring_idx_lists.append([_get(x, y) for x, y in hole])
+
+    tris = []
+    for tri in tris_geom.geoms:
+        if not isinstance(tri, Polygon):
+            continue
+        coords = list(tri.exterior.coords)[:-1]
+        if len(coords) != 3:
+            continue
+        ia = _get(coords[0][0], coords[0][1])
+        ib = _get(coords[1][0], coords[1][1])
+        ic = _get(coords[2][0], coords[2][1])
+        if ia == ib or ib == ic or ia == ic:
+            continue
+        tris.append((ic, ib, ia))  # reverse CW→CCW to match earcut's convention
+
+    return (verts2d, tris, ring_idx_lists) if tris else None
 
 
 def polygon_to_mesh(name, polygon):
     """Convert a Shapely Polygon to a flat Blender mesh object at z=0.
-
-    For polygons with holes the cap is triangulated with mapbox_earcut, which
-    shares every vertex by index and never emits overlapping triangles, so the
-    resulting 2D surface is manifold.  Extruding that surface (done by the
-    caller) yields a watertight manifold prism, which is required for the
-    MANIFOLD boolean against the terrain to work.
-
-    Falls back to mathutils.tessellate_polygon only if earcut is unavailable.
 
     Returns the new bpy.types.Object linked into the active collection, or
     None if the polygon is empty / degenerate.
@@ -552,84 +732,40 @@ def polygon_to_mesh(name, polygon):
     if holes:
         ext_xy = [(x, y) for x, y, _ in outer]
         holes_xy = [[(x, y) for x, y, _ in h] for h in holes]
-        ec = _earcut_triangulate(ext_xy, holes_xy)
-        if ec is not None:
-            verts2d, tris = ec
-            coords = [(x, y, 0.0) for x, y in verts2d]
-            mesh = bpy.data.meshes.new(name)
-            tobj = bpy.data.objects.new(name, mesh)
-            bpy.context.collection.objects.link(tobj)
-            mesh.from_pydata(coords, [], tris)
-            mesh.update()
-            # earcut "doesn't guarantee correctness" for self-touching rings; it
-            # can emit a few zero-area / overlapping sliver triangles that show up
-            # as non-manifold edges. Dissolve them. This runs on THIS cap's own
-            # fresh mesh only, so it never welds vertices across polygon parts
-            # (which is what previously created pinch-point non-manifold verts).
-            bm = bmesh.new()
-            bm.from_mesh(mesh)
-            bmesh.ops.dissolve_degenerate(bm, dist=1e-6, edges=bm.edges[:])
-            bm.to_mesh(mesh)
-            bm.free()
-            mesh.update()
-        else:
-            # Fallback: mathutils tessellation (earcut missing). Less robust --
-            # may produce non-manifold caps for complex holed polygons.
-            from mathutils.geometry import tessellate_polygon  # type: ignore
-
-            loops = [outer] + holes
-            veclists = [[Vector(p) for p in loop] for loop in loops]
-            all_coords = []
-            for loop in loops:
-                all_coords.extend(loop)
-            mtris = tessellate_polygon(veclists)
-            if not mtris:
-                return None
-            mesh = bpy.data.meshes.new(name)
-            tobj = bpy.data.objects.new(name, mesh)
-            bpy.context.collection.objects.link(tobj)
-            mesh.from_pydata(all_coords, [], [tuple(t) for t in mtris])
-            mesh.update()
-            bm = bmesh.new()
-            bm.from_mesh(mesh)
-            bmesh.ops.remove_doubles(bm, verts=bm.verts[:], dist=1e-5)
-            bmesh.ops.dissolve_degenerate(bm, dist=1e-5, edges=bm.edges[:])
-            bm.to_mesh(mesh)
-            bm.free()
-            mesh.update()
-    else:
-        # No holes: still triangulate properly via earcut so the BVH gets
-        # real triangles rather than a single NGON that gets fan-tessellated
-        # incorrectly for concave river/ribbon polygons.
-        ext_xy = [(x, y) for x, y, _ in outer]
-        ec = _earcut_triangulate(ext_xy, [])
+        ec = _cdt_triangulate(polygon, ext_xy, holes_xy)
+        if ec is None:
+            return None
+        verts2d, tris, _ring_idx_lists = ec
+        coords = [(x, y, 0.0) for x, y in verts2d]
         mesh = bpy.data.meshes.new(name)
         tobj = bpy.data.objects.new(name, mesh)
         bpy.context.collection.objects.link(tobj)
-        if ec is not None:
-            verts2d, tris = ec
-            coords = [(x, y, 0.0) for x, y in verts2d]
-            mesh.from_pydata(coords, [], tris)
-            mesh.update()
-            bm = bmesh.new()
-            bm.from_mesh(mesh)
-            bmesh.ops.dissolve_degenerate(bm, dist=1e-6, edges=bm.edges[:])
-            bm.to_mesh(mesh)
-            bm.free()
-            mesh.update()
-        else:
-            # earcut unavailable — fall back to single NGON (old behaviour)
-            bm = bmesh.new()
-            bm_verts = [bm.verts.new(c) for c in outer]
-            try:
-                bm.faces.new(bm_verts)
-            except ValueError:
-                bm.free()
-                bpy.data.meshes.remove(mesh)
-                bpy.data.objects.remove(tobj, do_unlink=True)
-                return None
-            bm.to_mesh(mesh)
-            bm.free()
+        mesh.from_pydata(coords, [], tris)
+        mesh.update()
+        bm = bmesh.new()
+        bm.from_mesh(mesh)
+        bmesh.ops.dissolve_degenerate(bm, dist=1e-6, edges=bm.edges[:])
+        bm.to_mesh(mesh)
+        bm.free()
+        mesh.update()
+    else:
+        ext_xy = [(x, y) for x, y, _ in outer]
+        ec = _cdt_triangulate(polygon, ext_xy, [])
+        mesh = bpy.data.meshes.new(name)
+        tobj = bpy.data.objects.new(name, mesh)
+        bpy.context.collection.objects.link(tobj)
+        if ec is None:
+            return None
+        verts2d, tris, _ = ec
+        coords = [(x, y, 0.0) for x, y in verts2d]
+        mesh.from_pydata(coords, [], tris)
+        mesh.update()
+        bm = bmesh.new()
+        bm.from_mesh(mesh)
+        bmesh.ops.dissolve_degenerate(bm, dist=1e-6, edges=bm.edges[:])
+        bm.to_mesh(mesh)
+        bm.free()
+        mesh.update()
 
     return tobj
 
@@ -889,3 +1025,298 @@ def debug_dump_mesh_footprint(
 
     debug_collection(collection_name).objects.link(debug_obj)
     return debug_obj
+
+
+# ---------------------------------------------------------------------------
+# Grid generation + grid/polygon clipping
+#
+# Shared by roads (clipping the terrain's own triangulated grid to a road
+# footprint) and by primitives.build_mesh_from_polygon (clipping a flat
+# lattice to any shape/GeoJSON/combined polygon) -- one clip implementation
+# instead of one per caller.
+# ---------------------------------------------------------------------------
+
+from shapely import (
+    area as _sh_area,
+)
+from shapely import (
+    contains as _sh_contains,
+)
+from shapely import (
+    get_num_coordinates as _sh_get_num_coordinates,
+)
+from shapely import (
+    get_num_geometries as _sh_get_num_geometries,
+)
+from shapely import (
+    intersects as _sh_intersects,
+)
+from shapely import (
+    is_valid as _sh_is_valid,
+)
+from shapely import (
+    polygons as _sh_polygons,
+)
+from shapely import (
+    prepare as _sh_prepare,
+)
+
+
+def build_triangular_lattice(
+    bounds: tuple[float, float, float, float],
+    cell_size: float,
+    max_cells: int = 10_000_000,
+):
+    """Build a regular triangular lattice covering *bounds* (minx, miny, maxx,
+    maxy), each grid cell split into 2 triangles, flat at z=0.
+
+    Returns an (T, 3, 3) ndarray -- T triangles, 3 verts each, 3 coords each
+    -- the same per-triangle-independent layout _triangulated_terrain_faces'
+    plain list produces, just as an array instead of nested tuples, so it
+    plugs directly into clip_triangles_to_polygon with no adapter needed
+    (its first step is np.asarray(triangles, ...), a free no-op on an array
+    already in this shape/dtype).
+
+    A tiny bit of overscan (half a cell past each edge) keeps boundary
+    triangles fully covering the polygon edge so the clip's slow/CDT path
+    isn't left with a sliver gap at the boundary.
+
+    Built with numpy (not a Python nested loop) -- at high num_subdivisions
+    callers can request millions of cells, and a pure-Python loop building
+    that many tuples is itself minutes slow before clip_triangles_to_polygon
+    even starts. max_cells is a hard backstop on top of that: cell_size gets
+    scaled up (coarser) just enough to land at or under the budget, since
+    callers (see primitives.create_*) derive cell_size from num_subdivisions
+    with exponential growth, and that field allows values well above its
+    slider (soft_max=10, max=50) that would otherwise generate an unbounded
+    lattice with no warning.
+    """
+    minx, miny, maxx, maxy = bounds
+    if cell_size <= 0 or maxx <= minx or maxy <= miny:
+        return []
+
+    pad = cell_size * 0.5
+    minx, miny = minx - pad, miny - pad
+    maxx, maxy = maxx + pad, maxy + pad
+
+    nx = max(1, math.ceil((maxx - minx) / cell_size))
+    ny = max(1, math.ceil((maxy - miny) / cell_size))
+
+    if nx * ny > max_cells:
+        scale = math.sqrt((nx * ny) / max_cells)
+        cell_size *= scale
+        nx = max(1, math.ceil((maxx - minx) / cell_size))
+        ny = max(1, math.ceil((maxy - miny) / cell_size))
+        print(
+            f"[TP3D lattice] requested lattice exceeded {max_cells} cells -- "
+            f"clamped cell_size to {cell_size:.4f} ({nx}x{ny} cells) to keep "
+            "generation tractable"
+        )
+
+    xs = minx + np.arange(nx + 1) * cell_size  # (nx+1,)
+    ys = miny + np.arange(ny + 1) * cell_size  # (ny+1,)
+
+    # Corners of every cell as 4 same-shaped (ny, nx) arrays -- a uniform
+    # lattice, so no per-vertex elevation lookup needed (unlike terrain).
+    x0 = np.tile(xs[:-1], (ny, 1))
+    x1 = np.tile(xs[1:], (ny, 1))
+    y0 = np.tile(ys[:-1].reshape(-1, 1), (1, nx))
+    y1 = np.tile(ys[1:].reshape(-1, 1), (1, nx))
+
+    z = np.zeros_like(x0)
+    p00 = np.stack([x0, y0, z], axis=-1)
+    p10 = np.stack([x1, y0, z], axis=-1)
+    p01 = np.stack([x0, y1, z], axis=-1)
+    p11 = np.stack([x1, y1, z], axis=-1)
+
+    tri_a = np.stack([p00, p10, p11], axis=-2)  # (ny, nx, 3, 3)
+    tri_b = np.stack([p00, p11, p01], axis=-2)  # (ny, nx, 3, 3)
+    # Returned as an (T, 3, 3) ndarray, NOT converted to nested Python
+    # tuples -- clip_triangles_to_polygon's first step is np.asarray(...)
+    # anyway, which is a free no-op passthrough on an array already in this
+    # shape/dtype, whereas building nested tuples here only to immediately
+    # convert them straight back was pure overhead (~3s at 500k triangles,
+    # for zero benefit -- every other consumer only ever indexes tri[i][j],
+    # which an ndarray supports identically to a tuple).
+    return np.concatenate([tri_a.reshape(-1, 3, 3), tri_b.reshape(-1, 3, 3)], axis=0)
+
+
+def _bary_z(tri: tuple, x: float, y: float) -> float:
+    """Interpolate Z at (x, y) inside a flat 3-D triangle via barycentric coords."""
+    (x0, y0, z0), (x1, y1, z1), (x2, y2, z2) = tri
+    d = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2)
+    if abs(d) < 1e-12:
+        return (z0 + z1 + z2) / 3.0
+    w0 = ((y1 - y2) * (x - x2) + (x2 - x1) * (y - y2)) / d
+    w1 = ((y2 - y0) * (x - x2) + (x0 - x2) * (y - y2)) / d
+    w2 = 1.0 - w0 - w1
+    return w0 * z0 + w1 * z1 + w2 * z2
+
+
+def clip_triangles_to_polygon(
+    triangles: list,
+    polygon,
+    z_offset: float = 0.0,
+) -> tuple[list[tuple[float, float, float]], list[tuple[int, int, int]]]:
+    """Clip a flat triangle list (see build_triangular_lattice /
+    osm.roads._triangulated_terrain_faces) to a 2-D polygon (holes included),
+    returning a deduped indexed mesh: (verts, tris).
+
+    Relocated from osm.roads._clip_terrain_grid_to_polygon -- unchanged in
+    behavior. Was terrain-specific in name only; the triangle input already
+    carries its own Z per vertex (interpolated via barycentric coords for
+    boundary-straddling triangles), which for a flat z=0 lattice just always
+    resolves to 0 -- z_offset works identically as a uniform height offset
+    for both use cases.
+    """
+    import shapely
+
+    if polygon is None or polygon.is_empty:
+        return [], []
+
+    _sh_prepare(polygon)  # cached prepared geometry, used automatically below
+
+    tri_arr = np.asarray(triangles, dtype=np.float64)  # (T, 3, 3)
+    if tri_arr.size == 0:
+        return [], []
+
+    px0, py0, px1, py1 = polygon.bounds
+    xs, ys = tri_arr[:, :, 0], tri_arr[:, :, 1]
+    bbox_mask = (
+        (xs.max(axis=1) >= px0)
+        & (xs.min(axis=1) <= px1)
+        & (ys.max(axis=1) >= py0)
+        & (ys.min(axis=1) <= py1)
+    )
+    cand_idx = np.nonzero(bbox_mask)[0]
+    if cand_idx.size == 0:
+        return [], []
+
+    ring = tri_arr[cand_idx][:, :, :2]  # (C, 3, 2)
+    ring_closed = np.concatenate([ring, ring[:, :1, :]], axis=1)  # (C, 4, 2)
+    tri_polys_arr = _sh_polygons(ring_closed)
+
+    valid_mask = _sh_is_valid(tri_polys_arr) & (_sh_area(tri_polys_arr) > 1e-12)
+    cand_idx = cand_idx[valid_mask]
+    tri_polys_arr = tri_polys_arr[valid_mask]
+    if cand_idx.size == 0:
+        return [], []
+
+    contains_mask = _sh_contains(polygon, tri_polys_arr)
+    intersects_mask = _sh_intersects(polygon, tri_polys_arr) & ~contains_mask
+    n_poly_coords = _sh_get_num_coordinates(polygon)
+    n_poly_parts = _sh_get_num_geometries(polygon)
+    print(
+        f"[TP3D clip] clip diag: candidates={len(cand_idx)} contains={int(contains_mask.sum())} "
+        f"intersects_only={int(intersects_mask.sum())} polygon_coords={n_poly_coords} polygon_parts={n_poly_parts}"
+    )
+    _fast_t0 = time.time()
+    out_verts: list[tuple[float, float, float]] = []
+    out_tris: list[tuple[int, int, int]] = []
+    vert_cache: dict[tuple[float, float, float], int] = {}
+
+    def _get_vert(x: float, y: float, z: float) -> int:
+        key = (round(x, 5), round(y, 5), round(z, 5))
+        idx = vert_cache.get(key)
+        if idx is None:
+            idx = len(out_verts)
+            out_verts.append((x, y, z))
+            vert_cache[key] = idx
+        return idx
+
+    # Fast path: triangles fully inside -- no per-triangle Shapely calls needed
+    fast_idx = cand_idx[contains_mask]
+    if fast_idx.size:
+        fast_tris = tri_arr[fast_idx].copy()  # (F, 3, 3)
+        fast_tris[:, :, 2] += z_offset
+        rounded = np.round(fast_tris.reshape(-1, 3), 5)  # (F*3, 3)
+        uniq, inverse = np.unique(rounded, axis=0, return_inverse=True)
+        uniq_list = [tuple(v) for v in uniq.tolist()]  # native python floats
+        out_verts.extend(uniq_list)
+        vert_cache.update((v, i) for i, v in enumerate(uniq_list))
+        out_tris.extend(tuple(row) for row in inverse.reshape(-1, 3).tolist())
+    print(f"[TP3D clip] clip diag: fast-path loop took {time.time() - _fast_t0:.2f}s")
+
+    # Slow path: vectorized intersection across all boundary triangles at once
+    slow_cand = cand_idx[intersects_mask]
+    slow_polys = tri_polys_arr[intersects_mask]
+
+    if slow_cand.size > 0:
+        intersections = shapely.intersection(slow_polys, polygon)
+
+        for i, inter in zip(slow_cand, intersections):
+            if inter.is_empty:
+                continue
+            tri = triangles[i]
+            for part in iter_polygons(inter):
+                part = orient(part, sign=1.0)
+                ext = list(part.exterior.coords)[:-1]
+                if len(ext) < 3:
+                    continue
+                holes = [
+                    list(r.coords)[:-1] for r in part.interiors if len(r.coords) >= 4
+                ]
+                ec = _cdt_triangulate(part, ext, holes)
+                if ec is None:
+                    continue
+                verts2d_part, tris_part, _ = ec
+                local_idx = []
+                for vx, vy in verts2d_part:
+                    vz = _bary_z(tri, vx, vy) + z_offset
+                    local_idx.append(_get_vert(vx, vy, vz))
+                for a, b, c in tris_part:
+                    out_tris.append((local_idx[a], local_idx[b], local_idx[c]))
+
+    print(
+        f"[TP3D clip] clip diag: cdt-fallback loop took {time.time() - _fast_t0:.2f}s"
+    )
+    return out_verts, out_tris
+
+
+def group_boundary_loops(edges):
+    """Sort unsorted boundary edges into ordered vertex loops."""
+    adj = {}
+    for e in edges:
+        for v in e.verts:
+            adj.setdefault(v, []).append(e)
+
+    visited_edges = set()
+    loops = []
+
+    for start_edge in edges:
+        if start_edge in visited_edges:
+            continue
+
+        loop = []
+        curr_edge = start_edge
+        curr_v = curr_edge.verts[0]
+
+        while curr_edge not in visited_edges:
+            visited_edges.add(curr_edge)
+            loop.append(curr_v)
+            next_v = curr_edge.other_vert(curr_v)
+
+            next_edge = None
+            for e in adj.get(next_v, []):
+                if e not in visited_edges:
+                    next_edge = e
+                    break
+
+            curr_v = next_v
+            if next_edge is None:
+                break
+            curr_edge = next_edge
+
+        if len(loop) >= 3:
+            loops.append(loop)
+
+    return loops
+
+
+def get_map_polygon(obj) -> Polygon | MultiPolygon | None:
+    """Retrieve the original 2D Shapely polygon stored on a map object."""
+    from shapely import wkt
+
+    if obj and "map_polygon_wkt" in obj:
+        return wkt.loads(obj["map_polygon_wkt"])
+    return None

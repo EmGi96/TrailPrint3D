@@ -25,14 +25,22 @@ FARMLAND_MAXSIZE = 200
 GLACIER_MAXSIZE = 1000
 BUILDINGS_MAXSIZE = 30
 BUILDINGS_MIN_PRINT_MM = 0.15 # Buildings whose PRINTED footprint side is smaller than this are culled, scales with map size.
-ROADS_MAXSIZE = 500
-COASTLINE_MAXSIZE = 1000
-STREETS_MAJOR_ONLY_THRESHOLD = 100   # above this mapsize: motorway+trunk only
-STREETS_PRIMARY_THRESHOLD = 40       # above this mapsize: + primary+secondary
+ROADS_MAXSIZE = 500                  # dense + sparse road tiers dropped entirely above this mapsize
+COASTLINE_MAXSIZE = 350
+# Above COASTLINE_MAXSIZE, ocean is built from the prebuilt global OSMData
+# water-polygon dataset (STRtree query, no Overpass fetch) instead of being
+# skipped outright. The dataset itself is only meant for zoom 0-9 (i.e. large
+# / low-detail views), which is exactly the map-size regime this covers, so
+# there's no strong reason to cap it the way the Overpass path is capped --
+# leave generous headroom and tighten later if profiling on a real huge map
+# says otherwise.
+COASTLINE_WATERPOLY_MAXSIZE = 20000
+STREETS_PRIMARY_THRESHOLD = 40       # dense-tier roads (residential/service/footway/cycle_bridle/path)
+                                      # dropped above this mapsize to avoid width-scaled roads fusing
+                                      # into solid blocks on zoomed-out maps; sparse tiers (highways/
+                                      # major/minor/track) are unaffected until ROADS_MAXSIZE
 
-# Single-color element recess gap. The terrain recess cut for each color
-# is dilated outward by toleranceElements * this factor. Setting to 0 will disable.
-SCM_ELEMENT_GAP_FACTOR = 0.3
+
 
 _elevation_cache = {}
 specialCollection = []
@@ -57,6 +65,13 @@ overpass_cache_dir = os.path.join(bpy.utils.user_resource('CONFIG'), "TrailPrint
 # Set up a cache for computed elevation arrays (per-map vertex elevations)
 elevation_results_dir = os.path.join(bpy.utils.user_resource('CONFIG'), "TrailPrint3D_Cache","elevation_results")
 
+# Set up a cache for downloaded satellite imagery crops
+satellite_cache_dir = os.path.join(bpy.utils.user_resource('CONFIG'), "TrailPrint3D_Cache","satellite_cache")
+
+# Set up a cache for the global OSMData water-polygon dataset (downloaded zip is
+# converted once to a WKB GeometryCollection and only the WKB is kept)
+water_cache_dir = os.path.join(bpy.utils.user_resource('CONFIG'), "TrailPrint3D_Cache","water_cache")
+
 #Set up a folder for Presets
 preset_dir = os.path.join(bpy.utils.user_resource('CONFIG'), "TP3D-presets")
 
@@ -67,6 +82,8 @@ def _ensure_dirs():
     os.makedirs(terrarium_cache_dir, exist_ok=True)
     os.makedirs(overpass_cache_dir, exist_ok=True)
     os.makedirs(elevation_results_dir, exist_ok=True)
+    os.makedirs(satellite_cache_dir, exist_ok=True)
+    os.makedirs(water_cache_dir, exist_ok=True)
     os.makedirs(preset_dir, exist_ok=True)
 
 

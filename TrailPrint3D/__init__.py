@@ -7,7 +7,16 @@ import os
 
 import bpy
 
-from . import addon_preferences, progress, props, temp, translation, updater, utils
+from . import (
+    addon_preferences,
+    panel_guides,
+    progress,
+    props,
+    temp,
+    translation,
+    updater,
+    utils,
+)
 from . import constants as const
 
 try:
@@ -24,13 +33,14 @@ from . import export, operators, panels
 # resetting PREMIUMVERSION = False) cannot break detection.
 classes = [
     progress.TP3D_OT_warnings_mouse,
+    panels.TP3D_UL_road_types,
+    *panel_guides.classes,
     panels.TP3D_PT_generate,
     panels.TP3D_PT_advanced,
-    panels.TP3D_PT_shapes,
     panels.TP3D_OT_show_custom_props_popup,
+    panels.TP3D_MT_generators_menu,
     operators.TP3D_OT_run_generation,
     operators.TP3D_OT_shapely_status,
-    operators.TP3D_OT_earcut_status,
     operators.TP3D_OT_export_stl,
     operators.TP3D_OT_export_obj,
     operators.TP3D_OT_export_three_mf,
@@ -60,6 +70,10 @@ classes = [
     operators.TP3D_OT_install_three_mf,
     operators.TP3D_OT_pick_gpx_file,
     operators.TP3D_OT_pick_svg_file,
+    operators.TP3D_OT_pick_font_file,
+    operators.TP3D_OT_pick_dem_path,
+    operators.TP3D_OT_pick_svg_shape_file,
+    operators.TP3D_OT_pick_geojson_shape_file,
     operators.TP3D_OT_check_update,
     operators.TP3D_OT_install_update,
     operators.TP3D_OT_open_premium_update,
@@ -67,6 +81,7 @@ classes = [
     operators.TP3D_OT_remake_buildings,
     operators.TP3D_OT_remake_roads,
     operators.TP3D_OT_puzzle_configurator,
+    operators.TP3D_OT_map_generator,
     operators.TP3D_OT_special_collection,
     operators.TP3D_OT_append_collection,
     operators.TP3D_OT_append_collection_blank,
@@ -88,18 +103,18 @@ _PREMIUM_CLASS_NAMES = [
     "TP3D_OT_import_height_map",
     "TP3D_OT_popup_heightmap",
     "TP3D_OT_map_picker",
+    "TP3D_OT_sliding_puzzle_configurator",
 ]
 
 
-
-
 @persistent
-def startup_function(scene, dummy = None):
+def startup_function(scene, dummy=None):
 
     print("Trailprint3D Launching Startup functions")
 
     for scn in bpy.data.scenes:
         props.repair_invalid_shape(scn)
+        props.ensure_road_types(scn.tp3d)
 
     utils.loadCollections(scene, dummy)
 
@@ -111,7 +126,8 @@ def startup_function(scene, dummy = None):
         else:
             updater.start_check()
 
-    #utils.load_myproperties_from_csv(bpy.context.scene.preset_list)
+    # utils.load_myproperties_from_csv(bpy.context.scene.preset_list)
+
 
 def register():
     # Ensure cache/preset dirs exist before anything else uses them.
@@ -120,19 +136,28 @@ def register():
     # Detect premium here — register() is called after Blender finishes reloading
     # all submodules, so temp.py can no longer reset PREMIUMVERSION to False after us.
     _addon_dir = os.path.dirname(__file__)
-    temp.PREMIUMVERSION = os.path.exists(os.path.join(_addon_dir, "premium", "operators_pe.py"))
+    temp.PREMIUMVERSION = os.path.exists(
+        os.path.join(_addon_dir, "premium", "operators_pe.py")
+    )
 
     ops_pe = None
     if temp.PREMIUMVERSION:
         try:
             import importlib
-            importlib.import_module(".premium.utils_pe", __package__)   # loads into sys.modules
+
+            importlib.import_module(
+                ".premium.utils_pe", __package__
+            )  # loads into sys.modules
             ops_pe = importlib.import_module(".premium.operators_pe", __package__)
         except ImportError as e:
             print(f"TrailPrint3D: Error loading premium modules: {e}")
             temp.PREMIUMVERSION = False
 
     bpy.utils.register_class(addon_preferences.TP3D_AddonPreferences)
+    # TP3D_RoadTypeItem must be registered before TP3D_PG_properties -- the
+    # latter's road_types = CollectionProperty(type=TP3D_RoadTypeItem) needs
+    # that type to already be a registered RNA struct.
+    bpy.utils.register_class(props.TP3D_RoadTypeItem)
     bpy.utils.register_class(props.TP3D_PG_properties)
     bpy.app.translations.register(const.ADDON_NAME, translation.translations_dict)
     bpy.types.Scene.tp3d = bpy.props.PointerProperty(type=props.TP3D_PG_properties)
@@ -149,6 +174,9 @@ def register():
             cls = getattr(ops_pe, name, None)
             if cls:
                 bpy.utils.register_class(cls)
+
+    panels.remove_tp3d_viewport_menu()
+    bpy.types.VIEW3D_MT_editor_menus.append(panels.draw_tp3d_viewport_menu)
 
     bpy.app.handlers.load_post.append(startup_function)
 
@@ -171,6 +199,7 @@ def _load_collections_deferred():
         # Implicitly returns None, so the timer only runs once
         for scn in bpy.data.scenes:
             props.repair_invalid_shape(scn)
+            props.ensure_road_types(scn.tp3d)
         utils.loadCollections(None, None)
     except (AttributeError, RuntimeError, ReferenceError) as e:
         print(f"TrailPrint3D: deferred collection load failed: {e}")
@@ -179,8 +208,18 @@ def _load_collections_deferred():
 def unregister():
     bpy.app.translations.unregister(const.ADDON_NAME)
 
+    panels.remove_tp3d_viewport_menu()
+
+    # Clear any open windows and/or popups.
+    # The warnings overlay specifically would get stuck in the viewport
+    # if it wasn't dismissed before the addon is unregistered.
+    progress.ProgressOverlay.get().finish()
+    progress.WarningsOverlay.get().finish()
+    progress.WarningsOverlay.clear()
+
     if temp.PREMIUMVERSION:
         import sys
+
         ops_pe = sys.modules.get(f"{__package__}.premium.operators_pe")
         if ops_pe:
             for name in reversed(_PREMIUM_CLASS_NAMES):
@@ -203,6 +242,11 @@ def unregister():
         pass
 
     try:
+        bpy.utils.unregister_class(props.TP3D_RoadTypeItem)
+    except RuntimeError:
+        pass
+
+    try:
         bpy.utils.unregister_class(addon_preferences.TP3D_AddonPreferences)
     except RuntimeError:
         pass
@@ -221,4 +265,3 @@ def unregister():
         del bpy.types.Scene.preset_list
     except AttributeError:
         pass
-

@@ -19,6 +19,7 @@ import pathlib
 import subprocess
 import sys
 import tempfile
+import textwrap
 import time
 
 import blf
@@ -158,6 +159,7 @@ class ProgressOverlay:
     COL_FETCH_IDLE = (0.25, 0.25, 0.25, 1.00)
     FETCH_COLORS = {
         'elevation':  (0.25, 0.45, 0.70, 1.00),
+        'landcover':  (0.42, 0.62, 0.30, 1.00),
         'forest':     (0.20, 0.58, 0.25, 1.00),
         'water':      (0.18, 0.48, 0.80, 1.00),
         'scree':      (0.52, 0.42, 0.32, 1.00),
@@ -523,7 +525,7 @@ class WarningsOverlay:
         icon: "warn" (yellow !), "error" (red ✗), "ok" (green ✓)
 
         Duplicate (message, icon) pairs are collapsed to one entry --
-        generating several tiles in one batch (multitile configurator)
+        generating several tiles in one batch (multitile generator)
         otherwise repeats the same warning once per tile.
         """
         entry = (message, icon)
@@ -575,6 +577,16 @@ class WarningsOverlay:
         r    = self.RADIUS
         x    = self.MARGIN_X
         y    = self.MARGIN_Y
+        
+        max_chars=60
+        wrapped_msgs = []
+        for msg, icon in msgs:
+            lines=textwrap.wrap(msg, width=max_chars) or [""]
+            wrapped_msgs.append((lines, icon))
+            
+        # Dynamic height calculation based on total wrapped text lines
+        total_lines = sum(len(lines) for lines, _ in wrapped_msgs)
+        h = self.HEADER_H + self.PAD + (total_lines * self.ROW_H) + self.PAD
 
         gpu.state.blend_set('ALPHA')
 
@@ -594,12 +606,20 @@ class WarningsOverlay:
         _text("Info", x + p, label_y, 13, self.COL_ACCENT)
         _text_right("click to dismiss", x + self.W - p, label_y, 11, self.COL_MUTED)
 
-        # Warning rows (newest at top)
-        for i, (msg, icon) in enumerate(msgs):
-            row_y = y + p + (n - 1 - i) * self.ROW_H
+        # Warning rows (drawn bottom to top, newest at top)
+        cur_y = y + p
+        for lines, icon in reversed(wrapped_msgs):
             char, col = self.ICONS.get(icon, self.ICONS["warn"])
-            _text(char, x + p,      row_y + 3, 11, col)
-            _text(msg,  x + p + 14, row_y + 3, 11, self.COL_TEXT)
+            
+            # Draw lines of the entry bottom-up
+            for line_idx, line in enumerate(reversed(lines)):
+                # Draw the icon only on the top/first line of the message
+                is_first_line = (line_idx == len(lines) - 1)
+                if is_first_line:
+                    _text(char, x + p, cur_y + 3, 11, col)
+                
+                _text(line, x + p + 14, cur_y + 3, 11, self.COL_TEXT)
+                cur_y += self.ROW_H
 
         gpu.state.blend_set('NONE')
 

@@ -1,4 +1,3 @@
-import math
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -6,33 +5,45 @@ from dataclasses import dataclass, field
 import bmesh  # type: ignore
 import bpy  # type: ignore
 import numpy as np  # type: ignore
-from mathutils import Vector  # type: ignore
 from shapely import make_valid
-from shapely.geometry.polygon import orient
 
-from ... import progress as _progress
+from ...progress import WarningsOverlay as warning
 from .. import geometry2d as g2d
-from .fetch_solo import fetch_tier_polylines
+from ..dataclasses import GenerationContext, GenerationError
 
 # ---------------------------------------------------------------------------
 # Module-level constants
 # ---------------------------------------------------------------------------
 
 TIER_TAGS: dict[str, set[str]] = {
-    "big": {"motorway", "primary", "motorway_link", "primary_link"},
-    "medium": {
+    "highways": {"motorway", "motorway_link"},
+    "major": {"trunk", "primary", "trunk_link", "primary_link"},
+    "minor": {
         "secondary",
         "tertiary",
         "secondary_link",
         "tertiary_link",
         "unclassified",
-        "trunk",
-        "trunk_link",
     },
-    "small": {"residential", "living_street"},
+    "residential": {"residential", "living_street"},
     "service": {"service"},
     "footway": {"footway"},
+    "cycle_bridle": {"cycleway", "bridleway"},
+    "track": {"track"},
+    "path": {"path"},
 }
+
+# Dense, short-segment tiers -- dropped above STREETS_PRIMARY_THRESHOLD to
+# avoid width-scaled roads fusing into solid blocks on zoomed-out maps.
+DENSE_TIERS: frozenset[str] = frozenset(
+    {"residential", "service", "footway", "cycle_bridle", "path"}
+)
+
+# Sparse, long-segment tiers -- survive up to ROADS_MAXSIZE. Tracks are
+# usually a handful of long rural/wilderness lines (often the one trail a
+# user actually wants) rather than urban clutter, so they get the same
+# headroom as the arterial road network instead of the dense-tier cutoff.
+SPARSE_TIERS: frozenset[str] = frozenset({"highways", "major", "minor", "track"})
 
 ALLEY_SERVICE_TYPES: frozenset[str] = frozenset(
     {"alley", "driveway", "parking_aisle", "drive-through"}
@@ -53,6 +64,8 @@ class RoadConfig:
     max_lat: float
     max_lon: float
     street_width_multiplier: float
+    # Always True (see from_scene) -- alley/driveway/parking_aisle filtering
+    # isn't user-configurable, just always-on cleanup of Service Roads.
     exclude_alleys: bool
     tier_active: dict[str, bool] = field(
         default_factory=lambda: {t: True for t in TIER_TAGS}
@@ -60,21 +73,23 @@ class RoadConfig:
 
     @classmethod
     def from_scene(cls, tp3d, full_depth: bool = False) -> "RoadConfig":
-        tier_active = {
-            "big": bool(tp3d.el_sBigActive),
-            "medium": bool(tp3d.el_sMedActive),
-            "small": bool(tp3d.el_sSmallActive),
-            "service": bool(tp3d.el_sServiceActive),
-            "footway": bool(tp3d.el_sFootwaysActive),
-        }
+        from ...props import get_road_active  # deferred to avoid circular import at load time
+
+        tier_active = {tier: get_road_active(tp3d, tier) for tier in TIER_TAGS}
+
         if full_depth:
-            if tier_active["service"] or tier_active["footway"]:
-                print(
-                    "[TP3D roads] full_depth mode: excluding service/footway tiers "
-                    "(too dense to remesh cleanly as a standalone piece)"
+            # Same reasoning as the old service/footway exclusion: cycle_bridle
+            # and path are similarly dense thin-line tiers that don't remesh
+            # cleanly as a standalone full-depth piece. Track is exempt --
+            # it behaves like the sparse arterial tiers (long, few segments).
+            _too_dense_for_full_depth = {"service", "footway", "cycle_bridle", "path"}
+            if any(tier_active[t] for t in _too_dense_for_full_depth):
+                warning.add_warning(
+                    "[TP3D roads] full_depth mode: excluding service/footway/cycle_bridle/path "
+                    "tiers (too dense to remesh cleanly as a standalone piece)"
                 )
-            tier_active["service"] = False
-            tier_active["footway"] = False
+            for t in _too_dense_for_full_depth:
+                tier_active[t] = False
 
         return cls(
             min_lat=tp3d.minLat,
@@ -82,7 +97,7 @@ class RoadConfig:
             max_lat=tp3d.maxLat,
             max_lon=tp3d.maxLon,
             street_width_multiplier=tp3d.el_sMultiplier,
-            exclude_alleys=bool(tp3d.el_sExcludeAlleys),
+            exclude_alleys=True,
             tier_active=tier_active,
         )
 
@@ -165,15 +180,15 @@ def _buffer_tiers_to_polygons(
     (including holes = city blocks) into triangles.
 
     Per-segment buffering → no self-intersecting prisms at intersections.
-    Per-tier unary_union first → Shapely's spatial index works on smaller sets.
+    Per-tier union first → Shapely's spatial index works on smaller sets.
     Final cross-tier union → single clean 2-D road footprint.
     make_valid instead of buffer(0) → preserves geometry, handles GEOS quirks.
 
     Returns (flat_verts_2d, triangle_faces, road_union_polygon). The polygon is
     returned too so the caller can later clip the terrain's own grid to the
-    exact same 2-D shape (see finalize_roads / _clip_terrain_grid_to_polygon).
+    exact same 2-D shape (see finalize_roads / geometry2d.clip_triangles_to_polygon).
     """
-    from shapely.ops import unary_union
+    from ..geometry2d import union
 
     tier_unions = []
 
@@ -196,14 +211,14 @@ def _buffer_tiers_to_polygons(
                 continue
             if not buf.is_valid:
                 # buf = make_valid(buf, method="structure")
-                buf = unary_union(buf)
+                buf = union(buf)
             if buf and not buf.is_empty:
                 tier_buffered.append(buf)
 
         if not tier_buffered:
             continue
 
-        tier_union = unary_union(tier_buffered)
+        tier_union = union(tier_buffered)
         if tier_union.is_empty:
             continue
         if not tier_union.is_valid:
@@ -223,7 +238,7 @@ def _buffer_tiers_to_polygons(
     if not tier_unions:
         return [], [], None
 
-    road_union = unary_union(tier_unions)
+    road_union = union(tier_unions)
     if road_union.is_empty:
         return [], [], None
     if not road_union.is_valid:
@@ -260,7 +275,7 @@ def _buffer_tiers_to_polygons(
     n_skipped = 0
 
     for part in g2d.iter_polygons(road_union):
-        part = orient(part, sign=1.0)  # exterior CCW, holes CW
+        part = g2d.orient(part)  # exterior CCW, holes CW
         ext = list(part.exterior.coords)[:-1]
         if len(ext) < 3:
             continue
@@ -269,12 +284,11 @@ def _buffer_tiers_to_polygons(
             list(ring.coords)[:-1] for ring in part.interiors if len(ring.coords) >= 4
         ]
 
-        # earcut handles holed polygons correctly; tessellate_polygon inverts fill
-        ec = g2d._earcut_triangulate(ext, holes)
+        ec = g2d._cdt_triangulate(part, ext, holes)
         if ec is None:
             n_skipped += 1
             continue
-        verts2d_part, tris_part = ec
+        verts2d_part, tris_part, _ = ec
         base = len(all_verts_2d)
         all_verts_2d.extend(verts2d_part)
         for i, j, k in tris_part:
@@ -354,9 +368,11 @@ def _triangulated_terrain_faces(map_obj: bpy.types.Object) -> list:
     the flat base, both of which would inject wrong-Z geometry into the road
     mesh if allowed to be clipped by the road polygon.
     """
+    map_data: bpy.types.Mesh = map_obj.data
+    
     bm = bmesh.new()
-    bm.from_mesh(map_obj.data)
-    bmesh.ops.triangulate(bm, faces=bm.faces)
+    bm.from_mesh(map_data)
+    bmesh.ops.triangulate(bm, faces=bm.faces[:])
     bm.normal_update()
     mw = map_obj.matrix_world
     mw_rot = mw.to_3x3().normalized()
@@ -371,6 +387,14 @@ def _triangulated_terrain_faces(map_obj: bpy.types.Object) -> list:
         tris.append(((p0.x, p0.y, p0.z), (p1.x, p1.y, p1.z), (p2.x, p2.y, p2.z)))
     bm.free()
     return tris
+
+
+def terrain_surface_min_z(terrain_tris: list) -> float:
+    """Lowest Z among a terrain's upward-facing surface triangles (see
+    ``_triangulated_terrain_faces``) -- the actual relief's lowest point,
+    not the Z of the solid's flat bottom face (which sits further down to
+    give every point minThickness of material)."""
+    return min(pt[2] for tri in terrain_tris for pt in tri)
 
 
 def _bary_z(tri: tuple, x: float, y: float) -> float:
@@ -472,10 +496,10 @@ def _clip_terrain_grid_to_polygon(
             holes = [
                 list(ring.coords)[:-1] for ring in part.interiors if len(ring.coords) >= 4
             ]
-            ec = g2d._earcut_triangulate(ext, holes)
+            ec = g2d._cdt_triangulate(part, ext, holes)
             if ec is None:
                 continue
-            verts2d_part, tris_part = ec
+            verts2d_part, tris_part, _ring_idx_lists = ec
             local_idx = []
             for vx, vy in verts2d_part:
                 vz = _bary_z(tri, vx, vy) + z_offset
@@ -526,13 +550,41 @@ def _build_variable_extruded_mesh(
 # ---------------------------------------------------------------------------
 
 
+def compute_full_depth_bottom_z(
+    terrain_tris: list,
+    road_polygon,
+    el_sHeight: float,
+) -> float | None:
+    """Compute the flat printable-base Z for full-depth roads (SINGLECOLORMODE*), the road equivalent of how single-color-mode elements
+    get their own recess depth (see single_color_mode_mesh_remesh: bottom_z =
+    min(v.z) of the element's OWN geometry, not the map floor).
+
+    A road's top surface follows terrain_z(x, y) + el_sHeight across its
+    footprint. Placing the flat bottom at the LOWEST point that surface
+    reaches, minus el_sHeight, guarantees the slab is at least el_sHeight
+    thick everywhere along the road while sinking into the terrain/elements
+    below only as deep as this specific road actually needs -- not all the
+    way down to the map's own base the way a full elevation column would.
+
+    Returns None if the polygon/tris yield no geometry under the footprint
+    (caller should treat this the same as "no road here").
+    """
+    top_verts, _top_tris = g2d.clip_triangles_to_polygon(
+        terrain_tris, road_polygon, el_sHeight
+    )
+    if not top_verts:
+        return None
+    return min(z for _x, _y, z in top_verts) - el_sHeight
+
+
 def finalize_roads(
     roads: bpy.types.Object,
     terrain_tris: list,
     road_polygon,
     el_sHeight: float,
     full_depth: bool,
-    bottom_z: float,
+    map_polygon=None,
+    cut_depth: float = 0.05,
 ) -> None:
     """Rebuild the road mesh's top surface from the terrain's own triangulated
     grid, clipped to the road footprint, so it shares the exact same
@@ -548,53 +600,88 @@ def finalize_roads(
     coarse mesh's own vertices, so it doesn't matter that they no longer
     exist by the time this runs.
 
-    full_depth=True (SEPARATE/SINGLECOLORMODE*): bottom cap is flat at
-    bottom_z, a normal printable base.
+    full_depth=True (SINGLECOLORMODE*): bottom cap is flat, matching
+    the same flush-bottom-into-a-recess pattern single-color-mode elements
+    use -- see compute_full_depth_bottom_z. It's computed from the road's OWN
+    footprint here (not passed in), so it always matches whatever recess the
+    caller cut for it.
     full_depth=False (PAINT): bottom cap mirrors the top, offset down by
     2*el_sHeight, giving a thin slab that hugs the terrain surface on both
-    faces instead of reaching down to the base.
+    faces instead of reaching down to a base at all.
     """
-    if roads.data.get('tp3d_roads_finalized'):
+    _t0 = 0
+    _t1 = 0
+    _t2 = 0
+    _t3 = 0
+    _t4 = 0
+    if roads.data.get("tp3d_roads_finalized"):
         return
     if not terrain_tris or road_polygon is None or road_polygon.is_empty:
         return
 
-    _t0 = time.time()
-    top_verts, top_tris = _clip_terrain_grid_to_polygon(terrain_tris, road_polygon, el_sHeight)
+    # --- CLIP ROAD FOOTPRINT TO MAP BOUNDARY & HOLES ---
+    if map_polygon is not None and not map_polygon.is_empty:
+        road_polygon = road_polygon.intersection(map_polygon)
+        if road_polygon.is_empty:
+            print(
+                "[TP3D roads] finalize_roads: road footprint sits entirely outside map boundary"
+            )
+            return
+
+    dbg = bpy.app.debug_events
+
+    if dbg:
+        _t0 = time.time()
+    top_verts, top_tris = g2d.clip_triangles_to_polygon(
+        terrain_tris, road_polygon, el_sHeight
+    )
     if not top_verts or not top_tris:
         print("[TP3D roads] finalize_roads: terrain-grid clip produced no geometry")
         return
 
     if full_depth:
+        bottom_z = min(z for _x, _y, z in top_verts) - el_sHeight - cut_depth
         bottom_zs = [bottom_z] * len(top_verts)
     else:
         # top = terrain_z + el_sHeight; bottom = terrain_z (slab sits on surface, not inside it)
         bottom_zs = [z - el_sHeight for _x, _y, z in top_verts]
 
+    if dbg:
+        _t1 = time.time()
     all_verts, faces = _build_variable_extruded_mesh(top_verts, top_tris, bottom_zs)
 
+    if dbg:
+        _t2 = time.time()
+    # vectorized transform from world space to local space (4x4 matrix)
     mw_inv = roads.matrix_world.inverted()
-    local_verts = [mw_inv @ Vector(v) for v in all_verts]
+    verts_arr = np.array(all_verts, dtype=np.float64)  # (N, 3)
+    mw_inv_np = np.array(mw_inv)  # (4, 4)
+    homo = np.hstack([verts_arr, np.ones((verts_arr.shape[0], 1))])  # (N, 4)
+    local_verts = (homo @ mw_inv_np.T)[:, :3]
 
     mesh = bpy.data.meshes.new("road_mesh")
-    mesh.from_pydata(local_verts, [], faces)
+    mesh.from_pydata(local_verts.tolist(), [], faces)
     mesh.update(calc_edges=True)
     mesh.validate(verbose=False)
 
-    old_mesh = roads.data
+    old_mesh: bpy.types.Mesh = roads.data
     for mat in old_mesh.materials:
         mesh.materials.append(mat)  # from_pydata() starts with no material slots
     roads.data = mesh
     bpy.data.meshes.remove(old_mesh)
-    roads.data['tp3d_roads_finalized'] = 1  # type: ignore[index]
+    roads.data["tp3d_roads_finalized"] = 1  # type: ignore[index]
 
+    if dbg:
+        _t3 = time.time()
     from ..mesh_ops import recalculateNormals
+
     recalculateNormals(roads)
 
-    print(
-        f"[TP3D roads] finalize_roads: {len(all_verts)} verts, "
-        f"{len(faces)} faces, took {time.time() - _t0:.1f}s"
-    )
+    if dbg:
+        _t4 = time.time()
+        print(
+            f"[TP3D roads] clip={_t1 - _t0:.2f}s extrude={_t2 - _t1:.2f}s mesh_build={_t3 - _t2:.2f}s normals={_t4 - _t3:.2f}s"
+        )
 
 
 def roads_geometry_for_polygon(
@@ -607,7 +694,9 @@ def roads_geometry_for_polygon(
     Mirrors finalize_roads but for an arbitrary polygon (e.g. one puzzle piece).
     Returns (None, None) if the polygon yields no geometry.
     """
-    top_verts, top_tris = _clip_terrain_grid_to_polygon(terrain_tris, road_polygon, el_sHeight)
+    top_verts, top_tris = g2d.clip_triangles_to_polygon(
+        terrain_tris, road_polygon, el_sHeight
+    )
     if not top_verts or not top_tris:
         return None, None
     bottom_zs = [z - el_sHeight for _x, _y, z in top_verts]
@@ -615,40 +704,89 @@ def roads_geometry_for_polygon(
     return all_verts, faces
 
 
-def create_roads(map, default_height=10, scaleHor=1.0, mapsize=1, full_depth=False):
+def create_roads(
+    gen: GenerationContext, default_height=10.0, scaleHor=1.0, full_depth=None, terrain_tris=None,
+    prefetched_tiles=None,
+):
+    """
+    Generate road geometry from OSM polylines and return the final mesh plus the road union polygon.
+
+    Args:
+        gen: Generation context (must contain mapObject, tile bounds, etc.)
+        default_height: Fallback height for extrusion if terrain data is missing.
+        scaleHor: Horizontal scaling factor.
+        full_depth: If given, overrides the elementMode-derived default (affects RoadConfig
+            and the cutter's Z depth). If None, derived from gen.settings.elementMode.
+        terrain_tris: Optional pre-triangulated terrain surface (see
+            ``_triangulated_terrain_faces``), used to set the cutter's bottom Z exactly at
+            the terrain surface's lowest point instead of the model's own bounding box.
+
+    Returns:
+        tuple: (roads_mesh_object, road_union_polygon) on success.
+
+    Raises:
+        GenerationError: On any critical failure (missing data, fetch error, mesh creation failure).
+    """
+    import time
+
+    from mathutils import Vector
+
+    from ... import progress as _progress
+    from ..geometry2d import debug_dump_polylines, map_footprint_polygon
+    from .fetch_solo import fetch_tier_polylines
+
+    # --- Input validation ------------------------------------------------
+    if gen is None:
+        raise GenerationError("Generation context is None.")
+    if gen.runtime.mapObject is None:
+        raise GenerationError("No map object assigned; cannot create roads.")
+    # Check that tile bounds are present and reasonable
+    required_bounds = ["tbMinLat", "tbMinLon", "tbMaxLat", "tbMaxLon"]
+    for attr in required_bounds:
+        if not hasattr(gen.runtime, attr) or getattr(gen.runtime, attr) is None:
+            raise GenerationError(f"Missing tile bound: '{attr}'")
+
     _t_setup = time.time()
     _ov = _progress.ProgressOverlay.get()
     if _ov.active:
         _ov.set_fetch_progress("roads", 0.0)
 
-    # --- Config ---------------------------------------------------------
-    config = RoadConfig.from_scene(bpy.context.scene.tp3d, full_depth=full_depth)
+    # --- Configuration ---------------------------------------------------
+    try:
+        if full_depth is None:
+            full_depth = gen.settings.elementMode != "PAINT"
+        config = RoadConfig.from_scene(bpy.context.scene.tp3d, full_depth=full_depth)
+    except Exception as e:
+        raise GenerationError(f"Failed to load road configuration: {e}")
 
-    # --- Fetch ----------------------------------------------------------
-    tier_polylines = fetch_tier_polylines(
-        config.min_lat,
-        config.min_lon,
-        config.max_lat,
-        config.max_lon,
-        TIER_TAGS,
-        config.tier_active,
-        config.exclude_alleys,
-        ALLEY_SERVICE_TYPES,
-        progress_overlay=_ov,
-    )
+    # --- Fetch road polylines from OSM -----------------------------------
+    try:
+        tier_polylines = fetch_tier_polylines(
+            gen.runtime.tbMinLat,
+            gen.runtime.tbMinLon,
+            gen.runtime.tbMaxLat,
+            gen.runtime.tbMaxLon,
+            TIER_TAGS,
+            config.tier_active,
+            config.exclude_alleys,
+            ALLEY_SERVICE_TYPES,
+            progress_overlay=_ov,
+            prefetched_tiles=prefetched_tiles,
+        )
+    except Exception as e:
+        raise GenerationError(f"Failed to fetch road polylines from OSM: {e}")
+
     if tier_polylines is None:
-        return None
+        raise GenerationError("No road polylines fetched (tier_polylines is None).")
 
-    # --- DEBUG: Stage 1 - Raw polylines from OSM -----------------------
+    # --- DEBUG: Stage 1 - raw polylines ----------------------------------
     if bpy.app.debug:
-        # Show the raw centerlines at z=0
         all_polylines = []
         for tier_name, polylines in tier_polylines.items():
-            if polylines and tier_polylines.get(tier_name):
+            if polylines:
                 all_polylines.extend(polylines)
-
         if all_polylines:
-            g2d.debug_dump_polylines(
+            debug_dump_polylines(
                 "roads_stage1_raw_polylines",
                 all_polylines,
                 collection_name="TP3D_Debug_Roads",
@@ -663,61 +801,99 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize=1, full_depth=Fal
         _ov.set_fetch_progress("roads", 0.30)
         _ov.update(message="Roads: buffering each tier…")
 
-    # --- Width ----------------------------------------------------------
+    # --- Width computation ------------------------------------------------
     half_width, width_was_adjusted = _compute_half_width(
         scaleHor, config.street_width_multiplier
     )
 
-    # --- Z bounds from terrain ------------------------------------------
-    mc = [map.matrix_world @ Vector(c) for c in map.bound_box]
-    bottom_z = min(v.z for v in mc) - 1.0
-    top_z = max(v.z for v in mc) + default_height
+    # --- Z bounds from terrain --------------------------------------------
+    # A full_depth cutter only needs to reach exactly as deep as the road
+    # piece it will later stand in for (see finalize_roads, which sits
+    # 0.6mm below the terrain surface's lowest point) -- not all the way
+    # down to the model's own base. This cutter is never booleaned against
+    # that final piece itself, so matching its depth exactly is safe.
+    try:
+        mc = [gen.runtime.mapObject.matrix_world @ Vector(c) for c in gen.runtime.mapObject.bound_box]
+        if terrain_tris:
+            bottom_z = terrain_surface_min_z(terrain_tris) - 0.6
+        else:
+            bottom_z = min(v.z for v in mc) - 1.0
+        top_z = max(v.z for v in mc) + default_height
+    except Exception as e:
+        # Fallback to default heights if bounding box fails
+        print(f"Warning: Could not compute bounding box Z, using fallback: {e}")
+        bottom_z = -10.0
+        top_z = default_height
 
-    # --- 2-D map clip ---------------------------------------------------
-    # Clip road footprint to map boundary in Shapely rather than via 3D boolean.
-    # Terrain meshes are non-manifold so boolean INTERSECT produces corrupt geometry.
-    map_fp = g2d.map_footprint_polygon(map)
+    # --- Clip to map footprint -------------------------------------------
+    try:
+        map_fp = map_footprint_polygon(gen.runtime.mapObject)
+        if map_fp is None or map_fp.is_empty:
+            raise GenerationError("Failed to obtain valid map footprint polygon.")
+    except Exception as e:
+        raise GenerationError(f"Map footprint computation failed: {e}")
 
-    # --- Buffer ---------------------------------------------------------
-    verts_2d, tris, road_union = _buffer_tiers_to_polygons(tier_polylines, half_width, map_fp)
+    # --- Buffer tiers into polygons --------------------------------------
+    try:
+        verts_2d, tris, road_union = _buffer_tiers_to_polygons(
+            tier_polylines, half_width, map_fp
+        )
+    except Exception as e:
+        raise GenerationError(f"Failed to buffer road polylines into polygons: {e}")
+
     if not verts_2d or not tris:
-        print("No road data returned")
-        return None
+        raise GenerationError(
+            "No road data returned after buffering (empty vertices or triangles)."
+        )
 
-    # --- Mesh -----------------------------------------------------------
-    roads = _build_extruded_mesh(verts_2d, tris, bottom_z, top_z)
+    # --- Build extruded mesh ---------------------------------------------
+    try:
+        roads = _build_extruded_mesh(verts_2d, tris, bottom_z, top_z)
+        if roads is None:
+            raise GenerationError("_build_extruded_mesh returned None.")
+    except Exception as e:
+        raise GenerationError(f"Failed to build extruded road mesh: {e}")
 
-    # This is a coarse cutter mesh only -- finalize_roads() rebuilds the top
-    # surface from the terrain's own grid, clipped to road_union, AFTER this
-    # mesh has been used as a (fast) boolean cutter against terrain/elements.
+    # This is a coarse cutter mesh only -- finalize_roads() will rebuild the top
+    # surface from the terrain's own grid, clipped to road_union, later.
 
-    # --- DEBUG: Stage 3 - The extruded mesh (before boolean) -----------
+    # --- DEBUG: Stage 3 - Extruded mesh copy -----------------------------
     if bpy.app.debug:
-        # Make a copy of the mesh at a different location for debugging
-        debug_roads = roads.copy()
-        debug_roads.data = roads.data.copy()
-        debug_roads.name = "roads_stage3_extruded"
-        debug_roads.location = (0, 0, -30.0)  # Offset downward to see separately
-        bpy.context.collection.objects.link(debug_roads)
-        print(f"[DEBUG] Stage 3: Created extruded mesh copy at z=-30.0")
+        try:
+            debug_roads = roads.copy()
+            debug_roads.data = roads.data.copy()
+            debug_roads.name = "roads_stage3_extruded"
+            debug_roads.location = (0, 0, -30.0)
+            bpy.context.collection.objects.link(debug_roads)
+            print("[DEBUG] Stage 3: Created extruded mesh copy at z=-30.0")
+        except Exception as e:
+            print(f"[DEBUG] Failed to create debug copy: {e}")
 
     if _ov.active:
         _ov.set_fetch_progress("roads", 0.90)
 
-    # --- DEBUG: Stage 5 - After final extrusion ------------------------
+    # --- DEBUG: Stage 5 - Final mesh copy (if any later modifications) --
+    # This is just a placeholder; finalization will be done elsewhere.
+    # We can still create a copy of the current state.
     if bpy.app.debug:
-        # Make a copy of the final mesh
-        debug_roads_final = roads.copy()
-        debug_roads_final.data = roads.data.copy()
-        debug_roads_final.name = "roads_stage5_final"
-        debug_roads_final.location = (0, 0, -60.0)  # Offset even lower
-        bpy.context.collection.objects.link(debug_roads_final)
-        print(f"[DEBUG] Stage 5: Created final mesh copy at z=-60.0")
+        try:
+            debug_roads_final = roads.copy()
+            debug_roads_final.data = roads.data.copy()
+            debug_roads_final.name = "roads_stage5_final"
+            debug_roads_final.location = (0, 0, -60.0)
+            bpy.context.collection.objects.link(debug_roads_final)
+            print("[DEBUG] Stage 5: Created final mesh copy at z=-60.0")
+        except Exception as e:
+            print(f"[DEBUG] Failed to create final debug copy: {e}")
 
-    # --- Finalise -------------------------------------------------------
-    bpy.ops.object.select_all(action="DESELECT")
-    roads.select_set(True)
-    bpy.context.view_layer.objects.active = roads
+    # --- Finalise (select the road object) --------------------------------
+    try:
+        bpy.ops.object.select_all(action="DESELECT")
+        roads.select_set(True)
+        bpy.context.view_layer.objects.active = roads
+    except Exception as e:
+        # Non-critical, but log it
+        print(f"Warning: Could not select/finalise road object: {e}")
 
     if _ov.active:
         _ov.set_fetch_progress("roads", 1.0)
@@ -731,4 +907,6 @@ def create_roads(map, default_height=10, scaleHor=1.0, mapsize=1, full_depth=Fal
         f"[TP3D roads] final mesh ({len(roads.data.vertices)} verts) took "
         f"{time.time() - _t_setup:.1f}s total"
     )
+    gen.runtime.roadObj = roads
+    gen.runtime.roadUnion = road_union
     return roads, road_union

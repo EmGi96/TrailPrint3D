@@ -575,9 +575,11 @@ def _munich_settings(**overrides):
         "disable_cache": True,  # always go to the network; no stale results
         "api_retries": 2,
         "mapsize": 5.0,
-        "road_big": True,
-        "road_med": True,
-        "road_small": False,
+        "road_tiers": {
+            "highways": True, "major": True, "minor": True,
+            "residential": False, "service": False, "footway": False,
+            "cycle_bridle": False, "track": False, "path": False,
+        },
         "water_ponds": True,
         "water_small_rivers": True,
         "water_big_rivers": True,
@@ -998,7 +1000,7 @@ def test_real_coastline_fetch_returns_ways():
 
     settings = OsmFetchSettings(
         disable_cache=True, api_retries=2, mapsize=10.0,
-        road_big=False, road_med=False, road_small=False,
+        road_tiers={},
         water_ponds=False, water_small_rivers=False, water_big_rivers=False,
     )
     result = fetch_osm_combined(
@@ -1030,7 +1032,7 @@ def test_real_coastline_stitch_and_polygon():
 
     settings = OsmFetchSettings(
         disable_cache=False, api_retries=2, mapsize=10.0,
-        road_big=False, road_med=False, road_small=False,
+        road_tiers={},
         water_ponds=False, water_small_rivers=False, water_big_rivers=False,
     )
     result = fetch_osm_combined(

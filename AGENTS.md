@@ -4,6 +4,12 @@ This is a **Blender 5.1+ Python addon** using the Blender Extensions platform. A
 
 ---
 
+## Terminology
+
+When the user says **"generators"**, they usually mean the HTML configurator pages as a group — `puzzleGenerator.html`, `premium/puzzleGenerator_pe.html`, `premium/multitile_generator.html`, `premium/slidingPuzzleGenerator.html` — the browser-based picker UIs served by `picker_server.py`. Default to that reading unless the surrounding request is clearly about the Blender-side mesh-generation pipeline instead (`utils/generation.py`, `runGeneration()`).
+
+---
+
 ## Project Layout
 
 ```
@@ -26,7 +32,7 @@ TrailPrint3D/                 - Blender addon package (installed as a Blender ex
   updater.py                   - GitHub/Patreon release checker + auto-download
   puzzleGenerator.html         - free Puzzle Configurator (browser UI)
   assets/                      - .blend asset libraries (connectors, holder, other) + progress-overlay SVG icons
-  wheels/                      - bundled Shapely / Mapbox Earcut wheels (per-platform)
+  wheels/                      - bundled Shapely wheels (per-platform)
   utils/
     __init__.py                - re-exports from submodules (wildcards OK here, see §10)
     elevation.py                - elevation API helpers
@@ -49,8 +55,9 @@ premium/                       - Premium-only source, absent from the free build
   __init__.py
   operators_pe.py               - premium bpy.types.Operator subclasses
   utils_pe.py                   - premium-only utility functions
-  multitile_configurator.html   - premium multi-tile map configurator (browser UI)
-  puzzleGenerator_pe.html       - premium Puzzle Configurator (hex/radial piece shapes, multi-GPX)
+  multitile_generator.html      - premium multi-tile map generator (browser UI)
+  puzzleGenerator_pe.html       - premium Jigsaw Puzzle Configurator (hex/radial piece shapes, multi-GPX)
+  slidingPuzzleGenerator.html   - premium Sliding Puzzle Configurator (square rounded-corner tiles, stepped-base retention)
   assets/                       - premium-only .blend asset libraries (puzzles.blend)
 
 tests/                         - standalone test suite, run inside Blender's own Python (not pytest)

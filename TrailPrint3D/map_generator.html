@@ -1,0 +1,1012 @@
+<!--
+  Copyright (C) 2026 EmGi.
+
+  You are free to modify it under the terms of the GNU General Public
+  License as published by the Free Software Foundation.
+-->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>TrailPrint3D Map Generator</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg version='1.1' id='svg1' width='180' height='180' viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg' xmlns:svg='http://www.w3.org/2000/svg'%3E%3Cdefs id='defs1' /%3E%3Crect style='fill:%23404040;fill-opacity:1;fill-rule:evenodd;stroke:none;stroke-width:2.18;stroke-linecap:butt;stroke-linejoin:miter;stroke-dasharray:none;stroke-opacity:1;paint-order:fill markers stroke' id='rect18' width='180' height='180' x='0' y='0' ry='0' /%3E%3Cpath style='baseline-shift:baseline;display:inline;overflow:visible;vector-effect:none;fill:%23ffffff;fill-opacity:1;fill-rule:evenodd;stroke:none;stroke-linecap:round;stroke-opacity:1;paint-order:markers fill stroke;enable-background:accumulate;stop-color:%23000000' d='M 90.869141,8.0292969 C 45.491033,8.0292971 8.6816406,44.838689 8.6816406,90.216797 8.6816423,135.5949 45.491034,172.4043 90.869141,172.4043 c 45.378109,-1e-5 82.187499,-36.8094 82.187499,-82.187503 0,-45.378106 -36.80939,-82.1874973 -82.187499,-82.1875001 z m 0,2.1796871 c 44.199949,3e-6 80.007809,35.807866 80.007809,80.007813 0,44.199943 -35.80786,80.007813 -80.007809,80.007813 -44.199948,0 -80.007811,-35.80787 -80.007813,-80.007813 0,-44.199949 35.807864,-80.007812 80.007813,-80.007813 z' id='path1' /%3E%3Cpath style='baseline-shift:baseline;display:inline;overflow:visible;vector-effect:none;fill:%23ffffff;fill-rule:evenodd;stroke-linecap:round;paint-order:markers fill stroke;enable-background:accumulate;stop-color:%23000000' d='m 11.328125,102.12109 a 1.09,1.09 0 0 0 -0.601562,0.57813 1.09,1.09 0 0 0 0.560546,1.43555 l 31.525391,13.82031 13.013672,12.36133 34.714844,16.80468 34.068364,-16.37109 10.74804,-10.30859 3.3418,-2.92383 4.38867,-2.08985 27.75586,-10.84179 a 1.09,1.09 0 0 0 0.61719,-1.41211 1.09,1.09 0 0 0 -1.41211,-0.61914 l -27.82813,10.87109 -4.73047,2.25391 -3.60742,3.15429 -10.53125,10.10157 L 90.544922,144.70117 57.082031,128.50195 44.039062,116.11133 12.162109,102.13867 a 1.09,1.09 0 0 0 -0.833984,-0.0176 z' id='path4' /%3E%3Cpath style='baseline-shift:baseline;display:inline;overflow:visible;vector-effect:none;fill:%23ffffff;fill-rule:evenodd;stroke-linecap:round;paint-order:markers fill stroke;enable-background:accumulate;stop-color:%23000000' d='m 167.77344,112.95898 -25.03321,9.19922 -5.37695,4.70508 -6.72461,6.29102 -5.50586,4.6582 -34.798826,15.37109 -31.251953,-14.34179 -5.898437,-2.73828 -11.271485,-11.49024 -5.207031,-2.71484 -22.484375,-8.42383 a 1.09,1.09 0 0 0 -1.402344,0.63867 1.09,1.09 0 0 0 0.636719,1.40235 l 22.361328,8.37695 4.78125,2.49414 11.308594,11.52734 6.261719,2.90625 32.148437,14.75391 35.986324,-15.89453 5.78516,-4.89649 6.73828,-6.30273 5.04492,-4.41406 24.6543,-9.0625 a 1.09,1.09 0 0 0 0.64648,-1.39844 1.09,1.09 0 0 0 -1.39843,-0.64649 z' id='path5' /%3E%3Cpath d='M 93.192352,25.464053 74.158889,45.103194 61.766534,37.654494 39.191546,67.453352 31.447568,64.518954 10.200402,95.899746 36.535899,106.7357 l 6.613237,2.70898 5.777127,3.63703 5.414812,4.38839 7.29208,8.60013 28.975217,14.12978 29.363418,-14.5014 10.92517,-10.74254 6.99944,-4.60771 6.86208,-3.16184 26.77745,-11.286774 -21.91009,-34.089779 -12.17138,-2.934397 -13.05726,-16.253922 -9.51574,6.094205 z m -0.366296,5.365175 c 0.530427,-0.01 0.363127,0.912926 -2.148007,4.418857 -2.749797,3.839141 1.18449,5.74086 1.18449,5.74086 0,0 8.606821,2.611921 10.467311,4.23 5.59889,4.869409 -0.19709,8.159452 -0.19709,8.159452 0,0 -16.648506,5.315737 -22.119105,8.26099 -6.221134,3.349325 1.875278,5.237239 1.875278,5.237239 0,0 23.404937,1.310554 31.107307,7.757369 7.70235,6.446821 1.24594,13.84804 -1.87727,15.411171 -3.55337,1.778418 -31.599018,11.684784 -31.599018,11.684784 0,0 -11.405829,4.68495 -5.036571,14.60701 4.921278,7.6664 15.601427,13.69927 15.601427,13.69927 l 22.515262,-10.57805 7.9988,-6.84963 0.39417,-26.592342 17.97239,20.246332 -10.07115,6.34601 -10.86347,10.57805 -27.649382,13.19565 c 0,0 -19.64973,-8.25988 -25.772117,-12.18842 -6.122388,-3.92853 -6.221062,-11.18116 -6.221062,-11.18116 0,-1e-5 -0.692548,-8.76377 6.812312,-14.505473 7.504861,-5.7417 29.281301,-8.933574 36.538039,-13.096145 8.517,-4.885483 -0.0995,-7.856875 -0.0995,-7.856875 0,0 -23.129115,-4.211894 -29.23004,-8.762578 -8.541718,-6.371271 1.284028,-10.173931 1.284028,-10.173931 0,0 17.97319,-5.842665 23.30559,-7.655834 5.332402,-1.813167 0.29662,-4.733619 0.29662,-4.733619 0,0 -7.011574,-2.921677 -9.776523,-4.634114 -2.764948,-1.712437 -1.521443,-4.547603 -0.197083,-6.043437 1.496855,-1.690662 2.126659,-2.501104 3.406156,-3.500971 0.63914,-0.499456 1.497088,-1.209137 2.098239,-1.220465 z m -10.160736,10.59023 0.557407,2.365795 2.68949,2.365794 -3.059767,5.48905 c 0,0 -3.154149,0.283089 -3.710739,0.377714 -0.556589,0.09463 -5.287405,1.703779 -5.287405,1.703779 l 2.504351,-5.48905 z m -22.170868,3.407557 -2.783054,17.315991 -9.183283,9.274321 -5.566109,-3.216668 z m 62.557008,2.901905 1.40745,11.733529 -12.90995,8.860053 4.85144,-16.282352 z m 14.07055,14.081047 8.41087,2.032755 -8.1899,20.993635 z M 32.568355,69.183529 40.389971,83.64229 32.289651,84.284 17.313316,91.90531 Z m 34.60702,2.38001 -0.742546,21.669865 -8.07046,-4.069572 -15.77064,12.017828 c 0,0 15.120877,-23.089757 15.491937,-23.373642 0.37106,-0.283884 9.091709,-6.244479 9.091709,-6.244479 z' style='fill:%23ffffff;fill-opacity:1;fill-rule:evenodd;stroke:none;stroke-width:2.24419;stroke-linecap:round;stroke-dasharray:none;paint-order:markers fill stroke' id='path16' /%3E%3C/svg%3E%0A">
+    <link rel="icon" type="image/png" sizes="256x256" href="data:image/png;base64,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">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+    <style>__COMMON_CSS__</style>
+    <style>
+        #shapeToggle { position: absolute; top: 170px; left: 10px; z-index: 1000; display: flex; flex-direction: column; gap: 6px;
+            background: rgba(26,26,26,0.85); border: 1px solid #444; border-radius: 4px; padding: 6px; }
+        #shapeToggle .shape-btn.icon-btn { width: 32px; height: 32px; padding: 0; display: flex; align-items: center; justify-content: center; }
+        #drawModeToggle { top: 376px; }
+    </style>
+</head>
+<body>
+    <div id="sidebar">
+        <div style="font-weight: bold; font-size: 14px; margin-bottom: 10px;">TrailPrint3D</div>
+        <div>
+            <div style="font-size: 12px; margin-bottom: 4px; color: #aaa;">Resolution: <span id="resolutionValue" style="color: #fff; font-weight: bold;">4</span></div>
+            <input type="range" id="resolutionSlider" min="1" max="10" step="1" value="4" style="width: 100%; accent-color: #007bff;">
+        </div>
+        <div class="field-row">
+            <label for="objSizeInput">Size (mm)</label>
+            <input type="number" id="objSizeInput" min="5" max="10000" step="1" value="100" title="Object Size">
+        </div>
+        <hr class="sidebar-divider">
+        <input type="file" id="gpxInput" accept=".gpx" style="display: none;">
+        <button id="importGpx" style="padding: 12px 20px; background: #2a8a2a; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Import GPX</button>
+        <div id="gpxList" style="display:none; font-size:11px; color:#aaa; line-height:1.8;"></div>
+        <button id="clearGpx" style="display:none; padding:5px 10px; background:#2a1e1e; color:#cc6666; border:1px solid #553333; border-radius:4px; cursor:pointer; font-size:11px;">Clear GPX</button>
+        <input type="file" id="geojsonInput" accept=".geojson,.json" style="display: none;">
+        <button id="importGeojson" style="padding: 12px 20px; background: #2a5a8a; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Import GeoJSON</button>
+        <div id="geojsonList" style="display:none; font-size:11px; color:#aaa; line-height:1.8;"></div>
+        <button id="clearGeojson" style="display:none; padding:5px 10px; background:#2a1e1e; color:#cc6666; border:1px solid #553333; border-radius:4px; cursor:pointer; font-size:11px;">Clear GeoJSON</button>
+        <input type="file" id="svgShapeInput" accept=".svg" style="display: none;">
+        <button id="importSvgShape" style="padding: 12px 20px; background: #8a5a2a; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Import SVG Shape</button>
+        <div id="svgShapeList" style="display:none; font-size:11px; color:#aaa; line-height:1.8;"></div>
+        <button id="clearSvgShape" style="display:none; padding:5px 10px; background:#2a1e1e; color:#cc6666; border:1px solid #553333; border-radius:4px; cursor:pointer; font-size:11px;">Clear SVG Shape</button>
+        <hr class="sidebar-divider">
+        <div id="prefetchInfo"></div>
+        <button id="clearPrefetch" style="display:none; padding:5px 10px; background:#2a1e1e; color:#cc6666; border:1px solid #553333; border-radius:4px; cursor:pointer; font-size:11px;">Clear Prefetch</button>
+        <div id="status">Draw a shape to begin.</div>
+        <button id="send" class="btn-send" disabled>Send to Blender</button>
+    </div>
+    <div id="mapColumn">
+    <div id="elementStatus"></div>
+    <div id="map">
+        <div id="coordSearch">
+            <button id="coordSearchToggle" title="Go to location">
+                <svg viewBox="0 0 20 20" width="16" height="16" fill="currentColor"><path d="M10 1a6 6 0 00-6 6c0 4.5 6 12 6 12s6-7.5 6-12a6 6 0 00-6-6zm0 8.5A2.5 2.5 0 1110 4.5a2.5 2.5 0 010 5z"/></svg>
+            </button>
+            <div id="coordSearchBody">
+                <div class="coord-row">
+                    <input type="text" id="citySearchInput" placeholder="City name">
+                    <button id="citySearchBtn" title="Search city">🔍</button>
+                </div>
+                <div class="coord-sep">or lat / lon</div>
+                <div class="coord-row">
+                    <input type="text" id="latInput" placeholder="Lat">
+                    <input type="text" id="lonInput" placeholder="Lon">
+                    <button id="coordSearchBtn" title="Go to these coordinates">Go</button>
+                </div>
+            </div>
+        </div>
+        <div id="drawActions">
+            <button id="drawBtn" class="shape-btn icon-btn" title="Draw">
+                <svg viewBox="0 0 20 20" width="16" height="16" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-9.193 9.193-3.535.707.707-3.535 9.193-9.193z"/></svg>
+            </button>
+            <button id="deleteBtn" class="shape-btn icon-btn" title="Delete">
+                <svg viewBox="0 0 20 20" width="16" height="16" fill="currentColor"><path d="M6 2a1 1 0 00-1 1v1H2v2h1v11a2 2 0 002 2h10a2 2 0 002-2V6h1V4h-3V3a1 1 0 00-1-1H6zM5 6h10v11H5V6zm3 2v7h2V8H8zm4 0v7h2V8h-2z"/></svg>
+            </button>
+        </div>
+        <div id="shapeToggle">
+            <button class="shape-btn icon-btn active" data-shape="rectangle" title="Rectangle">
+                <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="16" height="10"/></svg>
+            </button>
+            <button class="shape-btn icon-btn" data-shape="hexagon" title="Hexagon (keeps aspect ratio 1:1)">
+                <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polygon points="17,10 13.5,16.06 6.5,16.06 3,10 6.5,3.94 13.5,3.94"/></svg>
+            </button>
+            <button class="shape-btn icon-btn" data-shape="square" title="Square (keeps aspect ratio 1:1)">
+                <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="5" width="10" height="10"/></svg>
+            </button>
+            <button class="shape-btn icon-btn" data-shape="circle" title="Circle (keeps aspect ratio 1:1)">
+                <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="10" cy="10" r="7"/></svg>
+            </button>
+            <button class="shape-btn icon-btn" data-shape="octagon" title="Octagon (keeps aspect ratio 1:1)">
+                <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polygon points="17,12.9 12.9,17 7.1,17 3,12.9 3,7.1 7.1,3 12.9,3 17,7.1"/></svg>
+            </button>
+            <button class="shape-btn icon-btn" data-shape="svg" title="SVG shape (click to import, keeps its own proportions)">
+                <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="3.5" width="15" height="13" rx="1"/><circle cx="7" cy="8" r="1.6" fill="currentColor" stroke="none"/><path d="M3 14 L8 9.5 L11.5 12.5 L14 10 L17 13.5"/></svg>
+            </button>
+        </div>
+        <div id="drawModeToggle">
+            <button class="shape-btn icon-btn draw-mode-btn active" data-mode="corner" title="Draw edge to edge">
+                <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 16 L4 4 L16 4"/><rect x="2.5" y="14.5" width="3" height="3" fill="currentColor" stroke="none"/><rect x="14.5" y="2.5" width="3" height="3" fill="currentColor" stroke="none"/></svg>
+            </button>
+            <button class="shape-btn icon-btn draw-mode-btn" data-mode="center" title="Draw from a center point">
+                <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="12" height="12"/><circle cx="10" cy="10" r="1.5" fill="currentColor" stroke="none"/><line x1="10" y1="1" x2="10" y2="3.5"/><line x1="10" y1="16.5" x2="10" y2="19"/><line x1="1" y1="10" x2="3.5" y2="10"/><line x1="16.5" y1="10" x2="19" y2="10"/></svg>
+            </button>
+        </div>
+        <div id="legend">
+            <div class="legend-row"><span class="legend-swatch" style="background:#E97826;"></span>Drawn area</div>
+            <div class="legend-row"><span class="legend-swatch" style="background:#9b59b6;"></span>Existing map</div>
+            <div class="legend-row"><span class="legend-swatch line" style="border-color:#9b59b6;"></span>Existing trail</div>
+            <div class="legend-row"><span class="legend-swatch line" style="border-color:red;"></span>Imported GPX</div>
+        </div>
+    </div>
+    </div>
+
+    <script>
+        var PORT = __PORT__;
+        var OBJ_SIZE = __OBJSIZE__;
+        __ELEMENT_ICONS_JS__
+        __ELEMENT_STATES_JS__
+        __ELEMENT_STATUS_JS__
+        __SETTINGS_STATE_JS__
+        __ADVANCED_SETTINGS_STATE_JS__
+        __SETTINGS_MODAL_JS__
+        __DEM_BOUNDS_JS__
+        __MAP_INIT_JS__
+
+        var drawnItems = new L.FeatureGroup();
+        map.addLayer(drawnItems);
+        var shapePreview = new L.FeatureGroup();
+        map.addLayer(shapePreview);
+        var editHandles = new L.FeatureGroup();
+        map.addLayer(editHandles);
+        var moveHandleLayer = new L.FeatureGroup(); // single center "move" handle, kept separate from
+        map.addLayer(moveHandleLayer);              // editHandles so clearing corner/edge handles doesn't drop it
+        var gpxLayer = new L.FeatureGroup();
+        map.addLayer(gpxLayer);
+        var geojsonLayer = new L.FeatureGroup();
+        map.addLayer(geojsonLayer);
+        var existingMapsLayer = new L.FeatureGroup();
+        map.addLayer(existingMapsLayer);
+        var existingTrailsLayer = new L.FeatureGroup();
+        map.addLayer(existingTrailsLayer);
+
+        var currentShape = 'rectangle';
+        var drawMode = 'corner'; // 'corner' | 'center' -- how the drawn area is drawn/edited
+        var coords = null;
+        var shapeCenter = null; // {lat, lng} -- fixed center for 'center' mode edits; unused in 'corner' mode
+        var rectLayer = null; // the single L.Rectangle currently in drawnItems, if any
+        var gpxPaths = [];
+        var gpxNames = [];
+        var geojsonPaths = [];
+        var geojsonNames = [];
+        var existingMaps = [];
+        var svgShapePath = null; // temp-file path returned by /upload_svg, or null
+        var svgShapeName = null;
+        var svgAspect = 1; // width/height parsed from the imported SVG's own viewBox/width+height
+        var svgDataUrl = null; // data: URI of the raw SVG, used as the L.imageOverlay preview source
+
+        __LOCATION_PANEL_JS__
+
+        function updateGpxList() {
+            // The free map generator only ever holds one trail at a time
+            // (see the gpxInput 'change' handler, which replaces rather than
+            // adds) -- unlike premium/map_generator_pe.html, there's no
+            // multi-file "N trails imported" summary to render.
+            var listEl = document.getElementById('gpxList');
+            var clearBtn = document.getElementById('clearGpx');
+            if (gpxNames.length === 0) {
+                listEl.style.display = 'none'; clearBtn.style.display = 'none'; return;
+            }
+            listEl.style.display = 'block';
+            clearBtn.style.display = 'block';
+            listEl.innerHTML = '<div class="gpx-item-name" title="' + gpxNames[0] + '">+ ' + gpxNames[0] + '</div>'
+                + '<div style="color:#888; font-style:italic; margin-top:2px;">'
+                + 'Upload Multiple GPX files with the Premium Version</div>';
+        }
+
+        document.getElementById('gpxList').addEventListener('click', function(e) {
+            if (e.target.closest('.gpx-item-name') && gpxLayer.getBounds().isValid()) {
+                map.fitBounds(gpxLayer.getBounds(), { padding: [50, 50] });
+            }
+        });
+
+        function updateGeojsonList() {
+            // Like the GPX list above, the free map generator only ever holds
+            // one boundary at a time -- see the geojsonInput 'change' handler,
+            // which replaces rather than adds.
+            var listEl = document.getElementById('geojsonList');
+            var clearBtn = document.getElementById('clearGeojson');
+            if (geojsonNames.length === 0) {
+                listEl.style.display = 'none'; clearBtn.style.display = 'none'; return;
+            }
+            listEl.style.display = 'block';
+            clearBtn.style.display = 'block';
+            listEl.innerHTML = '<div class="gpx-item-name" title="' + geojsonNames[0] + '">+ ' + geojsonNames[0] + '</div>'
+                + '<div style="color:#888; font-style:italic; margin-top:2px;">'
+                + 'Upload Multiple GeoJSON files with the Premium Version</div>';
+        }
+
+        document.getElementById('geojsonList').addEventListener('click', function(e) {
+            if (e.target.closest('.gpx-item-name') && geojsonLayer.getBounds().isValid()) {
+                map.fitBounds(geojsonLayer.getBounds(), { padding: [50, 50] });
+            }
+        });
+
+        function updateSvgShapeList() {
+            var listEl = document.getElementById('svgShapeList');
+            var clearBtn = document.getElementById('clearSvgShape');
+            if (!svgShapeName) {
+                listEl.style.display = 'none'; clearBtn.style.display = 'none'; return;
+            }
+            listEl.style.display = 'block';
+            clearBtn.style.display = 'block';
+            // Same per-item "-" remove affordance the GPX/GeoJSON lists use
+            // (only ever one item here -- a single tile has one outline
+            // shape -- so no <details> collapsing is needed).
+            listEl.innerHTML = '<div class="gpx-item"><span class="gpx-item-name" title="' + svgShapeName + '">+ ' + svgShapeName + '</span>'
+                + '<button type="button" class="gpx-remove-btn" title="Remove this SVG shape">-</button></div>';
+        }
+
+        document.getElementById('svgShapeList').addEventListener('click', function(e) {
+            if (e.target.closest('.gpx-remove-btn')) clearSvgShapeImport();
+        });
+
+        // Parses one already-loaded GeoJSON object into a flat list of
+        // [lat,lng] exterior rings (mirrors utils/io_geojson.py's own
+        // Polygon/MultiPolygon/Feature/FeatureCollection walk) -- used only
+        // to validate that the file actually contains a closed polygon
+        // boundary before accepting the import (a line or point has no
+        // rings, matching the backend's own rejection of non-area geometry).
+        function extractGeojsonRings(node) {
+            var rings = [];
+            function ring(coordsArr) {
+                return coordsArr.map(function(pt) { return [pt[1], pt[0]]; });
+            }
+            function collect(n) {
+                if (!n) return;
+                if (n.type === 'FeatureCollection') {
+                    (n.features || []).forEach(collect);
+                } else if (n.type === 'Feature') {
+                    collect(n.geometry);
+                } else if (n.type === 'GeometryCollection') {
+                    (n.geometries || []).forEach(collect);
+                } else if (n.type === 'Polygon') {
+                    if (n.coordinates && n.coordinates[0]) rings.push(ring(n.coordinates[0]));
+                } else if (n.type === 'MultiPolygon') {
+                    (n.coordinates || []).forEach(function(poly) {
+                        if (poly[0]) rings.push(ring(poly[0]));
+                    });
+                }
+            }
+            collect(node);
+            return rings;
+        }
+
+        function saveState() {
+            // gpxPaths/gpxNames are intentionally NOT persisted here — a GPX
+            // import is session-only. Persisting it meant every time the picker
+            // was reopened to make another tile, the previously-sent trail came
+            // back too and got bundled (and regenerated/duplicated) again.
+            var c = map.getCenter();
+            fetch('http://127.0.0.1:' + PORT + '/save_state', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    lat: c.lat, lng: c.lng, zoom: map.getZoom(),
+                    baseLayer: activeBaseLayerName,
+                    settingsTab: TP3D_SETTINGS_TAB,
+                    shape: currentShape,
+                    drawMode: drawMode,
+                    shapeCenter: shapeCenter,
+                    resolution: document.getElementById('resolutionSlider').value,
+                    objSize: document.getElementById('objSizeInput').value,
+                    coords: coords,
+                    prefetch: tp3dPrefetchState()
+                })
+            }).catch(function() {});
+        }
+
+        function restoreState() {
+            fetch('http://127.0.0.1:' + PORT + '/get_state', { cache: 'no-store' })
+                .then(function(r) { return r.json(); })
+                .then(function(s) {
+                    console.log('[TP3D picker] /get_state returned:', s);
+                    if (!s) return;
+                    if (s.settingsTab) tp3dActivateSettingsTab(s.settingsTab);
+                    if (s.baseLayer && baseLayers[s.baseLayer] && s.baseLayer !== activeBaseLayerName) {
+                        map.removeLayer(baseLayers[activeBaseLayerName]);
+                        baseLayers[s.baseLayer].addTo(map);
+                        activeBaseLayerName = s.baseLayer;
+                    }
+                    // 'svg' is deliberately excluded here -- like gpxPaths/
+                    // geojsonPaths, the imported SVG's content is session-only
+                    // (never written to saveState/the state file), so restoring
+                    // 'svg' as the active shape on reopen would select a shape
+                    // with no file behind it. Falls back to the default
+                    // 'rectangle' the static HTML already marks active.
+                    if (s.shape && s.shape !== 'svg') {
+                        currentShape = s.shape;
+                        document.querySelectorAll('.shape-btn[data-shape]').forEach(function(b) {
+                            b.classList.toggle('active', b.getAttribute('data-shape') === s.shape);
+                        });
+                    }
+                    if (s.drawMode) {
+                        drawMode = s.drawMode;
+                        document.querySelectorAll('.draw-mode-btn').forEach(function(b) {
+                            b.classList.toggle('active', b.getAttribute('data-mode') === s.drawMode);
+                        });
+                    }
+                    if (s.resolution != null) {
+                        document.getElementById('resolutionSlider').value = s.resolution;
+                        document.getElementById('resolutionValue').textContent = s.resolution;
+                    }
+                    if (s.objSize != null) document.getElementById('objSizeInput').value = s.objSize;
+                    if (s.coords) {
+                        coords = s.coords;
+                        var rect = L.rectangle([[coords.south, coords.west], [coords.north, coords.east]], {
+                            color: '#E97826', weight: currentShape === 'rectangle' ? 3 : 2, opacity: 1,
+                            fill: currentShape === 'rectangle', fillOpacity: 0.3
+                        });
+                        drawnItems.addLayer(rect);
+                        rectLayer = rect;
+                        if (drawMode === 'center' && s.shapeCenter) {
+                            shapeCenter = s.shapeCenter;
+                            bindCenterEdit();
+                        } else {
+                            bindLiveEdit(rect);
+                        }
+                        bindCornerDrag(rect);
+                        bindMoveHandle();
+                        renderShapePreview();
+                    }
+                    updateSendState();
+                    updateStatus();
+                    tp3dRestorePrefetch(s.prefetch);
+                    // Done LAST, after coords is already restored above --
+                    // setView() fires 'moveend' (bound to saveState further
+                    // down), and saveState() reads the live `coords`
+                    // variable. Calling setView() before coords was restored
+                    // let that moveend handler write coords:null back to the
+                    // state file, silently wiping the drawn area on every
+                    // reopen even when nothing else changed.
+                    if (s.lat != null) map.setView([s.lat, s.lng], s.zoom);
+                })
+                .catch(function() { updateSendState(); updateStatus(); });
+        }
+
+        function loadExistingMaps() {
+            fetch('http://127.0.0.1:' + PORT + '/get_existing_maps', { cache: 'no-store' })
+                .then(function(r) { return r.json(); })
+                .then(function(list) {
+                    existingMaps = list || [];
+                    existingMapsLayer.clearLayers();
+                    existingMaps.forEach(function(m) {
+                        var layer = makeShapeLayer(m.bounds, m.shape, {
+                            color: '#9b59b6', weight: 2.5, opacity: 0.95, dashArray: '6 4',
+                            fill: true, fillOpacity: 0.15, fillColor: '#9b59b6'
+                        }, m.polygon);
+                        if (m.name) layer.bindTooltip(m.name, { sticky: true });
+                        existingMapsLayer.addLayer(layer);
+                    });
+                })
+                .catch(function() {});
+        }
+
+        function loadExistingTrails() {
+            // Read-only reference layer — trails already generated in Blender
+            // are shown so the user can see they're already there instead of
+            // re-importing/re-sending the same GPX every time a new tile is made.
+            fetch('http://127.0.0.1:' + PORT + '/get_existing_trails', { cache: 'no-store' })
+                .then(function(r) { return r.json(); })
+                .then(function(list) {
+                    existingTrailsLayer.clearLayers();
+                    (list || []).forEach(function(t) {
+                        if (!t.points || t.points.length < 2) return;
+                        var layer = L.polyline(t.points, {
+                            color: '#9b59b6', weight: 2.5, opacity: 0.85, dashArray: '6 4'
+                        });
+                        if (t.name) layer.bindTooltip(t.name, { sticky: true });
+                        existingTrailsLayer.addLayer(layer);
+                    });
+                })
+                .catch(function() {});
+        }
+
+        // Generic N-sided regular polygon inscribed in a lat/lng bounding box
+        // (R_lat/R_lng let a non-square box still produce a shape that fills
+        // it, same "ellipse inscribed in bbox" approach for every shape).
+        function regularPolygonPoints(centerLat, centerLng, R_lat, R_lng, sides, startAngleDeg) {
+            var pts = [];
+            var start = (startAngleDeg || 0) * Math.PI / 180;
+            for (var i = 0; i < sides; i++) {
+                var angle = start + i * (2 * Math.PI / sides);
+                pts.push([centerLat + R_lat * Math.sin(angle), centerLng + R_lng * Math.cos(angle)]);
+            }
+            return pts;
+        }
+
+        // A size x size square with its 4 corners beveled at 45 degrees --
+        // mirrors utils/primitives.py's create_octagon exactly (see its
+        // docstring for why: 8 points equally spaced by angle around an
+        // ellipse, like regularPolygonPoints above, only reaches ~92% of the
+        // bounding box and reads as a low-poly circle rather than an
+        // octagon; this construction instead puts 4 of its 8 edges exactly
+        // on the box's own sides). R_lat/R_lng bevel independently so a
+        // non-square bounding box still produces a consistent shape.
+        function beveledSquarePoints(centerLat, centerLng, R_lat, R_lng) {
+            var tLat = R_lat * (Math.SQRT2 - 1);
+            var tLng = R_lng * (Math.SQRT2 - 1);
+            return [
+                [centerLat + tLat, centerLng + R_lng], [centerLat + R_lat, centerLng + tLng],
+                [centerLat + R_lat, centerLng - tLng], [centerLat + tLat, centerLng - R_lng],
+                [centerLat - tLat, centerLng - R_lng], [centerLat - R_lat, centerLng - tLng],
+                [centerLat - R_lat, centerLng + tLng], [centerLat - tLat, centerLng + R_lng]
+            ];
+        }
+
+        function makeShapeLayer(bounds, shape, style, polygon) {
+            // CUSTOM (e.g. GeoJSON-boundary) tiles have no regular shape to
+            // reconstruct from just their bounding box -- draw the actual
+            // outline the backend stored instead. `polygon` is one entry per
+            // disjoint part (mainland + islands), each a single-ring [[lat,
+            // lng], ...] array, so Leaflet renders every part as its own
+            // shape rather than treating extra rings as holes.
+            if (shape === 'custom' && polygon && polygon.length) {
+                return L.polygon(polygon, style);
+            }
+            var centerLat = (bounds.north + bounds.south) / 2;
+            var centerLng = (bounds.east + bounds.west) / 2;
+            var R_lat = (bounds.north - bounds.south) / 2;
+            var R_lng = (bounds.east - bounds.west) / 2;
+            // Hexagon isn't one of this page's own shape choices, but existing
+            // maps generated elsewhere (e.g. the Multi Tile Generator) can still
+            // be hexagons -- keep rendering it correctly for reference display.
+            if (shape === 'hexagon') {
+                return L.polygon(regularPolygonPoints(centerLat, centerLng, R_lat, R_lng, 6, 0), style);
+            }
+            if (shape === 'octagon') {
+                return L.polygon(beveledSquarePoints(centerLat, centerLng, R_lat, R_lng), style);
+            }
+            if (shape === 'circle') {
+                return L.polygon(regularPolygonPoints(centerLat, centerLng, R_lat, R_lng, 48, 0), style);
+            }
+            return L.rectangle([[bounds.south, bounds.west], [bounds.north, bounds.east]], style);
+        }
+
+        function tp3dOnShapeChanged() { renderShapePreview(); }
+        function tp3dRectStyle() {
+            return { weight: currentShape === 'rectangle' ? 3 : 2, fill: currentShape === 'rectangle', fillOpacity: 0.3 };
+        }
+
+        // Wraps a longitude of any magnitude (Leaflet allows continuous
+        // panning, so raw values like 286 for -74 are possible) back into
+        // the standard -180..180 range.
+        function wrapLng(lng) {
+            return ((lng + 180) % 360 + 360) % 360 - 180;
+        }
+
+        // Every shape but Rectangle keeps a 1:1 aspect ratio -- the backend
+        // only ever builds a true regular circle/octagon/square from a single
+        // size (utils.create_circle/create_octagon/create_rectangle(size,size)),
+        // so a stretched drawn box would just get silently resized server-side
+        // anyway. Squaring it here instead makes the picker's own preview (and
+        // whatever's actually sent) match that up front. Uses an equirectangular
+        // meters-per-degree approximation -- good enough for this UI preview,
+        // since the backend re-derives the real scale itself from the sent
+        // bounds via convert_to_neutral_coordinates.
+        function squareBoundsFromRect(b) {
+            var midLat = (b.north + b.south) / 2;
+            var metersPerDegLat = 111320;
+            var metersPerDegLng = 111320 * Math.cos(midLat * Math.PI / 180);
+            var latSpanM = (b.north - b.south) * metersPerDegLat;
+            var lngSpanM = (b.east - b.west) * metersPerDegLng;
+            var sideM = Math.min(latSpanM, lngSpanM);
+            var halfLatDeg = (sideM / metersPerDegLat) / 2;
+            var halfLngDeg = metersPerDegLng > 0 ? (sideM / metersPerDegLng) / 2 : 0;
+            var centerLat = midLat, centerLng = (b.east + b.west) / 2;
+            return {
+                north: centerLat + halfLatDeg, south: centerLat - halfLatDeg,
+                east: centerLng + halfLngDeg, west: centerLng - halfLngDeg, type: b.type
+            };
+        }
+
+        // The bounds actually used for the preview shape and the /confirm
+        // payload -- Rectangle uses exactly what was drawn; every other
+        // shape gets squared first so what you see is what gets generated.
+        function effectiveBounds(b) {
+            return currentShape === 'rectangle' ? b : squareBoundsFromRect(b);
+        }
+
+        // svgInscribedBounds/placeSvgBoxInViewport/clearSvgShapeImport live in
+        // assets/rect_editor.js (inlined at the RECT_EDITOR token below), shared
+        // with premium/map_generator_pe.html. Don't write that token itself in
+        // a comment -- picker_server.py substitutes every occurrence.
+
+        function updateSendState() {
+            var ready = !!coords || geojsonPaths.length > 0;
+            document.getElementById('send').disabled = !ready;
+        }
+
+        function updateStatus() {
+            var nGpx = gpxPaths.length;
+            var nGeojson = geojsonPaths.length;
+            var extraSuffix = nGpx ? (' + ' + nGpx + ' trail(s)') : '';
+            if (coords) {
+                document.getElementById('status').textContent = 'Area ready' + extraSuffix + '.';
+            } else if (nGeojson) {
+                document.getElementById('status').textContent = 'GeoJSON boundary ready' + extraSuffix + '.';
+            } else if (nGpx) {
+                document.getElementById('status').textContent = nGpx + ' trail(s) imported — draw a shape or import a GeoJSON boundary to send.';
+            } else if (currentShape === 'svg' && svgShapePath) {
+                document.getElementById('status').textContent = 'SVG shape imported — draw an area to place it.';
+            } else {
+                document.getElementById('status').textContent = 'Draw a shape to begin.';
+            }
+        }
+
+        function bindLiveEdit(layer) {
+            // Show the rectangle's drag handles immediately instead of requiring
+            // the toolbar's "Edit layers" button first, and recompute the
+            // shape preview live as the user drags a corner handle — leaflet-draw
+            // fires 'edit' on the layer continuously during a drag, not just on save.
+            // off() first so re-enabling (e.g. after an edge-drag below, or
+            // switching back from 'center' mode) can't stack duplicate listeners.
+            layer.off('edit');
+            layer.editing.enable();
+            layer.on('edit', function() {
+                var b = layer.getBounds();
+                coords = { north: b.getNorth(), south: b.getSouth(), east: b.getEast(), west: b.getWest(), type: currentShape };
+                syncMoveHandlePosition();
+                renderShapePreview();
+                saveState();
+            });
+        }
+
+        __RECT_EDITOR_JS__
+        var drawControl = makeDrawControl();
+        map.addControl(drawControl);
+        map.on('moveend', saveState);
+
+        document.getElementById('importGpx').addEventListener('click', function() {
+            document.getElementById('gpxInput').click();
+        });
+
+        document.getElementById('gpxInput').addEventListener('change', function(e) {
+            // The free map generator only supports a single imported trail
+            // (multi-trail import is a Premium feature -- see
+            // premium/map_generator_pe.html) -- only the first selected file
+            // is used, and it replaces whatever was previously imported
+            // rather than adding to it.
+            var files = Array.from(e.target.files).slice(0, 1);
+            this.value = '';
+            if (!files.length) return;
+            if (gpxPaths.length > 0) {
+                gpxPaths = []; gpxNames = [];
+                gpxLayer.clearLayers();
+            }
+            // Wait for every file in this batch to finish, then fit to
+            // gpxLayer's combined bounds exactly once.
+            var pending = files.length;
+            files.forEach(function(file) {
+                var reader = new FileReader();
+                reader.onload = function(event) {
+                    try {
+                        var gpxDoc = new DOMParser().parseFromString(event.target.result, 'text/xml');
+                        if (gpxDoc.getElementsByTagName('parsererror').length) { alert('Error parsing ' + file.name); return; }
+                        var trkSegs = gpxDoc.getElementsByTagName('trkseg');
+                        for (var s = 0; s < trkSegs.length; s++) {
+                            var trkpts = trkSegs[s].getElementsByTagName('trkpt');
+                            if (trkpts.length < 2) continue;
+                            var pts = [];
+                            for (var i = 0; i < trkpts.length; i++) {
+                                pts.push([
+                                    parseFloat(trkpts[i].getAttribute('lat')),
+                                    parseFloat(trkpts[i].getAttribute('lon'))
+                                ]);
+                            }
+                            gpxLayer.addLayer(L.polyline(pts, { color: 'red', weight: 3, opacity: 0.7 }));
+                        }
+                        fetch('http://127.0.0.1:' + PORT + '/upload_gpx', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/gpx+xml', 'X-Filename': file.name },
+                            body: event.target.result
+                        })
+                        .then(function(r) { return r.json(); })
+                        .then(function(res) {
+                            gpxPaths.push(res.path);
+                            gpxNames.push(file.name);
+                            updateGpxList();
+                            updateSendState();
+                            updateStatus();
+                            saveState();
+                        })
+                        .catch(function() { alert('Could not save GPX to temp file.'); });
+                    } catch (err) { alert('Error importing GPX: ' + err.message); }
+                    finally {
+                        pending--;
+                        if (pending === 0 && gpxLayer.getBounds().isValid()) {
+                            // Auto-place a shape centered on the trail's bounding
+                            // box (trail ~80% of it), replacing any existing one --
+                            // including one restored from the previous session --
+                            // and fit to that instead. Skipped for a GeoJSON
+                            // boundary, which is the tile outline instead.
+                            if (geojsonPaths.length === 0) {
+                                placeShapeAroundBounds(gpxLayer.getBounds(), 0.8);
+                            }
+                            map.fitBounds(coords && rectLayer ? rectLayer.getBounds() : gpxLayer.getBounds(), { padding: [50, 50] });
+                        }
+                    }
+                };
+                reader.readAsText(file);
+            });
+        });
+
+        document.getElementById('clearGpx').addEventListener('click', function() {
+            gpxPaths = []; gpxNames = [];
+            gpxLayer.clearLayers();
+            updateGpxList();
+            saveState();
+            updateSendState();
+            updateStatus();
+        });
+
+        document.getElementById('importGeojson').addEventListener('click', function() {
+            document.getElementById('geojsonInput').click();
+        });
+
+        document.getElementById('geojsonInput').addEventListener('change', function(e) {
+            // Single-boundary only -- multi-file GeoJSON merge is a Premium
+            // feature (see premium/map_generator_pe.html).
+            var files = Array.from(e.target.files).slice(0, 1);
+            this.value = '';
+            if (!files.length) return;
+            if (geojsonPaths.length > 0) {
+                geojsonPaths = []; geojsonNames = [];
+                geojsonLayer.clearLayers();
+            }
+            var file = files[0];
+            var reader = new FileReader();
+            reader.onload = function(event) {
+                try {
+                    var parsed = JSON.parse(event.target.result);
+                    if (!extractGeojsonRings(parsed).length) {
+                        tp3dAlert(file.name + ' has no closed polygon boundary -- GeoJSON import needs a Polygon/MultiPolygon shape, not a line or point.', 'Import Error');
+                        return;
+                    }
+                    // A GeoJSON boundary replaces the drawn area rather than
+                    // combining with it (this picker only ever sends one
+                    // tile, and the backend already prioritizes the GeoJSON
+                    // boundary over any drawn shape) -- drop it here too so
+                    // the map doesn't keep showing a shape that won't
+                    // actually be sent.
+                    if (coords) {
+                        clearDrawnArea();
+                        updateStatus();
+                        updateSendState();
+                    }
+                    // Leaflet's own GeoJSON renderer handles Polygon/
+                    // MultiPolygon/Feature/FeatureCollection natively.
+                    var layer = L.geoJSON(parsed, {
+                        style: { color: '#2a8adf', weight: 2.5, opacity: 0.9, fill: true, fillOpacity: 0.12, fillColor: '#2a8adf' }
+                    });
+                    layer.bindTooltip(file.name, { sticky: true });
+                    geojsonLayer.addLayer(layer);
+                    fetch('http://127.0.0.1:' + PORT + '/upload_geojson', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/geo+json', 'X-Filename': file.name },
+                        body: event.target.result
+                    })
+                    .then(function(r) { return r.json(); })
+                    .then(function(res) {
+                        geojsonPaths.push(res.path);
+                        geojsonNames.push(file.name);
+                        updateGeojsonList();
+                        updateSendState();
+                        updateStatus();
+                        saveState();
+                        if (geojsonLayer.getBounds().isValid()) {
+                            map.fitBounds(geojsonLayer.getBounds(), { padding: [50, 50] });
+                        }
+                    })
+                    .catch(function() { tp3dAlert('Could not save GeoJSON to temp file.', 'Import Error'); });
+                } catch (err) { tp3dAlert('Error importing ' + file.name + ': ' + err.message, 'Import Error'); }
+            };
+            reader.readAsText(file);
+        });
+
+        document.getElementById('clearGeojson').addEventListener('click', function() {
+            geojsonPaths = []; geojsonNames = [];
+            geojsonLayer.clearLayers();
+            updateGeojsonList();
+            saveState();
+            updateSendState();
+            updateStatus();
+        });
+
+        document.querySelectorAll('.shape-btn[data-shape]').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var shape = this.getAttribute('data-shape');
+                // The SVG shape needs a file behind it -- clicking the icon
+                // before one's been imported just opens the file dialog
+                // instead of selecting an empty shape (selection itself
+                // happens once svgShapeInput's 'change' handler finishes the
+                // upload, see below).
+                if (shape === 'svg' && !svgShapePath) {
+                    document.getElementById('svgShapeInput').click();
+                    return;
+                }
+                // Just changes which shape the already-drawn area gets
+                // interpreted as — does NOT start a new draw action (use the
+                // Draw button for that).
+                currentShape = shape;
+                document.querySelectorAll('.shape-btn[data-shape]').forEach(function(b) { b.classList.remove('active'); });
+                this.classList.add('active');
+                if (coords) {
+                    coords.type = currentShape;
+                    drawnItems.eachLayer(function(layer) {
+                        layer.setStyle({ weight: currentShape === 'rectangle' ? 3 : 2, fill: currentShape === 'rectangle' });
+                    });
+                    renderShapePreview();
+                } else {
+                    updateStatus();
+                }
+                saveState();
+            });
+        });
+
+        document.getElementById('importSvgShape').addEventListener('click', function() {
+            document.getElementById('svgShapeInput').click();
+        });
+
+        document.getElementById('svgShapeInput').addEventListener('change', function(e) {
+            var files = Array.from(e.target.files).slice(0, 1);
+            this.value = '';
+            if (!files.length) return;
+            var file = files[0];
+            var reader = new FileReader();
+            reader.onload = function(event) {
+                var svgText = event.target.result;
+                try {
+                    var doc = new DOMParser().parseFromString(svgText, 'image/svg+xml');
+                    if (doc.getElementsByTagName('parsererror').length) {
+                        tp3dAlert(file.name + ' is not a valid SVG file.', 'Import Error');
+                        return;
+                    }
+                } catch (err) {
+                    tp3dAlert('Error parsing ' + file.name + ': ' + err.message, 'Import Error');
+                    return;
+                }
+                // Measures the SVG's real geometric aspect ratio (not its
+                // declared viewBox/width/height, which can differ a lot from
+                // the actual artwork's extent) so the preview matches what
+                // the backend will actually generate -- see
+                // computeSvgAspectFromMarkup's own comment for why.
+                var aspect = computeSvgAspectFromMarkup(svgText);
+                fetch('http://127.0.0.1:' + PORT + '/upload_svg', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'image/svg+xml', 'X-Filename': file.name },
+                    body: svgText
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(res) {
+                    svgShapePath = res.path;
+                    svgShapeName = file.name;
+                    svgAspect = aspect;
+                    svgDataUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgPreviewMarkup(svgText));
+                    currentShape = 'svg';
+                    document.querySelectorAll('.shape-btn[data-shape]').forEach(function(b) {
+                        b.classList.toggle('active', b.getAttribute('data-shape') === 'svg');
+                    });
+                    // Auto-places a fresh box centered in the current view (~40%
+                    // of it) so the shape is immediately visible instead of
+                    // requiring the user to draw/find an area for it first.
+                    placeSvgBoxInViewport(0.4);
+                    updateSvgShapeList();
+                    renderShapePreview();
+                    updateSendState();
+                    updateStatus();
+                    saveState();
+                })
+                .catch(function() { tp3dAlert('Could not save SVG to temp file.', 'Import Error'); });
+            };
+            reader.readAsText(file);
+        });
+
+        document.getElementById('clearSvgShape').addEventListener('click', clearSvgShapeImport);
+
+        document.querySelectorAll('.draw-mode-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                setDrawMode(this.getAttribute('data-mode'));
+            });
+        });
+
+        document.getElementById('drawBtn').addEventListener('click', function() {
+            armDraw();
+        });
+
+        // Also used to drop a drawn area when a GeoJSON boundary is imported
+        // instead (see the geojsonInput 'change' handler below) -- the two
+        // are mutually exclusive on this picker (it only ever sends one
+        // tile), so keeping both drawn at once would be misleading even
+        // though the backend already prioritizes the GeoJSON boundary.
+        function clearDrawnArea() {
+            drawnItems.clearLayers();
+            shapePreview.clearLayers();
+            editHandles.clearLayers();
+            moveHandleLayer.clearLayers();
+            syncCenterHandles = null;
+            rectLayer = null;
+            coords = null;
+            shapeCenter = null;
+        }
+
+        document.getElementById('deleteBtn').addEventListener('click', function() {
+            clearDrawnArea();
+            updateStatus();
+            updateSendState();
+            saveState();
+        });
+
+        document.getElementById('resolutionSlider').addEventListener('input', function() {
+            document.getElementById('resolutionValue').textContent = this.value;
+            saveState();
+        });
+
+        document.getElementById('objSizeInput').addEventListener('input', function() {
+            saveState();
+        });
+
+        // Rectangle IS the raw drawn/edited layer (drawnItems), so it needs no
+        // separate preview -- every other shape gets its true (aspect-locked)
+        // inscribed shape drawn on top instead, the same way the drawn
+        // rectangle handle itself stays visible (dashed, unfilled) underneath
+        // it for dragging/resizing.
+        // Preview-only restyle of the imported SVG (the file sent to Blender is
+        // untouched): the outline keeps the shape's current colour, the inside
+        // becomes a lighter, more transparent version of it. A filled shape
+        // with no stroke of its own gets one in its fill colour so it still
+        // has a border. Falls back to the raw markup if anything goes wrong.
+        function svgPreviewMarkup(svgText) {
+            var host = null;
+            try {
+                host = document.createElement('div');
+                host.style.cssText = 'position:absolute;left:-99999px;top:0;width:400px;height:400px;visibility:hidden;pointer-events:none';
+                host.innerHTML = svgText;
+                var svg = host.querySelector('svg');
+                if (!svg) return svgText;
+                document.body.appendChild(host);
+
+                var vb = svg.viewBox && svg.viewBox.baseVal;
+                var size = (vb && vb.width && vb.height) ? Math.max(vb.width, vb.height) : 0;
+                if (!size) { var bb = svg.getBBox(); size = Math.max(bb.width, bb.height) || 100; }
+                var borderWidth = size * 0.006;
+
+                function parseRgb(str) {
+                    var m = /rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/.exec(str || '');
+                    return m ? [+m[1], +m[2], +m[3]] : null;
+                }
+                svg.querySelectorAll('path,rect,circle,ellipse,polygon,polyline').forEach(function(el) {
+                    var cs = getComputedStyle(el);
+                    var fill = parseRgb(cs.fill);
+                    if (!fill) return;   // fill:none (or a gradient/pattern) -- leave as is
+                    var stroke = parseRgb(cs.stroke);
+                    if (!stroke) {
+                        el.style.stroke = 'rgb(' + fill.join(',') + ')';
+                        el.style.strokeWidth = borderWidth;
+                    }
+                    var light = fill.map(function(c) { return Math.round(c + (255 - c) * 0.35); });
+                    el.style.fill = 'rgb(' + light.join(',') + ')';
+                    el.style.fillOpacity = (parseFloat(cs.fillOpacity) || 1) * 0.35;
+                });
+                return new XMLSerializer().serializeToString(svg);
+            } catch (e) {
+                return svgText;
+            } finally {
+                if (host && host.parentNode) host.parentNode.removeChild(host);
+            }
+        }
+
+        function renderShapePreview() {
+            shapePreview.clearLayers();
+            if (!coords || currentShape === 'rectangle') return;
+            if (currentShape === 'svg') {
+                if (!svgDataUrl) return;
+                var ib = svgInscribedBounds(effectiveBounds(coords), svgAspect);
+                L.imageOverlay(svgDataUrl, [[ib.south, ib.west], [ib.north, ib.east]], { opacity: 1 })
+                    .addTo(shapePreview);
+                return;
+            }
+            makeShapeLayer(effectiveBounds(coords), currentShape, {
+                color: '#007bff', weight: 1.5, opacity: 0.9, fill: true, fillOpacity: 0.12
+            }).addTo(shapePreview);
+        }
+
+        // leaflet-draw's own corner/move-marker dragging (enabled via
+        // bindLiveEdit -> layer.editing.enable(), active in 'corner' draw
+        // mode) only fires the layer's 'edit' event once, on release -- so
+        // without this, the preview shape and move handle would sit frozen
+        // for the whole drag and only jump into place at mouseup, unlike
+        // this page's OWN handle-drag code (bindCornerDrag, bindCenterEdit's
+        // edge handles, bindMoveHandle) which all update every tick. These
+        // draw:editresize/draw:editmove map events are what leaflet-draw
+        // fires continuously during that same drag, so hook those instead
+        // for the live preview -- 'edit' still does the final coords commit
+        // and saveState() on release via bindLiveEdit.
+        function liveSyncFromLayer(e) {
+            if (e.layer !== rectLayer) return;
+            var b = e.layer.getBounds();
+            coords = { north: b.getNorth(), south: b.getSouth(), east: b.getEast(), west: b.getWest(), type: currentShape };
+            syncMoveHandlePosition();
+            renderShapePreview();
+        }
+        map.on(L.Draw.Event.EDITRESIZE, liveSyncFromLayer);
+        map.on(L.Draw.Event.EDITMOVE, liveSyncFromLayer);
+
+        map.on(L.Draw.Event.CREATED, function(e) {
+            drawArmed = false;
+            var layer = e.layer;
+            drawnItems.clearLayers();
+            editHandles.clearLayers();
+            syncCenterHandles = null;
+            shapeCenter = null;
+            var b = layer.getBounds();
+            coords = { north: b.getNorth(), south: b.getSouth(), east: b.getEast(), west: b.getWest(), type: currentShape };
+            layer.setStyle({ color: '#E97826', weight: currentShape === 'rectangle' ? 3 : 2, opacity: 1,
+                             fill: currentShape === 'rectangle', fillOpacity: 0.3 });
+            drawnItems.addLayer(layer);
+            rectLayer = layer;
+            bindLiveEdit(layer);
+            bindCornerDrag(layer);
+            bindMoveHandle();
+            renderShapePreview();
+            updateSendState();
+            updateStatus();
+            saveState();
+        });
+
+        map.on(L.Draw.Event.EDITED, function(e) {
+            e.layers.eachLayer(function(layer) {
+                var b = layer.getBounds();
+                coords = { north: b.getNorth(), south: b.getSouth(), east: b.getEast(), west: b.getWest(), type: currentShape };
+                // The toolbar's Save hides the drag handles again — restore them
+                // so the rectangle stays directly editable without re-clicking Edit.
+                layer.editing.enable();
+            });
+            syncMoveHandlePosition();
+            renderShapePreview();
+            saveState();
+        });
+
+        __PREFETCH_JS__
+
+        document.getElementById('send').onclick = function() {
+            if (!coords && geojsonPaths.length === 0) return;
+
+            var payload = {
+                gpx_paths: gpxPaths,
+                geojson_paths: geojsonPaths,
+                svg_path: svgShapePath,
+                excluded_ids: tp3dPrefetchExcludedIds(),
+                resolution: parseInt(document.getElementById('resolutionSlider').value) || 4,
+                objSize: parseFloat(document.getElementById('objSizeInput').value) || 100
+            };
+
+            if (coords) {
+                var eb = effectiveBounds(coords);
+                // Leaflet lets the map pan across the antimeridian any number of
+                // times, so a box drawn after panning can carry a raw longitude
+                // like 286 instead of -74 (still correct width/shape, just not in
+                // -180..180). Re-base the whole box into that range by shifting
+                // both edges by whatever it takes to bring the center back in
+                // range, so backend code that assumes -180..180 doesn't choke.
+                var centerLngRaw = (eb.east + eb.west) / 2;
+                var shift = wrapLng(centerLngRaw) - centerLngRaw;
+                payload.bounds = {
+                    north: eb.north, south: eb.south,
+                    east: eb.east + shift, west: eb.west + shift
+                };
+                payload.center = boundsCenter(payload.bounds);
+                payload.type = currentShape;
+            }
+
+            document.getElementById('send').disabled = true;
+            document.getElementById('status').textContent = 'Sending to Blender...';
+            fetch('http://127.0.0.1:' + PORT + '/confirm', {
+                method: 'POST',
+                mode: 'cors',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+            .then(function() { window.close(); })
+            .catch(function() {
+                alert('Could not connect to Blender. Ensure the addon is running.');
+                updateSendState();
+                updateStatus();
+            });
+        };
+
+        // Default Size to the scene's current Object Size (restoreState below
+        // overrides this if a previously-saved value exists).
+        document.getElementById('objSizeInput').value = OBJ_SIZE;
+        restoreState();
+        loadExistingMaps();
+        loadExistingTrails();
+    </script>
+</body>
+</html>

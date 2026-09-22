@@ -60,28 +60,6 @@ def set_origin_to_3d_cursor(tobj=None):
     bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
 
 
-def set_origin_to_3d_cursor_objects(objs):
-    """Select every object in *objs* and set ALL their origins to the 3D
-    cursor in one call -- the multi-object counterpart of
-    set_origin_to_3d_cursor, for results made of several separate objects
-    (e.g. puzzle pieces), matching the pattern zoom_camera_to_objects uses."""
-    objs = [o for o in (objs or []) if o is not None]
-    if not objs:
-        return
-    try:
-        _ = objs[0].select_set  # raises ReferenceError if the object was freed
-    except ReferenceError:
-        return
-
-    bpy.ops.object.select_all(action='DESELECT')
-    for o in objs:
-        try:
-            o.select_set(True)
-        except ReferenceError:
-            continue
-    bpy.context.view_layer.objects.active = objs[0]
-    bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
-
 def set_origin_to_geometry(tobj=None):
     if tobj is None:
         tobj = bpy.context.active_object
