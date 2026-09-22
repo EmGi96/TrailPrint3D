@@ -783,49 +783,6 @@ def apply_pin_cutout(context, pin, clearance=0.0):
 
     return cut_count
 
-class TP3D_OT_dovetail(bpy.types.Operator):
-    bl_idname = "tp3d.dovetail"
-    bl_label = "Dovetail"
-    bl_options = {'REGISTER', 'UNDO'}
-    
-    def execute(self,context):
-
-        selected_objects = context.selected_objects
-
-        bpy.ops.object.select_all(action='DESELECT')
-        target.select_set(True)
-        bpy.context.view_layer.objects.active = target
-
-        bool_mod = target.modifiers.new(name="PinSocket", type='BOOLEAN')
-        bool_mod.operation = 'DIFFERENCE'
-        # MANIFOLD (not EXACT): on a real, large terrain (800k+ faces)
-        # cut by this cutter's short tapered section, EXACT was found
-        # to become numerically unstable right where it crosses steep
-        # ground (e.g. next to a lake shoreline) and silently produce a
-        # near-empty, garbage result instead of erroring -- confirmed
-        # unrelated to cutter validity (the cutter here is manifold and
-        # correctly outward-oriented) or to rotation/depth of the
-        # cutter's spike. MANIFOLD (and FLOAT) both handled the same
-        # case correctly. MANIFOLD does silently no-op on a
-        # non-manifold cutter, but the cutter is now always kept
-        # manifold (see the delete() above), so that risk doesn't apply
-        # here.
-        bool_mod.solver = 'MANIFOLD'
-        bool_mod.object = cutter
-        bpy.ops.object.modifier_apply(modifier=bool_mod.name)
-
-        bpy.data.objects.remove(cutter, do_unlink=True)
-        cut_count += 1
-
-    overlay.update(percent=1.0, phase="Done", message="")
-    overlay.finish()
-
-    bpy.ops.object.select_all(action='DESELECT')
-    pin.select_set(True)
-    bpy.context.view_layer.objects.active = pin
-
-    return cut_count
-
 def dovetail_cutout(zobj, sides=None, obj_size=None):
     """Boolean-cut dovetail recesses into the bottom edges of *zobj*.
 
