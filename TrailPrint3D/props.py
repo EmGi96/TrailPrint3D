@@ -530,13 +530,7 @@ class TP3D_PG_properties(bpy.types.PropertyGroup):
         default="SRTMGL1",
     )  # type: ignore
 
-    apiRetries: IntProperty(
-        name=_("Overpass API reuqest retries"),
-        default=5,
-        min=1,
-        max=20,
-        description=_("How many Retries per Request before canceling"),
-    )  # type: ignore
+    apiRetries: IntProperty(name= _("Overpass API request retries"), default = 5, min = 1, max = 20,description = _("How many retries per request before canceling")) # type: ignore
 
     dataset: EnumProperty(
         name="Dataset",
@@ -1500,6 +1494,9 @@ class TP3D_PG_properties(bpy.types.PropertyGroup):
             "Extra size added to the cutout so the printed pin actually fits into the socket"
         ),
     )  # type: ignore
+
+    pinCutout: BoolProperty(name= _("Pin Cutout"), default=False, description=_("When placing a pin, also cut a matching socket into the map and elements at the pin's position, so the printed pin can be inserted afterward")) # type: ignore
+    pinCutoutClearance: FloatProperty(name= _("Cutout Clearance"), default=0.2, min=0.0, soft_max=2.0, description=_("Extra size added to the cutout so the printed pin actually fits into the socket")) # type: ignore
 
     mapmode: EnumProperty(
         name=_("mapmode"),
