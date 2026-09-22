@@ -648,9 +648,9 @@ function tp3dBuildMapTab() {
 }
 
 // Two-button OSM / ESA WorldCover switch at the top of the Elements tab --
-// only built when ELEMENT_SOURCE is defined (see element_status.js), i.e.
-// only on premium/map_generator_pe.html; every other picker page's Elements
-// tab is unaffected. Posts to the existing /update_setting route's
+// only built when ELEMENT_SOURCE is defined (see element_status.js); every
+// picker page now carries that token, so this shows up in all of them.
+// Posts to the existing /update_setting route's
 // 'elementSource' field (utils.ui_state._SETTINGS_ROW_FIELDS), then patches
 // ELEMENT_SOURCE and the chip strip/Elements tab in place instead of
 // reloading the whole page -- a reload used to close this modal right after

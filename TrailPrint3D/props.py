@@ -1104,7 +1104,7 @@ class TP3D_PG_properties(bpy.types.PropertyGroup):
                 "WORLDCOVER",
                 _("ESA WorldCover"),
                 _(
-                    "Color the terrain from ESA WorldCover's land-cover classification instead of individual OSM element toggles. Roads and Buildings still come from OSM."
+                    "Color the terrain from ESA WorldCover's land-cover classification instead of individual OSM element toggles. Roads and Buildings are OSM-only and are not generated in this mode."
                 ),
             ),
         ],

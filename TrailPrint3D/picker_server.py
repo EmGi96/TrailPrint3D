@@ -112,7 +112,7 @@ def refresh_state_snapshots(element_states: dict | None = None, settings_state: 
     current scene state instead of whatever was true when start_picker() was
     first called.
 
-    Needed for premium/map_generator_pe.html's OSM/ESA WorldCover switch
+    Needed for every picker page's OSM/ESA WorldCover switch
     (settings_modal.js): flipping tp3d.elementSource via /update_setting only
     changes the scene property (applied on the calling operator's modal()
     timer tick, via apply_setting_update) -- it does NOT by itself update
@@ -404,7 +404,7 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == '/get_source_state':
-            # premium/map_generator_pe.html's OSM/ESA WorldCover switch
+            # Every picker page's OSM/ESA WorldCover switch
             # (settings_modal.js) polls this after posting the switch to
             # /update_setting, instead of reloading the whole page (which
             # closed the Settings modal it was clicked from -- unintuitive,
@@ -721,13 +721,11 @@ def start_picker(result_path: str, existing_maps: list | None = None, existing_t
     could be read.
 
     *element_source*, if given, is the scene's tp3d.elementSource ("OSM" or
-    "WORLDCOVER") -- inlined into the page as ELEMENT_SOURCE. Only
-    premium/map_generator_pe.html actually carries the __ELEMENT_SOURCE_JS__
-    token in its script block (see element_status.js/settings_modal.js), so
-    this is a no-op substitution for every other picker page: their
-    element-status strip and Settings modal Elements tab keep behaving
-    exactly as before, undisturbed by whatever elementSource the scene
-    happens to have.
+    "WORLDCOVER") -- inlined into the page as ELEMENT_SOURCE. Every picker
+    page carries the __ELEMENT_SOURCE_JS__ token in its script block (see
+    element_status.js/settings_modal.js), so this drives their
+    element-status strip and Settings modal Elements tab, switching between
+    the OSM and WorldCover chip/card sets.
     """
     global _active_server, _pending_toggles, _pending_settings, _pending_advanced_settings, _pending_prefetch
     if _active_server is not None:

@@ -217,28 +217,37 @@ def _rg_build_terrain_elements(
     _ELEM_PHASE_END = phase_end
     if map_km is None:
         raise GenerationError("map_km value not set properly.")
+    # Every branch here is OSM-only (WorldCover's own land-cover painting isn't
+    # counted the same way, see terrain_gen.py's paint_terrain_from_landcover),
+    # so none of them apply when elementSource is WORLDCOVER -- otherwise a
+    # flag left on from an earlier OSM generation would still inflate this
+    # count even though nothing below actually builds it.
     _active_elem_flags = (
-        [
-            flag
-            for _, flag, size, _, _ in COLORING_ELEMENTS
-            if (flag(tp3d) if callable(flag) else getattr(tp3d, flag) == 1)
-            and map_km <= size
-        ]
-        + (
-            ["_ocean"]
-            if tp3d.show_water and tp3d.el_oActive == 1 and map_km <= const.COASTLINE_WATERPOLY_MAXSIZE
-            else []
+        (
+            [
+                flag
+                for _, flag, size, _, _ in COLORING_ELEMENTS
+                if (flag(tp3d) if callable(flag) else getattr(tp3d, flag) == 1)
+                and map_km <= size
+            ]
+            + (
+                ["_ocean"]
+                if tp3d.show_water and tp3d.el_oActive == 1 and map_km <= const.COASTLINE_WATERPOLY_MAXSIZE
+                else []
+            )
+            + (
+                ["_buildings"]
+                if tp3d.el_bActive == 1 and map_km <= const.BUILDINGS_MAXSIZE
+                else []
+            )
+            + (
+                ["_roads"]
+                if any_road_active(tp3d) and map_km <= const.ROADS_MAXSIZE
+                else []
+            )
         )
-        + (
-            ["_buildings"]
-            if tp3d.el_bActive == 1 and map_km <= const.BUILDINGS_MAXSIZE
-            else []
-        )
-        + (
-            ["_roads"]
-            if any_road_active(tp3d) and map_km <= const.ROADS_MAXSIZE
-            else []
-        )
+        if gen.settings.elementSource == "OSM"
+        else []
     )
     obj: Object = gen.runtime.mapObject
     scaleHor = gen.runtime.sScaleHor
@@ -263,7 +272,10 @@ def _rg_build_terrain_elements(
         )
         and map_km <= const.WATER_MAXSIZE
     )
-    _ocean_active = tp3d.show_water and tp3d.el_oActive == 1 and map_km <= const.COASTLINE_WATERPOLY_MAXSIZE
+    _ocean_active = (
+        gen.settings.elementSource == "OSM"
+        and tp3d.show_water and tp3d.el_oActive == 1 and map_km <= const.COASTLINE_WATERPOLY_MAXSIZE
+    )
     _water_ocean_combined = _water_feat_active and _ocean_active
 
     # --------------------------------------------------
@@ -316,12 +328,16 @@ def _rg_build_terrain_elements(
         # in this same combined batch (mirrors _rg_start_osm_prefetch) so
         # create_buildings/create_roads/createOcean below can reuse the
         # already-fetched + disk-cached tiles instead of re-querying Overpass.
-        if tp3d.el_bActive == 1 and map_km <= const.BUILDINGS_MAXSIZE:
-            _active_kind_tasks.append(("BUILDINGS", _tile_tasks))
-        if any_road_active(tp3d) and map_km <= const.ROADS_MAXSIZE:
-            _active_kind_tasks.append(("STREETS", _tile_tasks))
-        if tp3d.show_water and tp3d.el_oActive == 1 and map_km <= const.COASTLINE_MAXSIZE:
-            _active_kind_tasks.append(("COASTLINE", _tile_tasks))
+        # All three are OSM-only, same as COLORING_ELEMENTS above -- skipped
+        # entirely under WorldCover so no OSM element sneaks into a WorldCover
+        # generation just because its flag was left on from a prior OSM run.
+        if gen.settings.elementSource == "OSM":
+            if tp3d.el_bActive == 1 and map_km <= const.BUILDINGS_MAXSIZE:
+                _active_kind_tasks.append(("BUILDINGS", _tile_tasks))
+            if any_road_active(tp3d) and map_km <= const.ROADS_MAXSIZE:
+                _active_kind_tasks.append(("STREETS", _tile_tasks))
+            if tp3d.show_water and tp3d.el_oActive == 1 and map_km <= const.COASTLINE_MAXSIZE:
+                _active_kind_tasks.append(("COASTLINE", _tile_tasks))
         _all_prefetched = _fetch_all_kinds_parallel(
             _active_kind_tasks, _overpass_semaphore, settings=_fetch_settings
         )
@@ -431,7 +447,7 @@ def _rg_build_terrain_elements(
     # Ocean — unique creation logic.
     # --------------------------------------------------
     terrain["ocean"] = None
-    if tp3d.show_water and tp3d.el_oActive == 1:
+    if gen.settings.elementSource == "OSM" and tp3d.show_water and tp3d.el_oActive == 1:
         if map_km <= const.COASTLINE_MAXSIZE:
             _advance_elem_progress("Ocean", "Creating ocean…")
             _ov.set_fetch_progress("water", 0.5 if _water_feat_active else 0.0)
@@ -488,7 +504,7 @@ def _rg_build_terrain_elements(
     # Buildings — own creation function + intersection post-processing.
     # --------------------------------------------------
     terrain["buildings"] = None
-    if tp3d.el_bActive == 1:
+    if gen.settings.elementSource == "OSM" and tp3d.el_bActive == 1:
         if map_km <= const.BUILDINGS_MAXSIZE:
             _advance_elem_progress("Buildings", "Fetching building data…")
             _ov.set_fetch_progress("buildings", 0.0)
@@ -514,7 +530,7 @@ def _rg_build_terrain_elements(
     # Roads — own creation function + clipping + material post-processing.
     # --------------------------------------------------
     terrain["roads"] = None
-    if any_road_active(tp3d):
+    if gen.settings.elementSource == "OSM" and any_road_active(tp3d):
         if map_km <= const.ROADS_MAXSIZE:
             _advance_elem_progress("Roads", "Fetching road data…")
             _ov.set_fetch_progress("roads", 0.0)

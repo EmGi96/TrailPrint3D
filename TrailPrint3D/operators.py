@@ -2470,6 +2470,15 @@ class TP3D_OT_puzzle_configurator(bpy.types.Operator):
             utils.apply_advanced_setting_update(context.scene.tp3d, key, value)
         for request in mp.drain_pending_prefetch():
             self._start_prefetch(context, request)
+        # Keeps a later page reload (the OSM/ESA WorldCover switch,
+        # settings_modal.js) in sync with whatever was just applied above --
+        # see refresh_state_snapshots' own docstring.
+        mp.refresh_state_snapshots(
+            element_states=utils.build_element_toggle_states(context.scene.tp3d),
+            settings_state=utils.build_settings_row_state(context.scene.tp3d),
+            advanced_settings=utils.build_advanced_settings_state(context.scene.tp3d),
+            element_source=context.scene.tp3d.elementSource,
+        )
 
         rp = pathlib.Path(self._result_path)
         if not (rp.exists() and rp.stat().st_size > 0):
@@ -2539,6 +2548,7 @@ class TP3D_OT_puzzle_configurator(bpy.types.Operator):
             settings_state=utils.build_settings_row_state(context.scene.tp3d),
             advanced_settings=utils.build_advanced_settings_state(context.scene.tp3d),
             dem_bounds=_dem_coverage_overlay(),
+            element_source=context.scene.tp3d.elementSource,
         )
 
         wm = context.window_manager
@@ -2985,9 +2995,9 @@ class TP3D_OT_map_generator(bpy.types.Operator):
             utils.apply_advanced_setting_update(context.scene.tp3d, key, value)
         for request in mp.drain_pending_prefetch():
             self._start_prefetch(context, request)
-        # Keeps a later page reload (premium/map_generator_pe.html's OSM/ESA
-        # WorldCover switch, settings_modal.js) in sync with whatever was
-        # just applied above -- see refresh_state_snapshots' own docstring.
+        # Keeps a later page reload (the OSM/ESA WorldCover switch,
+        # settings_modal.js) in sync with whatever was just applied above --
+        # see refresh_state_snapshots' own docstring.
         mp.refresh_state_snapshots(
             element_states=utils.build_element_toggle_states(context.scene.tp3d),
             settings_state=utils.build_settings_row_state(context.scene.tp3d),

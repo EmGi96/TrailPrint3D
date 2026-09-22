@@ -144,7 +144,10 @@ def runGeneration(type, locked_scale=None):
         overlay.set_fetch_items(build_fetch_items(gen.runtime.mapKm))
 
         # --- OSM background prefetch: start now so Overpass requests overlap with elevation download ---
-        _rg_start_osm_prefetch(gen)
+        # Skipped entirely when elementChoice is off (the sidebar "Map Elements" master
+        # toggle) -- no point pre-fetching data for elements that won't be built below.
+        if gen.settings.elementChoice:
+            _rg_start_osm_prefetch(gen)
         _rg_start_satellite_prefetch(gen)
 
         if gen.fetch.fetchThread is not None:
@@ -207,7 +210,16 @@ def runGeneration(type, locked_scale=None):
         _rg_create_satellite_plane(gen)
         if gen.fetch.fetchThread is not None:
             gen.fetch.fetchThread.join()
-        _rg_build_terrain_elements(gen, prefetched_osm=gen.fetch.fetchResult)
+        # elementChoice is the sidebar's "Map Elements" master toggle -- when it's off,
+        # no water/forest/roads/buildings/etc. should be generated at all, regardless of
+        # each element's own (still-saved) active flag. This only applies to the regular
+        # Generate flow: the tile-based generator pickers (puzzle/multitile) call
+        # _rg_build_terrain_elements directly via tile_orchestrator.py and always honor
+        # each element's own selection, independent of this scene-level toggle.
+        if gen.settings.elementChoice:
+            _rg_build_terrain_elements(gen, prefetched_osm=gen.fetch.fetchResult)
+        else:
+            gen.runtime.elements = {}
 
         # --- Phase 15: Single color mode processing ---
         overlay.update(0.95, "Coloring", "Applying single-color mode…")

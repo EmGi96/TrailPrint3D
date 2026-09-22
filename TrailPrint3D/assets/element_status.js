@@ -39,10 +39,10 @@ var ELEMENT_STATUS_ORDER_WORLDCOVER = [
     ['glacier', 'Glacier']
 ];
 
-// ELEMENT_SOURCE (from __ELEMENT_SOURCE_JS__) is only inlined by
-// premium/map_generator_pe.html today -- every other picker page leaves it
-// undefined and keeps the OSM order, unaffected by whatever elementSource
-// the scene happens to have.
+// ELEMENT_SOURCE (from __ELEMENT_SOURCE_JS__) is inlined by every picker
+// page -- tp3dIsWorldCover() still guards this (rather than assuming the
+// var is always present) so this file degrades gracefully if a future page
+// ever omits the token.
 function tp3dIsWorldCover() {
     return typeof ELEMENT_SOURCE !== 'undefined' && ELEMENT_SOURCE === 'WORLDCOVER';
 }
@@ -160,8 +160,8 @@ function tp3dToggleElement(key) {
     }).catch(function() {});
 }
 
-// Named (not an IIFE) so premium/map_generator_pe.html's OSM/ESA WorldCover
-// switch (settings_modal.js) can call this again after patching
+// Named (not an IIFE) so the OSM/ESA WorldCover switch (settings_modal.js)
+// can call this again on any picker page after patching
 // ELEMENT_SOURCE/ELEMENT_STATUS_ORDER/TP3D_ELEMENT_STATE in place, instead
 // of reloading the whole page (which used to close the Settings modal the
 // switch was clicked from).

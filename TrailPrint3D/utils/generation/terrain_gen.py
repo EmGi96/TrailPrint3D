@@ -213,12 +213,17 @@ def _rg_start_osm_prefetch(gen: GenerationContext):
         if gen.settings.elementSource == "OSM"
         else []
     )
-    if tp3d.el_bActive == 1 and map_km <= const.BUILDINGS_MAXSIZE:
-        _active_kind_tasks.append(("BUILDINGS", _tile_tasks))
-    if any_road_active(tp3d) and map_km <= const.ROADS_MAXSIZE:
-        _active_kind_tasks.append(("STREETS", _tile_tasks))
-    if tp3d.show_water and tp3d.el_oActive == 1 and map_km <= const.COASTLINE_MAXSIZE:
-        _active_kind_tasks.append(("COASTLINE", _tile_tasks))
+    # Buildings/roads/coastline are OSM-only, same as COLORING_ELEMENTS above --
+    # gated on elementSource too so a WorldCover generation doesn't still kick
+    # off an Overpass fetch for them just because their flag was left on from
+    # an earlier OSM generation.
+    if gen.settings.elementSource == "OSM":
+        if tp3d.el_bActive == 1 and map_km <= const.BUILDINGS_MAXSIZE:
+            _active_kind_tasks.append(("BUILDINGS", _tile_tasks))
+        if any_road_active(tp3d) and map_km <= const.ROADS_MAXSIZE:
+            _active_kind_tasks.append(("STREETS", _tile_tasks))
+        if tp3d.show_water and tp3d.el_oActive == 1 and map_km <= const.COASTLINE_MAXSIZE:
+            _active_kind_tasks.append(("COASTLINE", _tile_tasks))
     if not _active_kind_tasks:
         return None, {}
 
