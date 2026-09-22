@@ -118,6 +118,20 @@ def _draw_element_category(
     return sub
 
 
+def draw_wrapped_label(layout, context, text, icon='NONE'):
+    """Draw *text* as several layout.label() lines, wrapped to the current
+    sidebar width instead of being cut off. ~6.5px/character is a rough
+    estimate for Blender's default UI font at 100% zoom -- good enough for
+    wrapping since a slightly-off estimate just wraps one word early/late,
+    unlike truncation which loses text outright.
+    """
+    width = getattr(context.region, "width", 300)
+    chars_per_line = max(20, int(width / 6.5))
+    lines = textwrap.wrap(text, width=chars_per_line) or [text]
+    for i, line in enumerate(lines):
+        layout.label(text=line, icon=icon if i == 0 else 'NONE')
+
+
 class TP3D_PT_generate(bpy.types.Panel):
     bl_label = "Create"
     bl_idname = "TP3D_PT_generate"
