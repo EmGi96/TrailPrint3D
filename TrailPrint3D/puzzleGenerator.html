@@ -1069,7 +1069,10 @@
                             updateStatus();
                             saveState();
                         })
-                        .catch(function() { alert('Could not save GPX to temp file.'); });
+                        .catch(function() {
+                            gpxLayer.clearLayers();
+                            alert('Could not save GPX to temp file.');
+                        });
                     } catch (err) { alert('Error importing GPX: ' + err.message); }
                     finally {
                         pending--;

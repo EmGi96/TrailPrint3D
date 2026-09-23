@@ -620,7 +620,22 @@ class _Handler(BaseHTTPRequestHandler):
             raw_name = self.headers.get('X-Filename', default_names[self.path])
             safe = ''.join(c if c.isalnum() or c in '-_.' else '_' for c in raw_name)
             out_path = pathlib.Path(tempfile.gettempdir()) / f'trailprint_{safe}'
-            out_path.write_bytes(body)
+            try:
+                out_path.write_bytes(body)
+            except OSError as e:
+                # Without this, an OSError here (locked file, permissions,
+                # disk full, ...) propagates out of do_POST uncaught --
+                # socketserver logs it to the console but the connection is
+                # dropped mid-response, so the browser's fetch() rejects with
+                # a generic network error instead of a clean HTTP failure.
+                # The client already treats any rejected upload as "not
+                # imported" (see its .catch()), so a clean error response is
+                # enough; the print gives the actual reason for next time.
+                print(f"[TP3D picker] {self.path} FAILED to write {out_path}: {e}")
+                self.send_response(500)
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                return
             resp = json.dumps({'path': str(out_path)}).encode('utf-8')
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')

@@ -631,7 +631,13 @@
                             updateStatus();
                             saveState();
                         })
-                        .catch(function() { alert('Could not save GPX to temp file.'); });
+                        .catch(function() {
+                            // Upload failed after the trail was already drawn
+                            // above -- undo the draw so the map doesn't show
+                            // a trail that isn't actually in gpxPaths/the list.
+                            gpxLayer.clearLayers();
+                            alert('Could not save GPX to temp file.');
+                        });
                     } catch (err) { alert('Error importing GPX: ' + err.message); }
                     finally {
                         pending--;
@@ -719,7 +725,11 @@
                             map.fitBounds(geojsonLayer.getBounds(), { padding: [50, 50] });
                         }
                     })
-                    .catch(function() { tp3dAlert('Could not save GeoJSON to temp file.', 'Import Error'); });
+                    .catch(function() {
+                        // Same "undo the draw" reasoning as the GPX import above.
+                        geojsonLayer.removeLayer(layer);
+                        tp3dAlert('Could not save GeoJSON to temp file.', 'Import Error');
+                    });
                 } catch (err) { tp3dAlert('Error importing ' + file.name + ': ' + err.message, 'Import Error'); }
             };
             reader.readAsText(file);
