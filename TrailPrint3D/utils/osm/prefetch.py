@@ -306,7 +306,12 @@ def features_from_tiles(fetched):
 
     Road ways also carry "links": [ids of the other same-tier roads touching
     the way's start node, ids touching its end node] -- what the page's
-    Alt+click uses to follow a road along until the next junction.
+    Alt+click uses to follow a road along until the next junction -- and
+    "headings": [compass bearing (0-360, 0=north) the way points at its start
+    node, same at its end node], both facing OUTWARD from that node into the
+    way. At a junction (more than one same-tier road on that end), the page
+    uses these to keep following onto whichever of them continues roughly
+    straight ahead instead of stopping outright.
     """
     from .gen import extract_multipolygon_bodies
     from .roads import TIER_TAGS
@@ -316,11 +321,16 @@ def features_from_tiles(fetched):
 
     # Road connectivity for the picker's Alt+click "follow the road" -- built
     # from the full node lists (not the simplified geometry, which can drop a
-    # junction node): which OSM ways touch each node, and each way's tier.
+    # junction node): which OSM ways touch each node, each way's tier, and
+    # each node's own coordinate (for road_links' heading calculation below).
     node_ways: dict = {}
+    node_coords: dict = {}
     way_tier: dict = {}
     for tile_data, _from_cache in fetched.get("STREETS", {}).values():
         for el in tile_data.get("elements", ()):
+            if el.get("type") == "node":
+                node_coords[el["id"]] = (el.get("lat"), el.get("lon"))
+                continue
             if el.get("type") != "way":
                 continue
             tier = highway_tier.get((el.get("tags") or {}).get("highway"))
@@ -333,16 +343,34 @@ def features_from_tiles(fetched):
                 if key not in bucket:
                     bucket.append(key)
 
+    def node_heading(from_id, to_id):
+        """Compass bearing (0-360) from one node to another, or None if either's
+        coordinate wasn't in the fetched data (e.g. right at a tile edge)."""
+        a, b = node_coords.get(from_id), node_coords.get(to_id)
+        if not a or not b or a[0] is None or b[0] is None:
+            return None
+        phi1, phi2 = math.radians(a[0]), math.radians(b[0])
+        dlon = math.radians(b[1] - a[1])
+        x = math.sin(dlon) * math.cos(phi2)
+        y = math.cos(phi1) * math.sin(phi2) - math.sin(phi1) * math.cos(phi2) * math.cos(dlon)
+        return (math.degrees(math.atan2(x, y)) + 360) % 360
+
     def road_links(key, way):
-        """[ids at the start node, ids at the end node] of OTHER ways of the same tier."""
+        """([ids at the start node, ids at the end node] of OTHER ways of the
+        same tier, [heading at the start node, heading at the end node])."""
         node_ids = way.get("nodes") or ()
         if len(node_ids) < 2:
-            return [[], []]
+            return [[], []], [None, None]
         tier = way_tier.get(key)
-        return [
+        links = [
             [k for k in node_ways.get(n, ()) if k != key and way_tier.get(k) == tier]
             for n in (node_ids[0], node_ids[-1])
         ]
+        headings = [
+            node_heading(node_ids[0], node_ids[1]),
+            node_heading(node_ids[-1], node_ids[-2]),
+        ]
+        return links, headings
 
     features = []
     seen = set()
@@ -415,6 +443,6 @@ def features_from_tiles(fetched):
                     "rings": rings,
                 }
                 if kind == "STREETS" and el_type == "way":
-                    feature["links"] = road_links(key, el)
+                    feature["links"], feature["headings"] = road_links(key, el)
                 features.append(feature)
     return features, truncated
