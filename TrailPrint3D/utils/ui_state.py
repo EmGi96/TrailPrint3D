@@ -75,7 +75,13 @@ def build_fetch_items(map_km=None):
         map_km = round(tp3d.get("sMapInKm", 0), 1)
     items = [{"key": "elevation", "icon": "E", "label": "Elevation"}]
     if tp3d.elementSource == "WORLDCOVER":
+        # WorldCover paints every category off one combined image fetch (see
+        # terrain_gen.py's fetch_landcover_thread/paint_terrain_from_landcover)
+        # and generation.py's element phase skips all of the OSM defs below
+        # entirely when elementSource == "WORLDCOVER" -- so none of them are
+        # ever actually fetched here either, regardless of leftover OSM flags.
         items.append({"key": "landcover", "icon": "L", "label": "Land Cover"})
+        return items
     defs = [
         ("forest", "col_fActive", const.FOREST_MAXSIZE, "F", "Forest"),
         ("water", None, const.WATER_MAXSIZE, "W", "Water"),
