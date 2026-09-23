@@ -187,6 +187,26 @@
             }
         });
 
+        // Draws each <trkseg> in a parsed GPX document onto gpxLayer. Shared
+        // by the gpxInput 'change' handler (fresh import) and restoreState
+        // (redrawing the trail persisted from the previous session) so both
+        // paths stay in sync.
+        function drawGpxTrkSegs(gpxDoc) {
+            var trkSegs = gpxDoc.getElementsByTagName('trkseg');
+            for (var s = 0; s < trkSegs.length; s++) {
+                var trkpts = trkSegs[s].getElementsByTagName('trkpt');
+                if (trkpts.length < 2) continue;
+                var pts = [];
+                for (var i = 0; i < trkpts.length; i++) {
+                    pts.push([
+                        parseFloat(trkpts[i].getAttribute('lat')),
+                        parseFloat(trkpts[i].getAttribute('lon'))
+                    ]);
+                }
+                gpxLayer.addLayer(L.polyline(pts, { color: 'red', weight: 3, opacity: 0.7 }));
+            }
+        }
+
         function updateGeojsonList() {
             // Like the GPX list above, the free map generator only ever holds
             // one boundary at a time -- see the geojsonInput 'change' handler,
@@ -260,10 +280,13 @@
         }
 
         function saveState() {
-            // gpxPaths/gpxNames are intentionally NOT persisted here — a GPX
-            // import is session-only. Persisting it meant every time the picker
-            // was reopened to make another tile, the previously-sent trail came
-            // back too and got bundled (and regenerated/duplicated) again.
+            // gpxPaths/gpxNames ARE persisted here so the last-used trail is
+            // still selected next time the picker opens (matches
+            // premium/map_generator_pe.html). The server still has the
+            // uploaded temp file on disk at gpxPaths[0], so restoring just
+            // the path/name is enough to keep it selected and ready to send
+            // -- see restoreState below for how the map preview itself gets
+            // redrawn from that on reopen.
             var c = map.getCenter();
             fetch('http://127.0.0.1:' + PORT + '/save_state', {
                 method: 'POST',
@@ -278,7 +301,9 @@
                     resolution: document.getElementById('resolutionSlider').value,
                     objSize: document.getElementById('objSizeInput').value,
                     coords: coords,
-                    prefetch: tp3dPrefetchState()
+                    prefetch: tp3dPrefetchState(),
+                    gpxPaths: gpxPaths,
+                    gpxNames: gpxNames
                 })
             }).catch(function() {});
         }
@@ -295,9 +320,9 @@
                         baseLayers[s.baseLayer].addTo(map);
                         activeBaseLayerName = s.baseLayer;
                     }
-                    // 'svg' is deliberately excluded here -- like gpxPaths/
-                    // geojsonPaths, the imported SVG's content is session-only
-                    // (never written to saveState/the state file), so restoring
+                    // 'svg' is deliberately excluded here -- like geojsonPaths,
+                    // the imported SVG's content is session-only (never
+                    // written to saveState/the state file), so restoring
                     // 'svg' as the active shape on reopen would select a shape
                     // with no file behind it. Falls back to the default
                     // 'rectangle' the static HTML already marks active.
@@ -318,6 +343,27 @@
                         document.getElementById('resolutionValue').textContent = s.resolution;
                     }
                     if (s.objSize != null) document.getElementById('objSizeInput').value = s.objSize;
+                    if (s.gpxPaths && s.gpxPaths.length) {
+                        gpxPaths = s.gpxPaths;
+                        gpxNames = s.gpxNames || [];
+                        updateGpxList();
+                        // saveState only persists the path/name, not the raw
+                        // GPX content -- re-fetch it from the server (which
+                        // still has it on disk at gpxPaths[0], via
+                        // /get_gpx_content) so the trail is visibly redrawn
+                        // here too, not just listed. A file whose temp copy
+                        // no longer exists (e.g. OS temp dir was cleared)
+                        // silently stays undrawn but remains in the list.
+                        fetch('http://127.0.0.1:' + PORT + '/get_gpx_content?path=' + encodeURIComponent(gpxPaths[0]))
+                            .then(function(r) { return r.ok ? r.text() : null; })
+                            .then(function(xmlText) {
+                                if (!xmlText) return;
+                                var gpxDoc = new DOMParser().parseFromString(xmlText, 'text/xml');
+                                if (gpxDoc.getElementsByTagName('parsererror').length) return;
+                                drawGpxTrkSegs(gpxDoc);
+                            })
+                            .catch(function() {});
+                    }
                     if (s.coords) {
                         coords = s.coords;
                         var rect = L.rectangle([[coords.south, coords.west], [coords.north, coords.east]], {
@@ -570,19 +616,7 @@
                     try {
                         var gpxDoc = new DOMParser().parseFromString(event.target.result, 'text/xml');
                         if (gpxDoc.getElementsByTagName('parsererror').length) { alert('Error parsing ' + file.name); return; }
-                        var trkSegs = gpxDoc.getElementsByTagName('trkseg');
-                        for (var s = 0; s < trkSegs.length; s++) {
-                            var trkpts = trkSegs[s].getElementsByTagName('trkpt');
-                            if (trkpts.length < 2) continue;
-                            var pts = [];
-                            for (var i = 0; i < trkpts.length; i++) {
-                                pts.push([
-                                    parseFloat(trkpts[i].getAttribute('lat')),
-                                    parseFloat(trkpts[i].getAttribute('lon'))
-                                ]);
-                            }
-                            gpxLayer.addLayer(L.polyline(pts, { color: 'red', weight: 3, opacity: 0.7 }));
-                        }
+                        drawGpxTrkSegs(gpxDoc);
                         fetch('http://127.0.0.1:' + PORT + '/upload_gpx', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/gpx+xml', 'X-Filename': file.name },
