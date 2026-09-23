@@ -255,7 +255,9 @@ def subtract(geom, neg_geom):
     return geom.difference(neg_geom)
 
 
-def _smooth_polygon_taubin_pinned(geom, is_pinned, **taubin_kwargs):
+def _smooth_polygon_taubin_pinned(
+    geom, is_pinned, pin_target_points=None, debug_name="smooth", **taubin_kwargs
+):
     """Core Taubin smoothing pass shared by smooth_polygon_taubin() and
     smooth_polygon_taubin_bbox_pinned() -- smooths a Shapely Polygon or
     MultiPolygon, restoring any vertex for which is_pinned(x, y) is True back
@@ -263,12 +265,27 @@ def _smooth_polygon_taubin_pinned(geom, is_pinned, **taubin_kwargs):
 
     is_pinned -- callable(x, y) -> bool, so callers can pin against either a
     shared outline boundary or a tile bbox edge.
+    pin_target_points -- optional list of (x, y) points describing the pin
+    target itself (the outline boundary's own vertices, or the tile bbox
+    corners). DEBUG only: dumped once as reference markers so you can see
+    where boundary vertices are supposed to land.
+    debug_name -- label prefix for the DEBUG markers (e.g. the element kind).
     taubin_kwargs -- passed straight through to shapelysmooth.taubin_smooth
     (factor, mu, steps).
     """
     from shapelysmooth import taubin_smooth
 
     _require_shapely()
+
+    if bpy.app.debug and pin_target_points:
+        debug_dump_markers(
+            f"DBG_{debug_name}_pin_target",
+            pin_target_points,
+            z=1.0,
+            empty_type="SPHERE",
+            radius=0.15,
+        )
+    _debug_vert_counter = [0]
 
     def _smooth_ring(coords):
         # Keep the ring CLOSED (first == last) when handing it to
@@ -280,6 +297,31 @@ def _smooth_polygon_taubin_pinned(geom, is_pinned, **taubin_kwargs):
             return pts
 
         pinned_mask = [is_pinned(px, py) for px, py in pts]
+
+        if bpy.app.debug:
+            # One marker per actual (pre-smoothing) ring vertex, split by
+            # whether the pin check accepted it -- lets you see exactly which
+            # boundary-adjacent vertices fell outside pin_tolerance and got
+            # smoothed like ordinary interior vertices instead of staying put.
+            start = _debug_vert_counter[0]
+            pinned_pts = [pts[i] for i in range(len(pts) - 1) if pinned_mask[i]]
+            free_pts = [pts[i] for i in range(len(pts) - 1) if not pinned_mask[i]]
+            debug_dump_markers(
+                f"DBG_{debug_name}_vert_{start:04d}_pinned",
+                pinned_pts,
+                z=0.0,
+                empty_type="PLAIN_AXES",
+                radius=0.2,
+            )
+            debug_dump_markers(
+                f"DBG_{debug_name}_vert_{start:04d}_free",
+                free_pts,
+                z=0.0,
+                empty_type="CUBE",
+                radius=0.2,
+            )
+            _debug_vert_counter[0] += len(pts) - 1
+
         smoothed = taubin_smooth(pts, **taubin_kwargs)
 
         result = [pts[i] if pinned_mask[i] else smoothed[i] for i in range(len(pts))]
@@ -313,7 +355,7 @@ def _smooth_polygon_taubin_pinned(geom, is_pinned, **taubin_kwargs):
 
 
 def smooth_polygon_taubin(
-    gen: GenerationContext, geom, pin_tolerance=1e-3, **taubin_kwargs
+    gen: GenerationContext, geom, pin_tolerance=1e-3, debug_name="element", **taubin_kwargs
 ):
     """Smooth a Shapely Polygon or MultiPolygon using Taubin smoothing
     (shapelysmooth), preserving vertex count/order so outline-touching
@@ -325,6 +367,9 @@ def smooth_polygon_taubin(
 
     Pins any vertex lying on gen.runtime.mapOutline's boundary (within
     pin_tolerance) so touching elements stay stitched together at that edge.
+
+    debug_name -- label (e.g. the element kind, "water"/"forest") used to
+    prefix DEBUG marker objects when bpy.app.debug is on.
     """
     _require_shapely()
     outline = gen.runtime.mapOutline
@@ -349,10 +394,36 @@ def smooth_polygon_taubin(
             return False
         return pin_geom.distance(Point(px, py)) <= pin_tolerance
 
-    return _smooth_polygon_taubin_pinned(geom, _is_pinned, **taubin_kwargs)
+    if bpy.app.debug:
+        print(
+            f"[TrailPrint3D] smooth_polygon_taubin({debug_name}): "
+            f"mapOutline is None={gen.runtime.mapOutline is None}  "
+            f"mapObject is None={gen.runtime.mapObject is None}  "
+            f"pin_geom is None={pin_geom is None}  "
+            f"pin_geom.bounds={pin_geom.bounds if pin_geom is not None else None}  "
+            f"geom.bounds={geom.bounds if geom is not None and not geom.is_empty else None}  "
+            f"pin_tolerance={pin_tolerance}"
+        )
+
+    # DEBUG: the outline boundary's own vertices -- "where a boundary vertex
+    # is supposed to be pinned to" -- dumped once as reference markers.
+    _pin_target_points = None
+    if bpy.app.debug and pin_geom is not None:
+        _pin_target_points = list(_iter_all_rings(pin_geom))
+        _pin_target_points = [pt for ring in _pin_target_points for pt in ring]
+
+    return _smooth_polygon_taubin_pinned(
+        geom,
+        _is_pinned,
+        pin_target_points=_pin_target_points,
+        debug_name=debug_name,
+        **taubin_kwargs,
+    )
 
 
-def smooth_polygon_taubin_bbox_pinned(geom, bbox, pin_tolerance=1e-3, **taubin_kwargs):
+def smooth_polygon_taubin_bbox_pinned(
+    geom, bbox, pin_tolerance=1e-3, debug_name="ocean", **taubin_kwargs
+):
     """Smooth a Shapely Polygon or MultiPolygon using Taubin smoothing,
     pinning any vertex lying on the edges of *bbox* (min_x, min_y, max_x,
     max_y) back to its exact original coordinate.
@@ -360,6 +431,9 @@ def smooth_polygon_taubin_bbox_pinned(geom, bbox, pin_tolerance=1e-3, **taubin_k
     Intended for per-tile geometry (e.g. the ocean mesh) whose boundary must
     stay exactly on the tile's bbox so adjacent tiles keep stitching
     together seamlessly -- only interior vertices actually move.
+
+    debug_name -- label used to prefix DEBUG marker objects when
+    bpy.app.debug is on.
     """
     _require_shapely()
     min_x, min_y, max_x, max_y = bbox
@@ -372,7 +446,22 @@ def smooth_polygon_taubin_bbox_pinned(geom, bbox, pin_tolerance=1e-3, **taubin_k
             or abs(py - max_y) <= pin_tolerance
         )
 
-    return _smooth_polygon_taubin_pinned(geom, _is_pinned, **taubin_kwargs)
+    _pin_target_points = None
+    if bpy.app.debug:
+        _pin_target_points = [
+            (min_x, min_y),
+            (max_x, min_y),
+            (max_x, max_y),
+            (min_x, max_y),
+        ]
+
+    return _smooth_polygon_taubin_pinned(
+        geom,
+        _is_pinned,
+        pin_target_points=_pin_target_points,
+        debug_name=debug_name,
+        **taubin_kwargs,
+    )
 
 
 def line_to_ribbon(coords_xy, half_width, cap_style="round", join_style="round"):
@@ -843,6 +932,34 @@ def debug_dump(name, geom_or_list, collection_name="TP3D_Debug", z=0.0):
     mesh.update()
     debug_collection(collection_name).objects.link(obj)
     return obj
+
+
+def debug_dump_markers(
+    name, points, collection_name="TP3D_Debug", z=0.0, empty_type="PLAIN_AXES", radius=0.2
+):
+    """DEBUG: spawn one small Empty per (x, y) point in *points*.
+
+    Unlike debug_dump() (which builds a single wireframe mesh object from a
+    geometry's rings), this creates one selectable Empty per individual point
+    you hand it -- for inspecting specific vertex positions directly (e.g.
+    comparing a smoothed ring's actual boundary vertices against the pin
+    target they were checked against) rather than a shape's outline.
+
+    Returns the list of spawned Empty objects (empty if points is empty or
+    debug mode is off).
+    """
+    if not bpy.app.debug or not points:
+        return []
+    coll = debug_collection(collection_name)
+    objs = []
+    for i, (x, y) in enumerate(points):
+        obj = bpy.data.objects.new(f"{name}_{i:03d}", None)
+        obj.empty_display_type = empty_type
+        obj.empty_display_size = radius
+        obj.location = (float(x), float(y), float(z))
+        coll.objects.link(obj)
+        objs.append(obj)
+    return objs
 
 
 def debug_dump_polygon_arrays(

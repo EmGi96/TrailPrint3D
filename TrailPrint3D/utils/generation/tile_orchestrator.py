@@ -84,6 +84,19 @@ def _rtg_apply_elevation(
 
     bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
     gen.runtime.mapObject = zobj
+    # zobj was built by one of primitives.create_*()/build_tile_from_polygon(), which
+    # all stamp map_polygon_wkt via build_mesh_from_polygon() -- restore it into
+    # gen.runtime.mapOutline the same way _rg_create_map_object() does for the
+    # from-scratch flow. Without this, gen.runtime.mapOutline stays at its dataclass
+    # default of None for every tile-based generation (map picker / puzzle picker /
+    # Extend), so smooth_polygon_taubin()'s outline-pinning in terrain.py silently
+    # treats every element boundary vertex as unpinned instead of raising an error --
+    # element (e.g. water) edges get Taubin-smoothed right across the tile's own
+    # outline instead of staying pinned to it.
+    if "map_polygon_wkt" in zobj:
+        from shapely.wkt import loads as _shp_loads  # deferred to avoid circular import at load time
+
+        gen.runtime.mapOutline = _shp_loads(zobj["map_polygon_wkt"])
     # get_tile_elevation only populates gen.runtime.mapKm/tbMin*/tbMax* via its
     # own internal call to compute_and_store_tile_bounds when that call is made
     # with the bare object -- call it here first so _rg_build_terrain_elements

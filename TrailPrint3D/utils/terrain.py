@@ -676,7 +676,9 @@ def coloring_main(
 
         _smoothed_result = None
         if _to_smooth is not None and not _to_smooth.is_empty:
-            smoothed_geom = _g2d.smooth_polygon_taubin(gen, _to_smooth, steps=_smooth_r)
+            smoothed_geom = _g2d.smooth_polygon_taubin(
+                gen, _to_smooth, steps=_smooth_r, debug_name=kind.lower()
+            )
             print(f"  [smoothing steps] Taubin smoothing steps={_smooth_r}  ")
             # force=True per-polygon before union: splits self-touching rings (figure-8
             # pinch points from Taubin) without touching already-valid unrelated polygons.
@@ -1792,9 +1794,9 @@ def _taubin_smooth_ocean_polys(ocean_polys, bbox_bl):
         return ocean_polys
 
     _smoothed_polys = []
-    for poly in ocean_polys:
+    for _poly_idx, poly in enumerate(ocean_polys):
         smoothed = _g2d.smooth_polygon_taubin_bbox_pinned(
-            poly, bbox_bl, steps=_smooth_steps
+            poly, bbox_bl, steps=_smooth_steps, debug_name=f"ocean_{_poly_idx:03d}"
         )
         # force=True: splits self-touching rings (figure-8 pinch points
         # from Taubin) without touching already-valid unrelated polygons.
