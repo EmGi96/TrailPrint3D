@@ -296,7 +296,12 @@ def _rg_create_satellite_plane(gen: GenerationContext):
 
     No-op if elementSource isn't WORLDCOVER or the fetch produced nothing.
     """
-    if gen.settings.elementSource != "WORLDCOVER" or gen.fetch.satelliteThread is None:
+    if gen.settings.elementSource != "WORLDCOVER":
+        from ..satellite import remove_stale_satellite_debug
+
+        remove_stale_satellite_debug()
+        return
+    if gen.fetch.satelliteThread is None:
         return
 
     from ...progress import ProgressOverlay

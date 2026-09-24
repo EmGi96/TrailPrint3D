@@ -959,6 +959,23 @@ def _denoise_landcover_image(image, corners):
     image.update()
 
 
+def remove_stale_satellite_debug():
+    """Tear down leftover WorldCover reference planes/images (and the empty
+    debug collection) from an earlier WorldCover run, so an OSM generation
+    doesn't leave them sitting in the scene."""
+    import bpy  # type: ignore
+
+    remove_objects(bpy.data.objects.get(SATELLITE_PLANE_NAME))
+    remove_objects(bpy.data.objects.get(DEBUG_RAW_PLANE_NAME))
+    coll = bpy.data.collections.get(DEBUG_COLLECTION_NAME)
+    if coll is not None and not coll.objects:
+        bpy.data.collections.remove(coll)
+    for image_name in (LANDCOVER_IMAGE_NAME, PHOTO_IMAGE_NAME):
+        image = bpy.data.images.get(image_name)
+        if image is not None:
+            bpy.data.images.remove(image)
+
+
 def create_satellite_plane(
     landcover_tiled,
     min_lat,

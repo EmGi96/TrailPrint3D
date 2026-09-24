@@ -1862,7 +1862,15 @@ def cut_into_puzzle_pieces(terrain_obj, pieces, tolerance_mm=0.3, roads_data=Non
             seam_polys.append(seam_poly)
 
           if row_terrain_obj is not None:
-              bpy.data.objects.remove(row_terrain_obj, do_unlink=True)
+              if bpy.app.debug:
+                  # Keep each row strip for inspection, shifted two puzzle-
+                  # heights below (the kept original map sits one below), so
+                  # the strips' own colors/geometry can be checked separately
+                  # from the final pieces.
+                  row_terrain_obj.name = f"{terrain_obj.name}_DebugRowStrip_{_row_key}"
+                  row_terrain_obj.location.y += 2 * debug_y_offset
+              else:
+                  bpy.data.objects.remove(row_terrain_obj, do_unlink=True)
     finally:
         bpy.context.preferences.edit.use_global_undo = _orig_use_global_undo
 

@@ -340,7 +340,15 @@ def apply_setting_update(tp3d, key, value):
     try:
         setattr(tp3d, attr, caster(value))
     except (TypeError, ValueError):
-        pass
+        return
+    # Property changes made from a modal timer don't redraw the sidebar on
+    # their own -- without this it keeps showing the old value (e.g. ESA
+    # WorldCover after the page switched to OSM) until the mouse hovers it.
+    wm = getattr(bpy.context, "window_manager", None)
+    if wm is not None:
+        for window in wm.windows:
+            for area in window.screen.areas:
+                area.tag_redraw()
 
 
 # The Settings popup's Elements tab -- a much larger whitelist than
