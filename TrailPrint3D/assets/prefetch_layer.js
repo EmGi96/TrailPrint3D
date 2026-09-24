@@ -125,7 +125,7 @@ function prefetchBounds() {
 var PREFETCH_SUB_COLORS = {
     STREETS: {
         highways: '#ff2a2a', major: '#d81b3c', minor: '#ff6b6b', residential: '#c62828',
-        service: '#a11d33', footway: '#ff9e9e', cycle_bridle: '#ff7a5c', track: '#8f2a2a', path: '#ff8a80'
+        service: '#a11d33', footway: '#ff9e9e', pedestrian: '#ff8c69', cycle_bridle: '#ff7a5c', track: '#8f2a2a', path: '#ff8a80'
     }
 };
 
@@ -166,7 +166,7 @@ function prefetchToggle(id) {
 var PREFETCH_SUB_LABELS = {
     STREETS: {
         highways: 'Highways', major: 'Major Roads', minor: 'Minor Roads', residential: 'Residential Roads',
-        service: 'Service Roads', footway: 'Footways/Sidewalks', cycle_bridle: 'Cycle/Bridle Paths',
+        service: 'Service Roads', footway: 'Footways/Sidewalks', pedestrian: 'Pedestrian Streets', cycle_bridle: 'Cycle/Bridle Paths',
         track: 'Tracks', path: 'Trails/Paths'
     }
 };

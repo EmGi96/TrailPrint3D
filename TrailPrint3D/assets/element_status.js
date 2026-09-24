@@ -71,7 +71,7 @@ ELEMENT_STATUS_ORDER.forEach(function(entry) { TP3D_ELEMENT_STATE[entry[0]] = !!
 // convention as COMPOSITE_ELEMENTS in settings_modal.js.
 var TP3D_COMPOSITE_FLAGS = {
     water: { subflags: ['colWPondsActive', 'colWSmallRiversActive', 'colWBigRiversActive', 'elOActive'], bootstrap: 'colWPondsActive' },
-    roads: { subflags: ['elSHighwaysActive', 'elSMajorActive', 'elSMinorActive', 'elSResidentialActive', 'elSServiceActive', 'elSFootwayActive', 'elSCycleBridleActive', 'elSTrackActive', 'elSPathActive'], bootstrap: 'elSResidentialActive' }
+    roads: { subflags: ['elSHighwaysActive', 'elSMajorActive', 'elSMinorActive', 'elSResidentialActive', 'elSServiceActive', 'elSFootwayActive', 'elSPedestrianActive', 'elSCycleBridleActive', 'elSTrackActive', 'elSPathActive'], bootstrap: 'elSResidentialActive' }
 };
 
 // TP3D_COMPOSITE_FLAGS is an OSM-only concept -- under WorldCover, 'water'

@@ -426,6 +426,7 @@ _ADVANCED_SETTINGS_FIELDS = [
     {"key": "elSResidentialActive", "road_id": "residential", "type": bool, "group": "Roads"},
     {"key": "elSServiceActive", "road_id": "service", "type": bool, "group": "Roads"},
     {"key": "elSFootwayActive", "road_id": "footway", "type": bool, "group": "Roads"},
+    {"key": "elSPedestrianActive", "road_id": "pedestrian", "type": bool, "group": "Roads"},
     {"key": "elSCycleBridleActive", "road_id": "cycle_bridle", "type": bool, "group": "Roads"},
     {"key": "elSTrackActive", "road_id": "track", "type": bool, "group": "Roads"},
     {"key": "elSPathActive", "road_id": "path", "type": bool, "group": "Roads"},

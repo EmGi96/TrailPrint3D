@@ -1,4 +1,5 @@
 import math
+import time
 
 import bmesh  # type: ignore
 import bpy  # type: ignore
@@ -1214,64 +1215,23 @@ def _extrude_flat_polygon(g2d_mod, polygon, bottom_z, top_z, verts, faces):
             faces.append((a, b, c, d))
 
 
-def _ensure_outward_normals(obj):
-    """Make sure obj's normals point outward, robustly.
-
-    recalculateNormals()'s normals_make_consistent() only guarantees every
-    face is consistent with its neighbors -- for a thin/concave solid like a
-    jigsaw piece it can end up fully consistent but globally INVERTED (a
-    known limitation of that heuristic).
-
-    Previously checked via a closed manifold's signed volume (divergence
-    theorem), but that sums two nearly-equal, opposite-sign top/bottom cap
-    contributions on these thin flat-prism pieces -- the kind of near-
-    cancellation that's numerically noisy in float precision, and it still
-    came out wrong on some pieces. The bottom face is a simpler and
-    unambiguous reference instead: on a flat-prism puzzle piece it must
-    always point straight down, so check that directly rather than integrate
-    over the whole solid.
-    """
-    recalculateNormals(obj)
-
-    mesh = obj.data
-    if not mesh.polygons:
-        return
-    min_z = min(v.co.z for v in mesh.vertices)
-    z_tol = max(1e-3, (max(v.co.z for v in mesh.vertices) - min_z) * 0.01)
-    bottom_normals_z = [
-        p.normal.z
-        for p in mesh.polygons
-        if all(abs(mesh.vertices[vi].co.z - min_z) < z_tol for vi in p.vertices)
-    ]
-    if not bottom_normals_z or sum(bottom_normals_z) / len(bottom_normals_z) < 0:
-        return  # already facing down -- nothing to do
-
-    # Bottom face(s) point up instead of down -- the whole mesh is globally
-    # inside-out. Reverse every face (never just the bottom ones) so the
-    # flip keeps the mesh internally consistent with its neighbors.
-    bm = bmesh.new()
-    bm.from_mesh(mesh)
-    bmesh.ops.reverse_faces(bm, faces=bm.faces[:])
-    bm.to_mesh(mesh)
-    bm.free()
-    mesh.update()
-
-
 def _ensure_outward_normals_per_island(obj):
-    """Like _ensure_outward_normals, but judges and (if needed) flips each
-    loose/disconnected island of obj's mesh independently, using that
-    island's OWN lowest face(s) as the down-facing reference.
+    """Like the normals fix _bevel_bottom_edges runs inline on the slab
+    (bottom-face-by-Z-position, flip-if-facing-up), but judges and (if
+    needed) flips each loose/disconnected island of obj's mesh
+    independently, using that island's OWN lowest face(s) as the
+    down-facing reference.
 
     A puzzle piece assembled by cut_into_puzzle_pieces can carry several
     unconnected shells at different heights -- the terrain slab, plus a
     raised road mesh and/or building meshes bpy.ops.object.join()ed on top --
-    joining never welds them into one manifold. _ensure_outward_normals only
-    ever samples the OBJECT's overall lowest point, which is always the
+    joining never welds them into one manifold. A single whole-object check
+    only ever samples the OBJECT's overall lowest point, which is always the
     terrain slab, so a raised shell that came out inverted on its own is
-    invisible to that check -- and even if it weren't, that function reverses
-    every face in the object uniformly, which would just as happily flip an
-    already-correct slab along with a genuinely bad shell. Each island needs
-    its own judgment and its own flip.
+    invisible to that check -- and even if it weren't, flipping every face in
+    the object uniformly would just as happily flip an already-correct slab
+    along with a genuinely bad shell. Each island needs its own judgment and
+    its own flip.
     """
     recalculateNormals(obj)
 
@@ -1329,60 +1289,95 @@ def _bevel_bottom_edges(obj, bevel_width):
     stays exact; the bevel just eases the bottom corner (helps pieces seat
     into each other without snagging, and softens the first-layer edge).
 
-    Uses the actual mesh.bevel operator on a real face/edge selection
-    (select the bottom faces -> region_to_loop for their boundary -> bevel
-    that edge loop) rather than driving bmesh.ops.bevel directly, since
-    that's simpler to verify.
+    Pure bmesh -- one bm.from_mesh()/bm.to_mesh() round trip, no bpy.ops
+    calls and no EDIT/OBJECT mode switching. The original version drove this
+    through bpy.ops.mesh.bevel/region_to_loop/normals_make_consistent inside
+    a real EDIT-mode session (simpler to verify against Blender's own
+    operators when this was first written), but at dozens-to-hundreds of
+    puzzle pieces the per-call operator/mode-switch overhead adds up. Same
+    face/edge selection logic as before (bottom faces by Z position -> the
+    boundary edges of that face region -> bevel that edge loop), just done
+    directly on the bmesh instead of through the operator/edit-mode layer.
 
     The bottom faces are identified purely by Z POSITION (every vertex near
-    the mesh's minimum Z), never by face-normal direction. normals_make_
-    consistent() (still run below, since correct normals matter for export/
-    printing) can produce a set of normals that's internally CONSISTENT but
-    globally INVERTED for some piece shapes -- a known limitation on thin/
-    concave solids. Selecting by normal.z direction would then grab the TOP
-    face on an affected piece and bevel the wrong side, which is exactly
-    what happened. Z position is a plain geometric fact, unaffected by which
-    way the normals ended up pointing.
+    the mesh's minimum Z), never by face-normal direction.
+    bmesh.ops.recalc_face_normals() (still run below, since correct normals
+    matter for export/printing) can produce a set of normals that's
+    internally CONSISTENT but globally INVERTED for some piece shapes -- a
+    known limitation on thin/concave solids. Selecting by normal.z direction
+    would then grab the TOP face on an affected piece and bevel the wrong
+    side, which is exactly what happened. Z position is a plain geometric
+    fact, unaffected by which way the normals ended up pointing.
     """
     if bevel_width <= 0 or not obj.data.vertices:
         return
 
-    _ensure_outward_normals(obj)
+    # TEMP DIAGNOSTIC: fine-grained step-by-step timing, to find out exactly
+    # which line is slow at higher resolution (the earlier, coarser buckets
+    # weren't enough to tell whether it's mesh loading, normals, boundary
+    # detection, or the actual bmesh.ops.bevel call itself). Remove once the
+    # real cost is identified and addressed.
+    _t_start = time.time()
 
-    bpy.ops.object.select_all(action="DESELECT")
-    obj.select_set(True)
-    bpy.context.view_layer.objects.active = obj
-    bpy.ops.object.mode_set(mode="EDIT")
-    bpy.ops.mesh.select_mode(type="FACE")
-    bpy.ops.mesh.select_all(action="DESELECT")
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    _t_load = time.time()
 
-    bm = bmesh.from_edit_mesh(obj.data)
     bm.verts.ensure_lookup_table()
+    bm.faces.ensure_lookup_table()
+    bm.edges.ensure_lookup_table()
     if not bm.verts:
-        bpy.ops.object.mode_set(mode="OBJECT")
+        bm.free()
         return
+    n_verts_in, n_faces_in, n_edges_in = len(bm.verts), len(bm.faces), len(bm.edges)
+
+    # --- outward-normal fix (was _ensure_outward_normals) ---
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    bm.normal_update()
+    _t_recalc = time.time()
+
     z_values = [v.co.z for v in bm.verts]
     min_z, max_z = min(z_values), max(z_values)
     z_tol = max(1e-3, (max_z - min_z) * 0.01)
-    n_bottom = 0
-    for f in bm.faces:
-        if all(abs(v.co.z - min_z) < z_tol for v in f.verts):
-            f.select = True
-            n_bottom += 1
-    bmesh.update_edit_mesh(obj.data)
+    bottom_faces = [
+        f for f in bm.faces
+        if all(abs(v.co.z - min_z) < z_tol for v in f.verts)
+    ]
+    _t_bottomsel = time.time()
+
+    bottom_normals_z = [f.normal.z for f in bottom_faces]
+    _flipped = False
+    if bottom_normals_z and sum(bottom_normals_z) / len(bottom_normals_z) >= 0:
+        # Bottom face(s) point up instead of down -- the whole mesh is
+        # globally inside-out. Reverse every face (never just the bottom
+        # ones) so the flip keeps the mesh internally consistent.
+        bmesh.ops.reverse_faces(bm, faces=bm.faces[:])
+        bm.normal_update()
+        _flipped = True
+    _t_flip = time.time()
+
+    n_bottom = len(bottom_faces)
     print(
         f"[TP3D puzzle bevel] {obj.name}: {n_bottom} bottom face(s) found (by Z position)"
     )
 
     if n_bottom == 0:
-        bpy.ops.object.mode_set(mode="OBJECT")
+        bm.to_mesh(obj.data)
+        bm.free()
+        obj.data.update()
         return
 
-    bpy.ops.mesh.region_to_loop()
-    bpy.ops.mesh.select_mode(type="EDGE")
+    # --- boundary edges of the bottom-face region (was region_to_loop) ---
+    bottom_face_set = set(bottom_faces)
+    boundary_edges = set()
+    for f in bottom_faces:
+        for e in f.edges:
+            if sum(1 for lf in e.link_faces if lf in bottom_face_set) < 2:
+                boundary_edges.add(e)
+    boundary_edges = list(boundary_edges)
+    _t_boundary = time.time()
 
-    bm = bmesh.from_edit_mesh(obj.data)
-    n_edges = sum(1 for e in bm.edges if e.select)
+    n_edges = len(boundary_edges)
     print(
         f"[TP3D puzzle bevel] {obj.name}: {n_edges} boundary edge(s) selected, beveling {bevel_width}mm"
     )
@@ -1397,15 +1392,38 @@ def _bevel_bottom_edges(obj, bevel_width):
         # Blender's own bevel operator automatically shrinks the offset
         # locally wherever the full width would overlap, instead of always
         # applying the same fixed width.
-        bpy.ops.mesh.bevel(
+        bmesh.ops.bevel(
+            bm,
+            geom=boundary_edges,
             offset=bevel_width,
-            offset_type="OFFSET",
+            offset_type='OFFSET',
             segments=1,
-            affect="EDGES",
+            affect='EDGES',
             clamp_overlap=True,
+            profile=0.5,
         )
+    _t_bevel = time.time()
 
-    bpy.ops.object.mode_set(mode="OBJECT")
+    bm.to_mesh(obj.data)
+    _t_to_mesh = time.time()
+    bm.free()
+    obj.data.update()
+    _t_end = time.time()
+
+    print(
+        f"[TP3D puzzle bevel timing] {obj.name}: "
+        f"in(v={n_verts_in},f={n_faces_in},e={n_edges_in}) "
+        f"out(v={len(obj.data.vertices)}) "
+        f"load={_t_load - _t_start:.3f}s "
+        f"recalc_normals={_t_recalc - _t_load:.3f}s "
+        f"bottom_select={_t_bottomsel - _t_recalc:.3f}s "
+        f"flip[{_flipped}]={_t_flip - _t_bottomsel:.3f}s "
+        f"boundary_edges={_t_boundary - _t_flip:.3f}s "
+        f"bevel_op(n_edges={n_edges})={_t_bevel - _t_boundary:.3f}s "
+        f"to_mesh={_t_to_mesh - _t_bevel:.3f}s "
+        f"free+update={_t_end - _t_to_mesh:.3f}s "
+        f"TOTAL={_t_end - _t_start:.3f}s"
+    )
 
 
 def _cut_terrain_slab(terrain_obj, poly, bottom_z, top_z, name):
@@ -1469,7 +1487,8 @@ def piece_grid_label(row, col):
 
 
 def cut_into_puzzle_pieces(terrain_obj, pieces, tolerance_mm=0.3, roads_data=None, buildings_data=None,
-                            piece_bounds=None, keep_terrain_obj=False):
+                            piece_bounds=None, keep_terrain_obj=False,
+                            overlay=None, progress_start=0.0, progress_end=1.0):
     """Cut a single finished map tile into separate jigsaw puzzle piece objects.
 
     `terrain_obj` -- a normal, already-generated (and trail-merged, if
@@ -1518,6 +1537,13 @@ def cut_into_puzzle_pieces(terrain_obj, pieces, tolerance_mm=0.3, roads_data=Non
     once every piece has been extracted, for a caller that still needs it
     afterward (e.g. to also cut a holder's own terrain rim from the SAME
     object/paint pass instead of a second, independently-fetched tile).
+
+    `overlay` / `progress_start` / `progress_end` -- optional ProgressOverlay
+    and the percent range to spread it over. The cut itself (boolean
+    INTERSECT per piece) is fast; per-piece beveling is the actual visible
+    work, so progress is reported as "Add Bevel done/total" once each
+    piece's bevel completes, rather than a single static message for the
+    whole cutting pass.
 
     Returns `(piece_objs, seam_polys)` -- the list of newly created piece
     objects, and the list of each survivor's own true (pre-tolerance-shrink)
@@ -1575,169 +1601,270 @@ def cut_into_puzzle_pieces(terrain_obj, pieces, tolerance_mm=0.3, roads_data=Non
         g2d.debug_collection("TP3D_Debug_PuzzleCutters") if bpy.app.debug else None
     )
 
-    for piece in pieces:
-        world_xy = [
-            (x_min + nx * (x_max - x_min), y_min + ny * (y_max - y_min))
-            for nx, ny in piece["points"]
-        ]
-        poly = g2d.xy_ring_to_polygon(world_xy)
-        if poly is None or poly.is_empty:
-            continue
-        # Captured BEFORE the tolerance shrink below -- this is the true,
-        # gap-free jigsaw seam (tabs/blanks included) two neighboring pieces
-        # actually share, which is what build_puzzle_holder engraves onto the
-        # holder floor. The shrunk version used for the cut itself leaves a
-        # tiny tolerance gap on every edge that would otherwise double every
-        # seam line into two parallel ones.
-        seam_poly = poly
-        if tolerance_mm > 0:
-            # join_style='mitre' (not the default 'round'): a round join adds
-            # up to 8 small arc segments at every convex corner it shrinks,
-            # and the jigsaw curve is already a polyline with many slightly-
-            # angled segments -- every one of those bends would otherwise
-            # sprout its own little cluster of extra vertices. Mitre just
-            # extends the two adjacent edges to meet at a single sharp point.
-            poly = g2d.validate(poly.buffer(-tolerance_mm / 2, join_style="mitre"))
-        if poly is None or poly.is_empty:
-            continue
+    total_pieces = len(pieces)
 
-        verts, faces = [], []
-        for part in g2d.iter_polygons(poly):
-            _extrude_flat_polygon(g2d, part, bottom_z, top_z, verts, faces)
-        if not verts:
-            continue
+    # Group pieces by row and find each row's true normalized Y extent, from
+    # the pieces' own raw points -- these already include however far a
+    # tab/blank curve bulges past the nominal cell edge, so this is the
+    # exact footprint every piece in the row actually needs, not a guess.
+    # Used below to pre-crop terrain_obj down to a thin per-row strip
+    # ONCE, instead of running every single piece's boolean against the
+    # WHOLE map: Blender's boolean cost scales with total operand
+    # complexity, so without this a puzzle with N pieces per row pays the
+    # full map's boolean cost N times over -- and a denser (higher
+    # resolution) map mesh makes that multiplier much worse, which is
+    # exactly the "resolution 3 is fast, resolution 10 takes ~5s/piece"
+    # behavior seen in the piece-timing diagnostic below (that 5s was
+    # entirely the per-piece INTERSECT against the full terrain mesh).
+    _rows = {}
+    for _p in pieces:
+        _row = _p.get("row", 0)
+        _ys = [ny for _, ny in _p["points"]]
+        _lo, _hi = min(_ys), max(_ys)
+        if _row not in _rows:
+            _rows[_row] = [_lo, _hi, [_p]]
+        else:
+            _entry = _rows[_row]
+            _entry[0] = min(_entry[0], _lo)
+            _entry[1] = max(_entry[1], _hi)
+            _entry[2].append(_p)
+    # Fixed-mm pad -- not a design tolerance, just float/edge safety so the
+    # crop boundary never sits exactly on a piece's own true edge.
+    _row_crop_pad = 2.0
 
-        row, col = piece.get("row", 0), piece.get("col", 0)
-        piece_label = piece_grid_label(row, col)
+    # _ensure_outward_normals_per_island (after the road/building join,
+    # below) still goes through bpy.ops mode_set(EDIT)/mode_set(OBJECT) --
+    # each of those pushes a full undo snapshot when global undo is on, and
+    # undo isn't meaningful mid-generation anyway (the whole puzzle is one
+    # atomic operator call), so it's switched off for the duration of this
+    # loop and restored afterward regardless of outcome. (_bevel_bottom_edges
+    # itself no longer does this at all -- it's pure bmesh now -- and the
+    # actual dominant per-piece cost turned out to be the boolean INTERSECT
+    # against the full terrain, which the per-row cropping above addresses.)
+    _orig_use_global_undo = bpy.context.preferences.edit.use_global_undo
+    bpy.context.preferences.edit.use_global_undo = False
+    try:
+        _pieces_done = 0
+        for _row_key in sorted(_rows):
+          _y_lo_norm, _y_hi_norm, _row_pieces = _rows[_row_key]
+          row_y_lo = y_min + _y_lo_norm * (y_max - y_min) - _row_crop_pad
+          row_y_hi = y_min + _y_hi_norm * (y_max - y_min) + _row_crop_pad
+          # _cut_terrain_slab (not a hand-rolled extrude+boolean here) so the
+          # row strip picks up terrain_obj's material list BEFORE the
+          # INTERSECT the same proven way piece cutting itself relies on --
+          # an object with no material slots yet doesn't reliably carry
+          # material_index through Blender's boolean modifier (see that
+          # function's own docstring), which would otherwise silently lose
+          # every piece's paint-mode colors in this row.
+          g2d._require_shapely()
+          row_box = g2d.box(x_min - _row_crop_pad, row_y_lo, x_max + _row_crop_pad, row_y_hi)
+          _row_t0 = time.time()  # TEMP DIAGNOSTIC, see print below
+          row_terrain_obj = _cut_terrain_slab(
+              terrain_obj, row_box, bottom_z, top_z, f"_row_strip_{_row_key}"
+          )
+          print(
+              f"[TP3D puzzle row timing] row {_row_key}: "
+              f"{len(_row_pieces)} piece(s), row_strip_cut={time.time() - _row_t0:.3f}s, "
+              f"fell_back_to_full_terrain={row_terrain_obj is None}"
+          )
+          # Shouldn't happen -- the row strip always covers at least its own
+          # pieces' bounds -- but fall back to the full terrain rather than
+          # silently dropping this row's pieces if it somehow comes back empty.
+          _row_cut_source = row_terrain_obj if row_terrain_obj is not None else terrain_obj
 
-        if debug_coll is not None:
-            for i, part in enumerate(g2d.iter_polygons(poly)):
-                dbg_obj = g2d.polygon_to_mesh(
-                    f"{terrain_obj.name}_piece_{piece_label}_cutter_{i}", part
+          for piece in _row_pieces:
+            _piece_t0 = time.time()  # TEMP DIAGNOSTIC, see summary print below
+            world_xy = [
+                (x_min + nx * (x_max - x_min), y_min + ny * (y_max - y_min))
+                for nx, ny in piece["points"]
+            ]
+            poly = g2d.xy_ring_to_polygon(world_xy)
+            if poly is None or poly.is_empty:
+                continue
+            # Captured BEFORE the tolerance shrink below -- this is the true,
+            # gap-free jigsaw seam (tabs/blanks included) two neighboring pieces
+            # actually share, which is what build_puzzle_holder engraves onto the
+            # holder floor. The shrunk version used for the cut itself leaves a
+            # tiny tolerance gap on every edge that would otherwise double every
+            # seam line into two parallel ones.
+            seam_poly = poly
+            if tolerance_mm > 0:
+                # join_style='mitre' (not the default 'round'): a round join adds
+                # up to 8 small arc segments at every convex corner it shrinks,
+                # and the jigsaw curve is already a polyline with many slightly-
+                # angled segments -- every one of those bends would otherwise
+                # sprout its own little cluster of extra vertices. Mitre just
+                # extends the two adjacent edges to meet at a single sharp point.
+                poly = g2d.validate(poly.buffer(-tolerance_mm / 2, join_style="mitre"))
+            if poly is None or poly.is_empty:
+                continue
+
+            verts, faces = [], []
+            for part in g2d.iter_polygons(poly):
+                _extrude_flat_polygon(g2d, part, bottom_z, top_z, verts, faces)
+            if not verts:
+                continue
+
+            row, col = piece.get("row", 0), piece.get("col", 0)
+            piece_label = piece_grid_label(row, col)
+
+            if debug_coll is not None:
+                for i, part in enumerate(g2d.iter_polygons(poly)):
+                    dbg_obj = g2d.polygon_to_mesh(
+                        f"{terrain_obj.name}_piece_{piece_label}_cutter_{i}", part
+                    )
+                    if dbg_obj is None:
+                        continue
+                    for coll in list(dbg_obj.users_collection):
+                        coll.objects.unlink(dbg_obj)
+                    debug_coll.objects.link(dbg_obj)
+                    dbg_obj.location.y = debug_y_offset
+
+            mesh = bpy.data.meshes.new(piece_label)
+            mesh.from_pydata(verts, [], faces)
+            mesh.update()
+            _clean_solid_mesh(mesh)
+            for m in materials:
+                mesh.materials.append(m)
+
+            piece_obj = bpy.data.objects.new(mesh.name, mesh)
+            bpy.context.collection.objects.link(piece_obj)
+
+            boolean_operation(piece_obj, _row_cut_source, "INTERSECT")
+            _piece_t_cut = time.time()
+            if len(piece_obj.data.vertices) == 0:
+                bpy.data.objects.remove(piece_obj, do_unlink=True)
+                continue
+
+            # piece_obj was created via bpy.data.objects.new() with an identity
+            # transform, so its mesh still carries the raw WORLD-space
+            # coordinates verts/faces were built from above -- origin sitting at
+            # world (0,0,0), potentially far from the piece's actual location.
+            # _bevel_bottom_edges' clamp_overlap leans on edge-length precision
+            # to keep the bevel from self-intersecting on the tab/blank curve, so
+            # re-home the origin to this piece's own RASTER cell center now,
+            # before beveling, rather than after the whole cut like the caller
+            # used to -- the bevel itself needs to run on small, origin-local
+            # coordinates instead of whatever large offset the piece happens to
+            # sit at in the scene. Using the cell center (not the shared puzzle
+            # center, and not this shape's own bounding-box center, which tabs/
+            # blanks skew off-center) is also what callers like BottomText rely
+            # on obj.location for afterward.
+            bpy.context.scene.cursor.location.x = x_min + (col + 0.5) / cols_total * (x_max - x_min)
+            bpy.context.scene.cursor.location.y = y_min + (row + 0.5) / rows_total * (y_max - y_min)
+            set_origin_to_3d_cursor(piece_obj)
+
+            _bevel_bottom_edges(piece_obj, bevel_width)
+            _piece_t_bevel = time.time()
+
+            _pieces_done += 1
+            if overlay is not None:
+                done = _pieces_done
+                pct = progress_start + (done / total_pieces) * (progress_end - progress_start)
+                overlay.update(pct, f"Add Bevel {done}/{total_pieces}", piece_label)
+
+            if roads_data is not None:
+                from .osm.roads import (
+                    roads_geometry_for_polygon,  # deferred to avoid circular import
                 )
-                if dbg_obj is None:
-                    continue
-                for coll in list(dbg_obj.users_collection):
-                    coll.objects.unlink(dbg_obj)
-                debug_coll.objects.link(dbg_obj)
-                dbg_obj.location.y = debug_y_offset
 
-        mesh = bpy.data.meshes.new(piece_label)
-        mesh.from_pydata(verts, [], faces)
-        mesh.update()
-        _clean_solid_mesh(mesh)
-        for m in materials:
-            mesh.materials.append(m)
+                road_polygon, terrain_tris, el_sHeight = roads_data
+                clipped = road_polygon.intersection(poly)
+                if not clipped.is_empty:
+                    road_verts, road_faces = roads_geometry_for_polygon(
+                        clipped, terrain_tris, el_sHeight
+                    )
+                    if road_verts:
+                        road_mesh = bpy.data.meshes.new(f"_road_{row}_{col}")
+                        road_mesh.from_pydata(road_verts, [], road_faces)
+                        road_mesh.update()
+                        road_mesh.validate(verbose=False)
+                        black_mat = bpy.data.materials.get("BLACK")
+                        if black_mat:
+                            road_mesh.materials.append(black_mat)
+                        road_piece = bpy.data.objects.new(road_mesh.name, road_mesh)
+                        bpy.context.collection.objects.link(road_piece)
+                        bpy.ops.object.select_all(action="DESELECT")
+                        road_piece.select_set(True)
+                        piece_obj.select_set(True)
+                        bpy.context.view_layer.objects.active = piece_obj
+                        bpy.ops.object.join()
+            _piece_t_road = time.time()
 
-        piece_obj = bpy.data.objects.new(mesh.name, mesh)
-        bpy.context.collection.objects.link(piece_obj)
-
-        boolean_operation(piece_obj, terrain_obj, "INTERSECT")
-        if len(piece_obj.data.vertices) == 0:
-            bpy.data.objects.remove(piece_obj, do_unlink=True)
-            continue
-
-        # piece_obj was created via bpy.data.objects.new() with an identity
-        # transform, so its mesh still carries the raw WORLD-space
-        # coordinates verts/faces were built from above -- origin sitting at
-        # world (0,0,0), potentially far from the piece's actual location.
-        # _bevel_bottom_edges' clamp_overlap leans on edge-length precision
-        # to keep the bevel from self-intersecting on the tab/blank curve, so
-        # re-home the origin to this piece's own RASTER cell center now,
-        # before beveling, rather than after the whole cut like the caller
-        # used to -- the bevel itself needs to run on small, origin-local
-        # coordinates instead of whatever large offset the piece happens to
-        # sit at in the scene. Using the cell center (not the shared puzzle
-        # center, and not this shape's own bounding-box center, which tabs/
-        # blanks skew off-center) is also what callers like BottomText rely
-        # on obj.location for afterward.
-        bpy.context.scene.cursor.location.x = x_min + (col + 0.5) / cols_total * (x_max - x_min)
-        bpy.context.scene.cursor.location.y = y_min + (row + 0.5) / rows_total * (y_max - y_min)
-        set_origin_to_3d_cursor(piece_obj)
-
-        _bevel_bottom_edges(piece_obj, bevel_width)
-
-        if roads_data is not None:
-            from .osm.roads import (
-                roads_geometry_for_polygon,  # deferred to avoid circular import
-            )
-
-            road_polygon, terrain_tris, el_sHeight = roads_data
-            clipped = road_polygon.intersection(poly)
-            if not clipped.is_empty:
-                road_verts, road_faces = roads_geometry_for_polygon(
-                    clipped, terrain_tris, el_sHeight
+            if buildings_data is not None:
+                from .osm.buildings import (
+                    buildings_geometry_for_polygon,  # deferred to avoid circular import
                 )
-                if road_verts:
-                    road_mesh = bpy.data.meshes.new(f"_road_{row}_{col}")
-                    road_mesh.from_pydata(road_verts, [], road_faces)
-                    road_mesh.update()
-                    road_mesh.validate(verbose=False)
-                    black_mat = bpy.data.materials.get("BLACK")
-                    if black_mat:
-                        road_mesh.materials.append(black_mat)
-                    road_piece = bpy.data.objects.new(road_mesh.name, road_mesh)
-                    bpy.context.collection.objects.link(road_piece)
+
+                b_verts, b_faces = buildings_geometry_for_polygon(poly, buildings_data)
+                if b_verts:
+                    b_mesh = bpy.data.meshes.new(f"_buildings_{row}_{col}")
+                    b_mesh.from_pydata(b_verts, [], b_faces)
+                    b_mesh.update()
+                    b_mesh.validate(verbose=False)
+                    buildings_mat = bpy.data.materials.get("BUILDINGS")
+                    if buildings_mat:
+                        b_mesh.materials.append(buildings_mat)
+                    b_piece = bpy.data.objects.new(b_mesh.name, b_mesh)
+                    bpy.context.collection.objects.link(b_piece)
                     bpy.ops.object.select_all(action="DESELECT")
-                    road_piece.select_set(True)
+                    b_piece.select_set(True)
                     piece_obj.select_set(True)
                     bpy.context.view_layer.objects.active = piece_obj
                     bpy.ops.object.join()
+            _piece_t_buildings = time.time()
 
-        if buildings_data is not None:
-            from .osm.buildings import (
-                buildings_geometry_for_polygon,  # deferred to avoid circular import
+            # Road/building meshes just joined above are their own unconnected
+            # shells sitting at a different height than the terrain slab --
+            # _bevel_bottom_edges' own normals fix (earlier, right after the
+            # terrain INTERSECT) only ever validates the slab itself, so
+            # re-check per island now that every shell this piece will ever
+            # have is actually present.
+            _ensure_outward_normals_per_island(piece_obj)
+            _piece_t_normals2 = time.time()
+
+            # TEMP DIAGNOSTIC: per-piece breakdown to find where the ~4s/piece
+            # the user is seeing actually goes. Remove once the real cost is
+            # identified and addressed.
+            print(
+                f"[TP3D puzzle piece timing] {piece_label}: "
+                f"cut={_piece_t_cut - _piece_t0:.3f}s "
+                f"bevel={_piece_t_bevel - _piece_t_cut:.3f}s "
+                f"road={_piece_t_road - _piece_t_bevel:.3f}s "
+                f"buildings={_piece_t_buildings - _piece_t_road:.3f}s "
+                f"normals2={_piece_t_normals2 - _piece_t_buildings:.3f}s "
+                f"TOTAL={_piece_t_normals2 - _piece_t0:.3f}s"
             )
 
-            b_verts, b_faces = buildings_geometry_for_polygon(poly, buildings_data)
-            if b_verts:
-                b_mesh = bpy.data.meshes.new(f"_buildings_{row}_{col}")
-                b_mesh.from_pydata(b_verts, [], b_faces)
-                b_mesh.update()
-                b_mesh.validate(verbose=False)
-                buildings_mat = bpy.data.materials.get("BUILDINGS")
-                if buildings_mat:
-                    b_mesh.materials.append(buildings_mat)
-                b_piece = bpy.data.objects.new(b_mesh.name, b_mesh)
-                bpy.context.collection.objects.link(b_piece)
-                bpy.ops.object.select_all(action="DESELECT")
-                b_piece.select_set(True)
-                piece_obj.select_set(True)
-                bpy.context.view_layer.objects.active = piece_obj
-                bpy.ops.object.join()
+            # Mesh-level 3MF paint metadata lives on the data block, not the object,
+            # so it isn't carried by the bulk terrain_metadata copy below.
+            for _pk in (
+                "3mf_is_paint_texture",
+                "3mf_paint_default_extruder",
+                "3mf_paint_extruder_colors",
+            ):
+                if _pk in terrain_obj.data and piece_obj.data is not None:
+                    piece_obj.data[_pk] = terrain_obj.data[_pk]
 
-        # Road/building meshes just joined above are their own unconnected
-        # shells sitting at a different height than the terrain slab --
-        # _bevel_bottom_edges' own _ensure_outward_normals call (earlier,
-        # right after the terrain INTERSECT) only ever validates the slab
-        # itself, so re-check per island now that every shell this piece will
-        # ever have is actually present.
-        _ensure_outward_normals_per_island(piece_obj)
+            for k, v in terrain_metadata.items():
+                piece_obj[k] = v
+            # Override/add after the bulk copy so these always win and are never
+            # shadowed by a same-named key from terrain_obj.
+            piece_obj["objType"] = "MAP"
+            piece_obj["Object type"] = "MAP"
+            piece_obj["PuzzleRow"] = row
+            piece_obj["PuzzleCol"] = col
+            # Distinguishes a jigsaw piece from a sliding-puzzle piece (both set
+            # PuzzleRow/PuzzleCol identically) -- BottomText reads this to size
+            # its mark text differently per puzzle type.
+            piece_obj["PuzzleShape"] = "JIGSAW"
+            piece_objs.append(piece_obj)
+            seam_polys.append(seam_poly)
 
-        # Mesh-level 3MF paint metadata lives on the data block, not the object,
-        # so it isn't carried by the bulk terrain_metadata copy below.
-        for _pk in (
-            "3mf_is_paint_texture",
-            "3mf_paint_default_extruder",
-            "3mf_paint_extruder_colors",
-        ):
-            if _pk in terrain_obj.data and piece_obj.data is not None:
-                piece_obj.data[_pk] = terrain_obj.data[_pk]
-
-        for k, v in terrain_metadata.items():
-            piece_obj[k] = v
-        # Override/add after the bulk copy so these always win and are never
-        # shadowed by a same-named key from terrain_obj.
-        piece_obj["objType"] = "MAP"
-        piece_obj["Object type"] = "MAP"
-        piece_obj["PuzzleRow"] = row
-        piece_obj["PuzzleCol"] = col
-        # Distinguishes a jigsaw piece from a sliding-puzzle piece (both set
-        # PuzzleRow/PuzzleCol identically) -- BottomText reads this to size
-        # its mark text differently per puzzle type.
-        piece_obj["PuzzleShape"] = "JIGSAW"
-        piece_objs.append(piece_obj)
-        seam_polys.append(seam_poly)
+          if row_terrain_obj is not None:
+              bpy.data.objects.remove(row_terrain_obj, do_unlink=True)
+    finally:
+        bpy.context.preferences.edit.use_global_undo = _orig_use_global_undo
 
     if not keep_terrain_obj:
         if bpy.app.debug:

@@ -93,6 +93,12 @@
       "description": "Rendered as a small road/path feature on the 3D map."
     },
     {
+      "key": "highway",
+      "value": "pedestrian",
+      "object_types": ["way"],
+      "description": "Rendered as a small road/path feature on the 3D map."
+    },
+    {
       "key": "width",
       "object_types": ["way"],
       "description": "Used to set the width (in metres) of road features; overrides the highway-type default."

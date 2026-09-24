@@ -230,6 +230,7 @@ var COMPOSITE_ELEMENTS = {
             { key: 'elSResidentialActive', label: 'Residential Roads' },
             { key: 'elSServiceActive', label: 'Service Roads' },
             { key: 'elSFootwayActive', label: 'Footways/Sidewalks' },
+            { key: 'elSPedestrianActive', label: 'Pedestrian Streets' },
             { key: 'elSCycleBridleActive', label: 'Cycle/Bridle Paths' },
             { key: 'elSTrackActive', label: 'Tracks' },
             { key: 'elSPathActive', label: 'Trails/Paths' }

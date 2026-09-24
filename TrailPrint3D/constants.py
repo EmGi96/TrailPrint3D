@@ -35,7 +35,7 @@ COASTLINE_MAXSIZE = 350
 # leave generous headroom and tighten later if profiling on a real huge map
 # says otherwise.
 COASTLINE_WATERPOLY_MAXSIZE = 20000
-STREETS_PRIMARY_THRESHOLD = 40       # dense-tier roads (residential/service/footway/cycle_bridle/path)
+STREETS_PRIMARY_THRESHOLD = 40       # dense-tier roads (residential/service/footway/pedestrian/cycle_bridle/path)
                                       # dropped above this mapsize to avoid width-scaled roads fusing
                                       # into solid blocks on zoomed-out maps; sparse tiers (highways/
                                       # major/minor/track) are unaffected until ROADS_MAXSIZE

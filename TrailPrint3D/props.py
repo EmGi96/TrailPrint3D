@@ -168,6 +168,13 @@ ROAD_TYPE_DEFS = [
         "street and are usually the biggest single source of visual clutter.",
     ),
     (
+        "pedestrian",
+        _("Pedestrian Streets"),
+        "highway=pedestrian -- ways reserved for pedestrians, e.g. shopping streets/squares "
+        "(see Key:highway on the OSM wiki). Kept separate from Footways/Sidewalks since it's "
+        "a distinct OSM tag for wider pedestrianised streets rather than sidewalks alongside a road.",
+    ),
+    (
         "cycle_bridle",
         _("Cycle/Bridle Paths"),
         "highway=cycleway, bridleway -- dedicated bike and horse paths",

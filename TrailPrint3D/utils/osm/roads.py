@@ -28,6 +28,7 @@ TIER_TAGS: dict[str, set[str]] = {
     "residential": {"residential", "living_street"},
     "service": {"service"},
     "footway": {"footway"},
+    "pedestrian": {"pedestrian"},
     "cycle_bridle": {"cycleway", "bridleway"},
     "track": {"track"},
     "path": {"path"},
@@ -36,7 +37,7 @@ TIER_TAGS: dict[str, set[str]] = {
 # Dense, short-segment tiers -- dropped above STREETS_PRIMARY_THRESHOLD to
 # avoid width-scaled roads fusing into solid blocks on zoomed-out maps.
 DENSE_TIERS: frozenset[str] = frozenset(
-    {"residential", "service", "footway", "cycle_bridle", "path"}
+    {"residential", "service", "footway", "pedestrian", "cycle_bridle", "path"}
 )
 
 # Sparse, long-segment tiers -- survive up to ROADS_MAXSIZE. Tracks are
@@ -78,15 +79,16 @@ class RoadConfig:
         tier_active = {tier: get_road_active(tp3d, tier) for tier in TIER_TAGS}
 
         if full_depth:
-            # Same reasoning as the old service/footway exclusion: cycle_bridle
-            # and path are similarly dense thin-line tiers that don't remesh
-            # cleanly as a standalone full-depth piece. Track is exempt --
-            # it behaves like the sparse arterial tiers (long, few segments).
-            _too_dense_for_full_depth = {"service", "footway", "cycle_bridle", "path"}
+            # Same reasoning as the old service/footway exclusion: pedestrian,
+            # cycle_bridle and path are similarly dense thin-line tiers that
+            # don't remesh cleanly as a standalone full-depth piece. Track is
+            # exempt -- it behaves like the sparse arterial tiers (long, few
+            # segments).
+            _too_dense_for_full_depth = {"service", "footway", "pedestrian", "cycle_bridle", "path"}
             if any(tier_active[t] for t in _too_dense_for_full_depth):
                 warning.add_warning(
-                    "[TP3D roads] full_depth mode: excluding service/footway/cycle_bridle/path "
-                    "tiers (too dense to remesh cleanly as a standalone piece)"
+                    "[TP3D roads] full_depth mode: excluding service/footway/pedestrian/"
+                    "cycle_bridle/path tiers (too dense to remesh cleanly as a standalone piece)"
                 )
             for t in _too_dense_for_full_depth:
                 tier_active[t] = False
@@ -114,6 +116,7 @@ def highway_default_width(highway: str) -> float:
         "primary": 6.0,
         "secondary": 6.0,
         "footway": 6.0,
+        "pedestrian": 6.0,
         "tertiary": 6.0,
         "residential": 6.0,
         "service": 6.0,
