@@ -1318,19 +1318,41 @@ def BottomText(obj):
     from . import transform_MapObject  # deferred to avoid circular import at load time
 
     name = obj.name
-    if "objSize" in obj:
-        size = obj["objSize"]
-    else:
+    if "objSize" not in obj:
         return
 
+    # "objSize" is only reliable as a MAP-object validity gate here, not as
+    # this object's own real size: normal generation always re-stamps it with
+    # the sidebar's global Object Size (see dovetail_cutout's own obj_size
+    # override for the multitile picker, which hits the exact same staleness),
+    # so a puzzle/multitile piece's "objSize" describes the whole map/puzzle
+    # setting, not that piece's own much smaller footprint. Deriving size from
+    # the object's own world-space bounding box is correct regardless of which
+    # generation flow produced it.
+    world_bbox = [obj.matrix_world @ Vector(c) for c in obj.bound_box]
+    xs = [v.x for v in world_bbox]
+    ys = [v.y for v in world_bbox]
+    size = max(max(xs) - min(xs), max(ys) - min(ys))
+
         # Place text objects
-    text_size = (size / 10)
+    # Jigsaw puzzle pieces (cut_into_puzzle_pieces, tagged "PuzzleShape" ==
+    # "JIGSAW") get a larger mark relative to their own size than every other
+    # object (regular maps, multitile tiles, sliding-puzzle pieces).
+    size_divisor = 5 if obj.get("PuzzleShape") == "JIGSAW" else 10
+    text_size = (size / size_divisor)
 
 
 
     tName = create_text("t_name", "Name", (0, 0,1.1),text_size)
 
 
+    # obj.location -- for puzzle/sliding-puzzle pieces this is each piece's
+    # own regularly-spaced RASTER cell center (cut_into_puzzle_pieces /
+    # cut_into_sliding_puzzle_pieces re-home the origin there via
+    # set_origin_to_3d_cursor), not that piece's own bounding-box center --
+    # a jigsaw piece's actual shape is skewed off-center by its own tabs/
+    # blanks bulging asymmetrically into its neighbors, so the bbox center
+    # would place the mark off to one side instead of centered on the cell.
     cx = obj.location.x
     cy = obj.location.y
 

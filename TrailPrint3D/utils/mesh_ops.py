@@ -1456,6 +1456,18 @@ def _cut_terrain_slab(terrain_obj, poly, bottom_z, top_z, name):
     return obj
 
 
+def piece_grid_label(row, col):
+    """Spreadsheet-style piece label for a 0-indexed (row, col) pair: A1, A2,
+    ..., Z1, AA1, ... -- row becomes a base-26 letter (A, B, ..., Z, AA, AB,
+    ...), col becomes a 1-indexed digit."""
+    letters = ''
+    n = row + 1
+    while n > 0:
+        n, rem = divmod(n - 1, 26)
+        letters = chr(65 + rem) + letters
+    return f"{letters}{col + 1}"
+
+
 def cut_into_puzzle_pieces(terrain_obj, pieces, tolerance_mm=0.3, roads_data=None, buildings_data=None,
                             piece_bounds=None, keep_terrain_obj=False):
     """Cut a single finished map tile into separate jigsaw puzzle piece objects.
@@ -1541,6 +1553,16 @@ def cut_into_puzzle_pieces(terrain_obj, pieces, tolerance_mm=0.3, roads_data=Non
     piece_objs = []
     seam_polys = []
 
+    # Grid dimensions, inferred from the pieces themselves rather than passed
+    # in -- used below to re-home each piece's origin to its own regularly-
+    # spaced RASTER cell center (e.g. objSize=100 over 5 rows -> centers 20mm
+    # apart), not the actual jigsaw shape's bounding-box center, which is
+    # skewed off-center by that piece's own tabs/blanks bulging asymmetrically
+    # into its neighbors.
+    rows_total = max((p.get("row", 0) for p in pieces), default=0) + 1
+    cols_total = max((p.get("col", 0) for p in pieces), default=0) + 1
+    _orig_cursor_loc = bpy.context.scene.cursor.location.copy()
+
     # DEBUG ONLY: flat (z=0) copies of each piece's actual cutter polygon
     # (the same outline -- post tolerance-buffer -- that gets extruded into
     # the 3D prism below), laid out in a row below the real puzzle so the
@@ -1586,11 +1608,12 @@ def cut_into_puzzle_pieces(terrain_obj, pieces, tolerance_mm=0.3, roads_data=Non
             continue
 
         row, col = piece.get("row", 0), piece.get("col", 0)
+        piece_label = piece_grid_label(row, col)
 
         if debug_coll is not None:
             for i, part in enumerate(g2d.iter_polygons(poly)):
                 dbg_obj = g2d.polygon_to_mesh(
-                    f"{terrain_obj.name}_piece_{row}_{col}_cutter_{i}", part
+                    f"{terrain_obj.name}_piece_{piece_label}_cutter_{i}", part
                 )
                 if dbg_obj is None:
                     continue
@@ -1599,7 +1622,7 @@ def cut_into_puzzle_pieces(terrain_obj, pieces, tolerance_mm=0.3, roads_data=Non
                 debug_coll.objects.link(dbg_obj)
                 dbg_obj.location.y = debug_y_offset
 
-        mesh = bpy.data.meshes.new(f"{terrain_obj.name}_piece_{row}_{col}")
+        mesh = bpy.data.meshes.new(piece_label)
         mesh.from_pydata(verts, [], faces)
         mesh.update()
         _clean_solid_mesh(mesh)
@@ -1620,10 +1643,16 @@ def cut_into_puzzle_pieces(terrain_obj, pieces, tolerance_mm=0.3, roads_data=Non
         # world (0,0,0), potentially far from the piece's actual location.
         # _bevel_bottom_edges' clamp_overlap leans on edge-length precision
         # to keep the bevel from self-intersecting on the tab/blank curve, so
-        # re-home the origin to the 3D cursor now, before beveling, rather
-        # than after the whole cut like the caller used to -- the bevel
-        # itself needs to run on small, origin-local coordinates instead of
-        # whatever large offset the piece happens to sit at in the scene.
+        # re-home the origin to this piece's own RASTER cell center now,
+        # before beveling, rather than after the whole cut like the caller
+        # used to -- the bevel itself needs to run on small, origin-local
+        # coordinates instead of whatever large offset the piece happens to
+        # sit at in the scene. Using the cell center (not the shared puzzle
+        # center, and not this shape's own bounding-box center, which tabs/
+        # blanks skew off-center) is also what callers like BottomText rely
+        # on obj.location for afterward.
+        bpy.context.scene.cursor.location.x = x_min + (col + 0.5) / cols_total * (x_max - x_min)
+        bpy.context.scene.cursor.location.y = y_min + (row + 0.5) / rows_total * (y_max - y_min)
         set_origin_to_3d_cursor(piece_obj)
 
         _bevel_bottom_edges(piece_obj, bevel_width)
@@ -1703,6 +1732,10 @@ def cut_into_puzzle_pieces(terrain_obj, pieces, tolerance_mm=0.3, roads_data=Non
         piece_obj["Object type"] = "MAP"
         piece_obj["PuzzleRow"] = row
         piece_obj["PuzzleCol"] = col
+        # Distinguishes a jigsaw piece from a sliding-puzzle piece (both set
+        # PuzzleRow/PuzzleCol identically) -- BottomText reads this to size
+        # its mark text differently per puzzle type.
+        piece_obj["PuzzleShape"] = "JIGSAW"
         piece_objs.append(piece_obj)
         seam_polys.append(seam_poly)
 
@@ -1721,6 +1754,7 @@ def cut_into_puzzle_pieces(terrain_obj, pieces, tolerance_mm=0.3, roads_data=Non
             terrain_obj.pop("Object type", None)
         else:
             bpy.data.objects.remove(terrain_obj, do_unlink=True)
+    bpy.context.scene.cursor.location = _orig_cursor_loc
     return piece_objs, seam_polys
 
 

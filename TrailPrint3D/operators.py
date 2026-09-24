@@ -2715,6 +2715,16 @@ class TP3D_OT_puzzle_configurator(bpy.types.Operator):
                 continue
             if puzzle_min_x <= obs.location.x <= puzzle_max_x and puzzle_min_y <= obs.location.y <= puzzle_max_y:
                 bpy.data.objects.remove(obs, do_unlink=True)
+        # Removing an object above (or the user deleting old pieces by hand
+        # before regenerating) only drops that object's own reference -- the
+        # underlying mesh stays in bpy.data as a 0-user orphan under its old
+        # name until the file is saved/reloaded or purged by hand. Piece
+        # names are now short and reused every generation rather than unique
+        # per-puzzle (see piece_grid_label), so without this, a leftover
+        # orphan mesh still named e.g. "A1" collides with the new one
+        # cut_into_puzzle_pieces is about to create and gets suffixed
+        # "A1.001", then "A1.002" next time, and so on.
+        bpy.data.orphans_purge(do_local_ids=True, do_recursive=True)
 
         # blank_w/h stay equal to tile_w/h unless a holder with "Terrain on
         # Frame" was requested -- one shared tile/elevation-fetch/paint pass
@@ -2726,9 +2736,10 @@ class TP3D_OT_puzzle_configurator(bpy.types.Operator):
         blank_w = tile_w + (2 * frame_margin if frame_terrain_requested else 0)
         blank_h = tile_h + (2 * frame_margin if frame_terrain_requested else 0)
         blank = utils.create_rectangle(blank_w, blank_h, props.num_subdivisions)
-        # cut_into_puzzle_pieces names every piece "{terrain_obj.name}_piece_{row}_{col}" --
-        # renaming the blank here is what gets the puzzle's chosen name onto
-        # every generated piece without touching that naming logic itself.
+        # cut_into_puzzle_pieces names every piece with just its A1-style grid
+        # label (terrain_obj's own name isn't part of it) -- this rename only
+        # affects the blank/terrain object itself (used for cleanup below via
+        # blank_name), not the pieces cut from it.
         blank.name = puzzle_name
         # Captured now (not read back off `blank` itself later) -- once
         # build_puzzle_holder consumes/removes frame_terrain_obj (=blank),
