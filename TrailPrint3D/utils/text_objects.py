@@ -1343,7 +1343,15 @@ def BottomText(obj):
 
 
 
-    tName = create_text("t_name", "Name", (0, 0,1.1),text_size)
+    # Always Arial Black, regardless of the user's selected font (not available on Linux -> scene font)
+    if platform.system() == "Windows":
+        markFont = "C:/WINDOWS/FONTS/ariblk.ttf"
+    elif platform.system() == "Darwin":
+        markFont = "/System/Library/Fonts/Supplemental/Arial Black.ttf"
+    else:
+        markFont = None
+
+    tName = create_text("t_name", "Name", (0, 0,1.1),text_size, font_path=markFont)
 
 
     # obj.location -- for puzzle/sliding-puzzle pieces this is each piece's
