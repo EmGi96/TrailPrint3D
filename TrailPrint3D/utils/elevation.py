@@ -987,7 +987,7 @@ def get_tile_elevation(gen_or_obj, progress_cb=None):
     # Set chunk size based on API
     if api == "OPENTOPODATA" or api == "OPEN-ELEVATION":
         chunk_size = 100000
-    elif api == "TERRAIN-TILES" or api == "OPENTOPOGRAPHY" or api == "LOCAL_DEM":
+    elif api == "TERRAIN-TILES" or api == "MAPTERHORN" or api == "OPENTOPOGRAPHY" or api == "LOCAL_DEM":
         chunk_size = 50000000   # single request for all verts
     else:
         chunk_size = 100000  # fallback
