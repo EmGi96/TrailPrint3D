@@ -1380,4 +1380,8 @@ def BottomText(obj):
     tName.data.materials.clear()
     tName.data.materials.append(mat)
 
+    # Bake the mirrored X scale into the mesh; a negative scale flips normals.
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    recalculateNormals(tName)
+
     return tName

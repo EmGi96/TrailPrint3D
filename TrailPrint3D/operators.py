@@ -994,12 +994,17 @@ class TP3D_OT_bottom_mark(bpy.types.Operator):
 
                     mark.scale.z = 2
 
+                    bpy.ops.object.select_all(action='DESELECT')
+                    mark.select_set(True)
+                    bpy.context.view_layer.objects.active = mark
+                    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+
                     utils.recalculateNormals(mark)
                     # Add boolean modifier
                     bool_mod = zobj.modifiers.new(name="Boolean", type='BOOLEAN')
                     bool_mod.object = mark
                     bool_mod.operation = 'DIFFERENCE'
-                    bool_mod.solver = 'EXACT'
+                    bool_mod.solver = 'MANIFOLD'
 
                     bpy.context.view_layer.objects.active = zobj
                     bpy.ops.object.modifier_apply(modifier=bool_mod.name)
