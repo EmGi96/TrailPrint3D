@@ -1541,9 +1541,9 @@ def cut_into_puzzle_pieces(terrain_obj, pieces, tolerance_mm=0.3, roads_data=Non
     `overlay` / `progress_start` / `progress_end` -- optional ProgressOverlay
     and the percent range to spread it over. The cut itself (boolean
     INTERSECT per piece) is fast; per-piece beveling is the actual visible
-    work, so progress is reported as "Add Bevel done/total" once each
-    piece's bevel completes, rather than a single static message for the
-    whole cutting pass.
+    work, so progress is reported as "Create Puzzle Piece done/total" once
+    each piece's bevel completes, rather than a single static message for
+    the whole cutting pass.
 
     Returns `(piece_objs, seam_polys)` -- the list of newly created piece
     objects, and the list of each survivor's own true (pre-tolerance-shrink)
@@ -1761,7 +1761,7 @@ def cut_into_puzzle_pieces(terrain_obj, pieces, tolerance_mm=0.3, roads_data=Non
             if overlay is not None:
                 done = _pieces_done
                 pct = progress_start + (done / total_pieces) * (progress_end - progress_start)
-                overlay.update(pct, f"Add Bevel {done}/{total_pieces}", piece_label)
+                overlay.update(pct, f"Create Puzzle Piece {done}/{total_pieces}", piece_label)
 
             if roads_data is not None:
                 from .osm.roads import (

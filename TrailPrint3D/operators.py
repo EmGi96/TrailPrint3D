@@ -2873,7 +2873,7 @@ class TP3D_OT_puzzle_configurator(bpy.types.Operator):
         # keep_terrain_obj leaves `blank` around afterward so the holder's
         # own terrain rim can still be cut from this SAME object/paint pass
         # below instead of a second, independently-generated tile.
-        overlay.update(0.75, f"Add Bevel 0/{len(pieces)}", "")
+        overlay.update(0.75, f"Create Puzzle Piece 0/{len(pieces)}", "")
         piece_objs, piece_seam_polys = utils.cut_into_puzzle_pieces(
             blank, pieces, tolerance, roads_data=roads_data, buildings_data=buildings_data,
             piece_bounds=(puzzle_min_x, puzzle_max_x, puzzle_min_y, puzzle_max_y) if frame_terrain_requested else None,
