@@ -685,301 +685,333 @@ def create_buildings(gen: GenerationContext, default_height=10, scaleHor=1.0, pr
     lats = math.ceil((maxLat - minLat) / lat_step)
     lons = math.ceil((maxLon - minLon) / lon_step)
 
-    if lats * lons < 20:
-        for k in range(lats):
-            for l in range(lons):
-                _cntr = (k) * lons + l + 1
-                _maxcntr = lats * lons
-                print(f"Buildings loop: {_cntr}/{_maxcntr}")
-                _ov = _progress.ProgressOverlay.get()
-                if _ov.active:
-                    _ov.update(
-                        message=f"Buildings: tile {_cntr}/{_maxcntr} — processing…"
-                    )
-                south = minLat + k * lat_step
-                north = south + lat_step
-                west = minLon + l * lon_step
-                east = west + lon_step
+    if prefetched_tiles is not None:
+        # A prefetch dataset may be tiled differently than this tile's own
+        # lat_step/lon_step grid -- e.g. one combined fetch shared across
+        # every physical tile of a multi-tile batch (see
+        # generation/terrain_gen.py's fetch_combined_osm_data). Iterate
+        # whatever was actually fetched instead of an exact-bbox-tuple
+        # lookup against our own grid, which would silently miss a building
+        # whose footprint is bigger than one tile. Every footprint is still
+        # clipped to the map outline below (map_fp intersection), so extra
+        # cells from a wider prefetch are safe to scan.
+        _tile_sources = [
+            (bbox, tile_result[0] if tile_result else None)
+            for bbox, tile_result in prefetched_tiles.items()
+        ]
+    elif lats * lons < 20:
+        _tile_sources = [
+            (
+                (
+                    minLat + k * lat_step,
+                    minLon + l * lon_step,
+                    minLat + k * lat_step + lat_step,
+                    minLon + l * lon_step + lon_step,
+                ),
+                None,
+            )
+            for k in range(lats)
+            for l in range(lons)
+        ]
+    else:
+        _tile_sources = []
 
-                bbox = (south, west, north, east)
-                data = []
+    # (type, id) of every relation/way already turned into a footprint --
+    # dedups an element whose nodes straddle two prefetch cells. Buildings
+    # are appended directly into b_verts/b_faces (never Shapely-unioned like
+    # coloring/roads), so a duplicate would be a real overlapping
+    # double-height volume, not just wasted work.
+    _seen_element_ids = set()
 
-                _t0 = time.time()
-                if prefetched_tiles is not None:
-                    # Already fetched (and disk-cached) by the combined
-                    # background prefetch -- avoid re-querying Overpass.
-                    tile_result = prefetched_tiles.get(bbox)
-                    data = tile_result[0] if tile_result else None
-                else:
-                    data = fetch_osm_data(bbox, "BUILDINGS")
-                _t_fetch += time.time() - _t0
+    _maxcntr = len(_tile_sources)
+    for _idx, (bbox, data) in enumerate(_tile_sources, start=1):
+        _cntr = _idx
+        print(f"Buildings loop: {_cntr}/{_maxcntr}")
+        _ov = _progress.ProgressOverlay.get()
+        if _ov.active:
+            _ov.update(
+                message=f"Buildings: tile {_cntr}/{_maxcntr} — processing…"
+            )
 
-                if not data or "elements" not in data:
-                    print("No Building data returned")
-                    continue
+        _t0 = time.time()
+        if prefetched_tiles is None:
+            data = fetch_osm_data(bbox, "BUILDINGS")
+        _t_fetch += time.time() - _t0
 
-                assert isinstance(data, dict)
-                n_buildings = len([e for e in data["elements"] if e["type"] == "way"])
-                if _ov.active:
-                    _ov.update(
-                        message=f"Buildings: tile {_cntr}/{_maxcntr} — calculating {n_buildings} buildings…"
-                    )
-                # Cache node id -> (lat, lon) and node id -> (x, y, z_base) to avoid repeated conversions
-                raw_nodes = {
-                    n["id"]: (n["lat"], n["lon"])
-                    for n in data["elements"]
-                    if n["type"] == "node"
-                }
+        if not data or "elements" not in data:
+            print("No Building data returned")
+            continue
 
-                # Compute 2D coordinates for every node in one vectorized numpy
-                # pass instead of a per-node convert_to_blender_coordinates call
-                # (each of which re-reads scene properties).
-                _t0 = time.time()
-                node_xy = {}
-                if raw_nodes:
-                    nid_list = list(raw_nodes.keys())
-                    arr = np.array(
-                        [raw_nodes[nid] for nid in nid_list], dtype=np.float64
-                    )  # (N, 2) lat, lon
-                    xs = const.R * np.radians(arr[:, 1]) * _sScaleHor
-                    ys = (
-                        const.R
-                        * np.log(np.tan(np.pi / 4.0 + np.radians(arr[:, 0]) / 2.0))
-                        * _sScaleHor
-                    )
-                    for nid, x, y, (nlat, nlon) in zip(
-                        nid_list, xs.tolist(), ys.tolist(), arr.tolist()
+        assert isinstance(data, dict)
+        n_buildings = len([e for e in data["elements"] if e["type"] == "way"])
+        if _ov.active:
+            _ov.update(
+                message=f"Buildings: tile {_cntr}/{_maxcntr} — calculating {n_buildings} buildings…"
+            )
+        # Cache node id -> (lat, lon) and node id -> (x, y, z_base) to avoid repeated conversions
+        raw_nodes = {
+            n["id"]: (n["lat"], n["lon"])
+            for n in data["elements"]
+            if n["type"] == "node"
+        }
+
+        # Compute 2D coordinates for every node in one vectorized numpy
+        # pass instead of a per-node convert_to_blender_coordinates call
+        # (each of which re-reads scene properties).
+        _t0 = time.time()
+        node_xy = {}
+        if raw_nodes:
+            nid_list = list(raw_nodes.keys())
+            arr = np.array(
+                [raw_nodes[nid] for nid in nid_list], dtype=np.float64
+            )  # (N, 2) lat, lon
+            xs = const.R * np.radians(arr[:, 1]) * _sScaleHor
+            ys = (
+                const.R
+                * np.log(np.tan(np.pi / 4.0 + np.radians(arr[:, 0]) / 2.0))
+                * _sScaleHor
+            )
+            for nid, x, y, (nlat, nlon) in zip(
+                nid_list, xs.tolist(), ys.tolist(), arr.tolist()
+            ):
+                node_xy[nid] = (x, y, nlat, nlon)
+        _t_convert += time.time() - _t0
+
+        def safe_float_height(h):
+            # supports strings like "10", "10.0", "10 m"
+            if h is None:
+                return float(default_height)
+            if isinstance(h, (int, float)):
+                return float(h)
+            try:
+                s = str(h).strip().lower()
+                # strip units like "m"
+                if s.endswith("m"):
+                    s = s[:-1].strip()
+                return float(s)
+            except (ValueError, TypeError):
+                return float(default_height)
+
+        # Build a lookup for ways by id, so relations can reference them
+        ways_by_id = {
+            e["id"]: e for e in data["elements"] if e["type"] == "way"
+        }
+
+        _t0 = time.time()
+        _tile_total = max(1, len(data["elements"]))
+
+        # First pass: parse every element in this tile into a footprint
+        # entry (poly + tags) without building geometry yet. Elements
+        # tagged building:part=* are rendered individually instead of
+        # the building outline they sit inside (see the containment
+        # pass below). This depends on fetch_osm_data's Overpass query
+        # actually requesting building:part ways -- if it doesn't, no
+        # entry will ever have is_part=True and behavior is identical
+        # to before: every element renders as a stand-alone building.
+        tile_entries = []
+        for i, element in enumerate(data["elements"]):
+            if _ov.active and i % max(1, _tile_total // 20) == 0:
+                _elem_frac = ((_cntr - 1) + i / _tile_total) / _maxcntr
+                _ov.set_fetch_progress("buildings", 0.15 + 0.60 * _elem_frac)
+            if element["type"] == "relation":
+                # Find the outer member way and use its nodes as the footprint
+                outer_way = None
+                for member in element.get("members", []):
+                    if (
+                        member.get("type") == "way"
+                        and member.get("role") == "outer"
                     ):
-                        node_xy[nid] = (x, y, nlat, nlon)
-                _t_convert += time.time() - _t0
+                        outer_way = ways_by_id.get(member["ref"])
+                        if outer_way:
+                            break
+                if outer_way is None:
+                    continue
+                # Treat the relation like the outer way but use relation tags if present
+                node_ids = outer_way.get("nodes", [])
+                tags = element.get("tags") or outer_way.get("tags", {})
+            elif element["type"] == "way":
+                node_ids = element.get("nodes", [])
+                tags = element.get("tags", {})
+            else:
+                continue
 
-                def safe_float_height(h):
-                    # supports strings like "10", "10.0", "10 m"
-                    if h is None:
-                        return float(default_height)
-                    if isinstance(h, (int, float)):
-                        return float(h)
-                    try:
-                        s = str(h).strip().lower()
-                        # strip units like "m"
-                        if s.endswith("m"):
-                            s = s[:-1].strip()
-                        return float(s)
-                    except (ValueError, TypeError):
-                        return float(default_height)
+            # A way/relation whose nodes straddle two prefetch cells is
+            # returned in full by both -- skip it the second time so it
+            # isn't appended into b_verts/b_faces twice (see _seen_element_ids).
+            _elem_key = (element["type"], element["id"])
+            if _elem_key in _seen_element_ids:
+                continue
+            _seen_element_ids.add(_elem_key)
 
-                # Build a lookup for ways by id, so relations can reference them
-                ways_by_id = {
-                    e["id"]: e for e in data["elements"] if e["type"] == "way"
-                }
+            is_part = "building:part" in tags
+            if not is_part and "building" not in tags:
+                continue
 
-                _t0 = time.time()
-                _tile_total = max(1, len(data["elements"]))
+            # build 2D footprint coords from cached node_xy
+            footprint = []
+            for nid in node_ids:
+                if nid in node_xy:
+                    x, y, nlat, nlon = node_xy[nid]
+                    footprint.append((x, y))
+            if len(footprint) < 3:
+                continue
 
-                # First pass: parse every element in this tile into a footprint
-                # entry (poly + tags) without building geometry yet. Elements
-                # tagged building:part=* are rendered individually instead of
-                # the building outline they sit inside (see the containment
-                # pass below). This depends on fetch_osm_data's Overpass query
-                # actually requesting building:part ways -- if it doesn't, no
-                # entry will ever have is_part=True and behavior is identical
-                # to before: every element renders as a stand-alone building.
-                tile_entries = []
-                for i, element in enumerate(data["elements"]):
-                    if _ov.active and i % max(1, _tile_total // 20) == 0:
-                        _elem_frac = ((_cntr - 1) + i / _tile_total) / _maxcntr
-                        _ov.set_fetch_progress("buildings", 0.15 + 0.60 * _elem_frac)
-                    if element["type"] == "relation":
-                        # Find the outer member way and use its nodes as the footprint
-                        outer_way = None
-                        for member in element.get("members", []):
-                            if (
-                                member.get("type") == "way"
-                                and member.get("role") == "outer"
-                            ):
-                                outer_way = ways_by_id.get(member["ref"])
-                                if outer_way:
-                                    break
-                        if outer_way is None:
-                            continue
-                        # Treat the relation like the outer way but use relation tags if present
-                        node_ids = outer_way.get("nodes", [])
-                        tags = element.get("tags") or outer_way.get("tags", {})
-                    elif element["type"] == "way":
-                        node_ids = element.get("nodes", [])
-                        tags = element.get("tags", {})
-                    else:
-                        continue
+            # An explicit height tag is real surveyed/modeled data and always
+            # wins; building:levels * 2.7m is only a fallback guess for
+            # buildings with no height tag at all. Previously this was
+            # backwards (levels always overrode height when present), which
+            # under-measured buildings like 28 Liberty (height=248 but
+            # building:levels=60 -> a wrong 162m) whenever a sibling
+            # building:part lacked a levels tag and kept its own correct
+            # height -- producing a mismatched, apparently "too tall" part.
+            if tags.get("height") is not None:
+                height = safe_float_height(tags.get("height"))
+            else:
+                levels = safe_float_height(tags.get("building:levels", 0))
+                height = levels * 2.7 if levels != 0 else float(default_height)
+            min_height = safe_float_height(
+                tags.get("min_height") or tags.get("building:min_height") or 0
+            )
 
-                    is_part = "building:part" in tags
-                    if not is_part and "building" not in tags:
-                        continue
-
-                    # build 2D footprint coords from cached node_xy
-                    footprint = []
-                    for nid in node_ids:
-                        if nid in node_xy:
-                            x, y, nlat, nlon = node_xy[nid]
-                            footprint.append((x, y))
-                    if len(footprint) < 3:
-                        continue
-
-                    # An explicit height tag is real surveyed/modeled data and always
-                    # wins; building:levels * 2.7m is only a fallback guess for
-                    # buildings with no height tag at all. Previously this was
-                    # backwards (levels always overrode height when present), which
-                    # under-measured buildings like 28 Liberty (height=248 but
-                    # building:levels=60 -> a wrong 162m) whenever a sibling
-                    # building:part lacked a levels tag and kept its own correct
-                    # height -- producing a mismatched, apparently "too tall" part.
-                    if tags.get("height") is not None:
-                        height = safe_float_height(tags.get("height"))
-                    else:
-                        levels = safe_float_height(tags.get("building:levels", 0))
-                        height = levels * 2.7 if levels != 0 else float(default_height)
-                    min_height = safe_float_height(
-                        tags.get("min_height") or tags.get("building:min_height") or 0
-                    )
-
-                    roof_shape = (
-                        "tomb_pyramid"
-                        if tags.get("tomb") == "pyramid"
-                        else tags.get("roof:shape")
-                    )
-                    _entries_seen += 1
-                    _roof_shape_counts[roof_shape or "flat"] += 1
-                    if is_part:
-                        _is_part_count += 1
-                    if tags.get("roof:height") is not None:
-                        _has_roof_height_tag += 1
-                    roof_height_tag = tags.get("roof:height")
-                    if roof_height_tag is not None:
-                        roof_height = (
-                            safe_float_height(roof_height_tag)
-                            * 0.002
-                            * scaleHor
-                            * b_height_mult
-                        )
-                    else:
-                        # Clamp at 25 m so a skyscraper tagged pyramidal doesn't
-                        # get a cap hundreds of metres tall.
-                        roof_height = (
-                            min(height * 0.3, 25.0) * 0.002 * scaleHor * b_height_mult
-                        )
+            roof_shape = (
+                "tomb_pyramid"
+                if tags.get("tomb") == "pyramid"
+                else tags.get("roof:shape")
+            )
+            _entries_seen += 1
+            _roof_shape_counts[roof_shape or "flat"] += 1
+            if is_part:
+                _is_part_count += 1
+            if tags.get("roof:height") is not None:
+                _has_roof_height_tag += 1
+            roof_height_tag = tags.get("roof:height")
+            if roof_height_tag is not None:
+                roof_height = (
+                    safe_float_height(roof_height_tag)
+                    * 0.002
+                    * scaleHor
+                    * b_height_mult
+                )
+            else:
+                # Clamp at 25 m so a skyscraper tagged pyramidal doesn't
+                # get a cap hundreds of metres tall.
+                roof_height = (
+                    min(height * 0.3, 25.0) * 0.002 * scaleHor * b_height_mult
+                )
+            roof_angle = None
+            if tags.get("roof:angle") is not None:
+                try:
+                    roof_angle = float(tags["roof:angle"])
+                except (ValueError, TypeError):
                     roof_angle = None
-                    if tags.get("roof:angle") is not None:
-                        try:
-                            roof_angle = float(tags["roof:angle"])
-                        except (ValueError, TypeError):
-                            roof_angle = None
+            roof_direction = None
+            if tags.get("roof:direction") is not None:
+                try:
+                    roof_direction = float(tags["roof:direction"])
+                except (ValueError, TypeError):
                     roof_direction = None
-                    if tags.get("roof:direction") is not None:
-                        try:
-                            roof_direction = float(tags["roof:direction"])
-                        except (ValueError, TypeError):
-                            roof_direction = None
 
-                    z_offset = height * 0.002 * scaleHor * b_height_mult
-                    z_min_offset = min_height * 0.002 * scaleHor * b_height_mult
+            z_offset = height * 0.002 * scaleHor * b_height_mult
+            z_min_offset = min_height * 0.002 * scaleHor * b_height_mult
 
-                    # Validate the footprint and clip it to the map shape in 2D.
-                    # validate() repairs self-touching OSM outlines; the clip keeps
-                    # buildings from spilling past the map edge.
-                    poly = g2d.xy_ring_to_polygon(footprint)
-                    if poly is None:
-                        continue
-                    if map_fp is not None:
-                        poly = g2d.validate(poly.intersection(map_fp))
-                    if poly is None or poly.is_empty:
-                        continue
+            # Validate the footprint and clip it to the map shape in 2D.
+            # validate() repairs self-touching OSM outlines; the clip keeps
+            # buildings from spilling past the map edge.
+            poly = g2d.xy_ring_to_polygon(footprint)
+            if poly is None:
+                continue
+            if map_fp is not None:
+                poly = g2d.validate(poly.intersection(map_fp))
+            if poly is None or poly.is_empty:
+                continue
 
-                    tile_entries.append(
-                        {
-                            "poly": poly,
-                            "is_part": is_part,
-                            "z_offset": z_offset,
-                            "z_min_offset": z_min_offset,
-                            "roof_shape": roof_shape,
-                            "roof_height": roof_height,
-                            "roof_angle": roof_angle,
-                            "roof_direction": roof_direction,
-                            "building_type": tags.get("building"),
-                        }
-                    )
+            tile_entries.append(
+                {
+                    "poly": poly,
+                    "is_part": is_part,
+                    "z_offset": z_offset,
+                    "z_min_offset": z_min_offset,
+                    "roof_shape": roof_shape,
+                    "roof_height": roof_height,
+                    "roof_angle": roof_angle,
+                    "roof_direction": roof_direction,
+                    "building_type": tags.get("building"),
+                }
+            )
 
-                # Second pass: a base building outline that a building:part
-                # sits inside is skipped in favor of rendering its parts
-                # individually (otherwise you'd get a solid block AND the
-                # detailed parts overlapping it). A building with no parts
-                # (the common case today) renders exactly as before.
-                # Uses an STRtree bbox query per base instead of an O(bases *
-                # parts) brute-force scan -- with tens of thousands of
-                # buildings in one tile (e.g. a dense city-center marathon
-                # route) the brute-force version could mean billions of
-                # shapely .contains() calls and looked like a hang.
-                parts = [e for e in tile_entries if e["is_part"]]
-                bases = [e for e in tile_entries if not e["is_part"]]
-                if parts:
-                    from shapely.strtree import STRtree
+        # Second pass: a base building outline that a building:part
+        # sits inside is skipped in favor of rendering its parts
+        # individually (otherwise you'd get a solid block AND the
+        # detailed parts overlapping it). A building with no parts
+        # (the common case today) renders exactly as before.
+        # Uses an STRtree bbox query per base instead of an O(bases *
+        # parts) brute-force scan -- with tens of thousands of
+        # buildings in one tile (e.g. a dense city-center marathon
+        # route) the brute-force version could mean billions of
+        # shapely .contains() calls and looked like a hang.
+        parts = [e for e in tile_entries if e["is_part"]]
+        bases = [e for e in tile_entries if not e["is_part"]]
+        if parts:
+            from shapely.strtree import STRtree
 
-                    part_polys = [p["poly"] for p in parts]
-                    part_reps = [p.representative_point() for p in part_polys]
-                    tree = STRtree(part_reps)
-                    for b in bases:
-                        # predicate kwarg is broken in Blender's Shapely build --
-                        # bbox-only query then filter manually (see terrain.py).
-                        b["has_parts"] = any(
-                            b["poly"].contains(part_reps[int(idx)])
-                            for idx in tree.query(b["poly"])
-                        )
-                else:
-                    for b in bases:
-                        b["has_parts"] = False
-                render_entries = parts + [b for b in bases if not b["has_parts"]]
+            part_polys = [p["poly"] for p in parts]
+            part_reps = [p.representative_point() for p in part_polys]
+            tree = STRtree(part_reps)
+            for b in bases:
+                # predicate kwarg is broken in Blender's Shapely build --
+                # bbox-only query then filter manually (see terrain.py).
+                b["has_parts"] = any(
+                    b["poly"].contains(part_reps[int(idx)])
+                    for idx in tree.query(b["poly"])
+                )
+        else:
+            for b in bases:
+                b["has_parts"] = False
+        render_entries = parts + [b for b in bases if not b["has_parts"]]
 
-                if _ov.active:
-                    _ov.update(
-                        message=f"Buildings: tile {_cntr}/{_maxcntr} — creating {n_buildings} buildings…"
-                    )
+        if _ov.active:
+            _ov.update(
+                message=f"Buildings: tile {_cntr}/{_maxcntr} — creating {n_buildings} buildings…"
+            )
 
-                # Each (clipped) polygon part becomes its own manifold volume.
-                # This triangulation/extrusion loop is the actual heavy cost for
-                # large tiles, so it gets its own progress slice (0.75-0.98)
-                # instead of silently running after the 0.75 parsing checkpoint.
-                _n_render = max(1, len(render_entries))
-                for _ri, entry in enumerate(render_entries):
-                    if _ov.active and _ri % max(1, _n_render // 20) == 0:
-                        _render_frac = ((_cntr - 1) + _ri / _n_render) / _maxcntr
-                        _ov.set_fetch_progress("buildings", 0.75 + 0.23 * _render_frac)
-                    for part in g2d.iter_polygons(entry["poly"], min_area=min_area):
-                        _parts_kept += 1
-                        _puzzle_footprints.append(
-                            {
-                                "poly": part,
-                                "z_offset": entry["z_offset"],
-                                "z_min_offset": entry["z_min_offset"],
-                                "roof_shape": entry["roof_shape"],
-                                "roof_height": entry["roof_height"],
-                                "roof_angle": entry["roof_angle"],
-                                "roof_direction": entry["roof_direction"],
-                                "building_type": entry["building_type"],
-                            }
-                        )
-                        _append_building(
-                            part,
-                            entry["z_offset"],
-                            _sample_z,
-                            b_verts,
-                            b_faces,
-                            roof_shape=entry["roof_shape"],
-                            roof_height=entry["roof_height"],
-                            roof_angle=entry["roof_angle"],
-                            roof_direction=entry["roof_direction"],
-                            z_min_offset=entry["z_min_offset"],
-                            building_type=entry["building_type"],
-                        )
+        # Each (clipped) polygon part becomes its own manifold volume.
+        # This triangulation/extrusion loop is the actual heavy cost for
+        # large tiles, so it gets its own progress slice (0.75-0.98)
+        # instead of silently running after the 0.75 parsing checkpoint.
+        _n_render = max(1, len(render_entries))
+        for _ri, entry in enumerate(render_entries):
+            if _ov.active and _ri % max(1, _n_render // 20) == 0:
+                _render_frac = ((_cntr - 1) + _ri / _n_render) / _maxcntr
+                _ov.set_fetch_progress("buildings", 0.75 + 0.23 * _render_frac)
+            for part in g2d.iter_polygons(entry["poly"], min_area=min_area):
+                _parts_kept += 1
+                _puzzle_footprints.append(
+                    {
+                        "poly": part,
+                        "z_offset": entry["z_offset"],
+                        "z_min_offset": entry["z_min_offset"],
+                        "roof_shape": entry["roof_shape"],
+                        "roof_height": entry["roof_height"],
+                        "roof_angle": entry["roof_angle"],
+                        "roof_direction": entry["roof_direction"],
+                        "building_type": entry["building_type"],
+                    }
+                )
+                _append_building(
+                    part,
+                    entry["z_offset"],
+                    _sample_z,
+                    b_verts,
+                    b_faces,
+                    roof_shape=entry["roof_shape"],
+                    roof_height=entry["roof_height"],
+                    roof_angle=entry["roof_angle"],
+                    roof_direction=entry["roof_direction"],
+                    z_min_offset=entry["z_min_offset"],
+                    building_type=entry["building_type"],
+                )
 
-                _t_geom += time.time() - _t0
+        _t_geom += time.time() - _t0
 
     print(
         f"[TP3D buildings] fetch={_t_fetch:.1f}s  convert={_t_convert:.1f}s  "

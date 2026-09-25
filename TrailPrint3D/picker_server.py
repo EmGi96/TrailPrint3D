@@ -184,12 +184,26 @@ _STATE_PATH = pathlib.Path(tempfile.gettempdir()) / 'trailprint_picker_state.jso
 
 # Per-generator generation history (assets/history_panel.js's right-hand
 # drawer) -- one JSON file per picker page, keyed by html_path.stem the same
-# way _STATE_PATH is keyed for the multi-page-aware state_path below. Kept
-# in the addon's persistent CONFIG dir (unlike the session-only state files
-# above, which live in the OS temp dir) since the whole point of a history is
-# to survive across Blender restarts.
+# way _STATE_PATH is keyed for the multi-page-aware state_path below (see
+# _history_key). Kept in the addon's persistent CONFIG dir (unlike the
+# session-only state files above, which live in the OS temp dir) since the
+# whole point of a history is to survive across Blender restarts.
 _HISTORY_DIR = pathlib.Path(const.generation_history_dir)
 _HISTORY_MAX_ENTRIES = 50
+
+
+def _history_key(html_path: pathlib.Path) -> str:
+    """History-file key for a picker page. Free/premium page pairs (e.g.
+    map_generator.html / premium/map_generator_pe.html, puzzleGenerator.html /
+    premium/puzzleGenerator_pe.html) share one history file -- a map or
+    puzzle generated in one should show up in the other's history drawer --
+    so the trailing '_pe' that otherwise distinguishes the premium filename
+    is stripped before it's used as the history/state key. Premium-only
+    pages (multitile_generator.html, slidingPuzzleGenerator.html) don't have
+    a '_pe' suffix to begin with and keep their own history as before.
+    """
+    stem = html_path.stem
+    return stem[:-3] if stem.endswith('_pe') else stem
 
 # Real top-down Blender renders (export.save_history_thumbnail), written well
 # after this server has usually already shut down -- see /get_history_render
@@ -474,7 +488,7 @@ class _Handler(BaseHTTPRequestHandler):
     obj_size: float = 100.0
     html_path: pathlib.Path = _HTML_PATH
     state_path: pathlib.Path = _STATE_PATH
-    history_path: pathlib.Path = _HISTORY_DIR / f'{_HTML_PATH.stem}.json'
+    history_path: pathlib.Path = _HISTORY_DIR / f'{_history_key(_HTML_PATH)}.json'
 
     def log_message(self, *args):
         pass
@@ -718,8 +732,12 @@ class _Handler(BaseHTTPRequestHandler):
             # assets/history_panel.js's tp3dPushHistory -- called by each
             # picker page's own "Send to Blender" handler right before
             # /confirm, with the same settings blob shape its saveState()
-            # already builds. Newest entry first, capped to
-            # _HISTORY_MAX_ENTRIES so the file can't grow unbounded.
+            # already builds, plus a fresh /get_source_state snapshot (the
+            # Settings popup's Map/Elements tab fields, and which element
+            # source/categories were on) so a history entry can restore
+            # everything that went into that generation, not just the
+            # page's own shape/resolution/coords fields. Newest entry first,
+            # capped to _HISTORY_MAX_ENTRIES so the file can't grow unbounded.
             length = int(self.headers.get('Content-Length', 0))
             body = self.rfile.read(length)
             try:
@@ -729,12 +747,18 @@ class _Handler(BaseHTTPRequestHandler):
                 thumbnail = data.get('thumbnail')
                 element_source = data.get('elementSource')
                 enabled_elements = data.get('enabledElements')
+                element_states = data.get('elementStates')
+                settings_state = data.get('settingsState')
+                advanced_settings = data.get('advancedSettings')
             except (json.JSONDecodeError, AttributeError):
                 settings = None
                 summary = ''
                 thumbnail = None
                 element_source = None
                 enabled_elements = None
+                element_states = None
+                settings_state = None
+                advanced_settings = None
             if isinstance(settings, dict):
                 entry = {
                     'id': uuid.uuid4().hex,
@@ -758,6 +782,24 @@ class _Handler(BaseHTTPRequestHandler):
                     entry['elementSource'] = element_source
                 if isinstance(enabled_elements, list):
                     entry['enabledElements'] = [k for k in enabled_elements if isinstance(k, str)][:20]
+                # Full Settings-popup snapshot (Map tab + Elements tab +
+                # every element category's on/off, not just the enabled
+                # ones above) -- used to actually restore those settings on
+                # click (tp3dApplyHistorySettings, assets/history_panel.js),
+                # not just to render the badge row. Stored as opaque dicts;
+                # picker_server.py never interprets their keys itself --
+                # they're only ever replayed back through the same
+                # /update_setting, /update_advanced_setting and
+                # /toggle_element routes that produced them, which already
+                # whitelist/validate every key server-side
+                # (utils.ui_state.apply_setting_update /
+                # apply_advanced_setting_update / apply_element_toggle).
+                if isinstance(element_states, dict):
+                    entry['elementStates'] = element_states
+                if isinstance(settings_state, dict):
+                    entry['settingsState'] = settings_state
+                if isinstance(advanced_settings, dict):
+                    entry['advancedSettings'] = advanced_settings
                 entries = _read_history(self.history_path)
                 entries.insert(0, entry)
                 # Entries pushed off the end by the cap may already have a
@@ -915,8 +957,10 @@ def start_picker(result_path: str, existing_maps: list | None = None, existing_t
     agnostic, so other picker pages can reuse it as-is. State is persisted to
     a path keyed off the served HTML file's name so two different picker
     pages never clobber each other's saved view/selection. The generation
-    history (assets/history_panel.js) is keyed the same way, but into
-    const.generation_history_dir instead -- see history_path below.
+    history (assets/history_panel.js) is keyed the same way (via
+    _history_key), but into const.generation_history_dir instead -- see
+    history_path below. Free/premium page pairs share one history key (see
+    _history_key), so generations from either show up in both.
 
     *dem_bounds*, if given, is a {"footprint", "name"} dict for a single DEM file, or
     {"tiles": [{"footprint", "name"}, ...], "name"} for a folder of tiles (see
@@ -958,7 +1002,7 @@ def start_picker(result_path: str, existing_maps: list | None = None, existing_t
         _STATE_PATH if html_path == _HTML_PATH
         else pathlib.Path(tempfile.gettempdir()) / f'trailprint_picker_state_{html_path.stem}.json'
     )
-    history_path = _HISTORY_DIR / f'{html_path.stem}.json'
+    history_path = _HISTORY_DIR / f'{_history_key(html_path)}.json'
 
     print(f"[TP3D picker] starting session: html_path={html_path} state_path={state_path} "
           f"state_exists={state_path.exists()}")

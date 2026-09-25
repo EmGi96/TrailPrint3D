@@ -871,6 +871,17 @@ function tp3dBuildPuzzleTab() {
         tp3dRepaintAllElementToggles();
     };
 
+    // Same idea for the Map tab -- used by assets/history_panel.js's
+    // tp3dApplyHistorySettings after pushing a history entry's SETTINGS_STATE
+    // back to Blender, so the modal's Elevation Scale/Path Thickness/etc.
+    // inputs pick up the restored values instead of showing whatever was
+    // there when the modal was first built.
+    window.tp3dRebuildMapTab = function() {
+        if (!panels.map) return;
+        panels.map.innerHTML = '';
+        panels.map.appendChild(tp3dBuildMapTab());
+    };
+
     document.body.appendChild(modal);
     // The cards' own per-card repaint ran while they were still detached from
     // the document, so it painted nothing -- do it again now they're attached.

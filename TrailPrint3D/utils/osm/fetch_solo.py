@@ -372,83 +372,105 @@ def fetch_tier_polylines(
 
     tier_polylines: dict[str, list] = {tier: [] for tier in tier_tags}
 
-    if lats * lons >= 20:
-        # Area is too large to fetch safely; return empty so the caller can warn.
-        print(
-            f"[TP3D roads] fetch skipped — tile count {lats * lons} exceeds limit of 20"
-        )
-        return tier_polylines
+    if prefetched_tiles is not None:
+        # A prefetch dataset may be tiled differently than this tile's own
+        # lat_step/lon_step grid -- e.g. one combined fetch shared across
+        # every physical tile of a multi-tile batch (see
+        # generation/terrain_gen.py's fetch_combined_osm_data). Iterate
+        # whatever was actually fetched instead of an exact-bbox-tuple
+        # lookup against our own grid, which would silently miss a road
+        # network bigger than one tile. Roads are Shapely-unioned by tier
+        # before meshing (_buffer_tiers_to_polygons), so scanning extra
+        # cells from a wider prefetch just adds harmless duplicate buffering
+        # work, not duplicate geometry.
+        _tile_sources = [
+            (bbox, tile_result[0] if tile_result else None)
+            for bbox, tile_result in prefetched_tiles.items()
+        ]
+    else:
+        if lats * lons >= 20:
+            # Area is too large to fetch safely; return empty so the caller can warn.
+            print(
+                f"[TP3D roads] fetch skipped — tile count {lats * lons} exceeds limit of 20"
+            )
+            return tier_polylines
+        _tile_sources = [
+            (
+                (
+                    min_lat + k * lat_step,
+                    min_lon + l * lon_step,
+                    min_lat + k * lat_step + lat_step,
+                    min_lon + l * lon_step + lon_step,
+                ),
+                None,
+            )
+            for k in range(lats)
+            for l in range(lons)
+        ]
 
-    for k in range(lats):
-        for l in range(lons):
-            _cntr = k * lons + l + 1
-            _maxcntr = lats * lons
-            print(f"Roads loop: {_cntr}/{_maxcntr}")
-            if progress_overlay and progress_overlay.active:
-                progress_overlay.update(
-                    message=f"Roads: tile {_cntr}/{_maxcntr} — fetching…"
-                )
+    _maxcntr = len(_tile_sources)
+    for _idx, (bbox, data) in enumerate(_tile_sources, start=1):
+        _cntr = _idx
+        print(f"Roads loop: {_cntr}/{_maxcntr}")
+        if progress_overlay and progress_overlay.active:
+            progress_overlay.update(
+                message=f"Roads: tile {_cntr}/{_maxcntr} — fetching…"
+            )
 
-            south = min_lat + k * lat_step
-            north = south + lat_step
-            west = min_lon + l * lon_step
-            east = west + lon_step
-            bbox = (south, west, north, east)
-
-            if prefetched_tiles is not None:
-                # Already fetched (and disk-cached) by the combined
-                # background prefetch -- avoid re-querying Overpass.
-                tile_result = prefetched_tiles.get(bbox)
-                data = tile_result[0] if tile_result else None
-            else:
-                data = fetch_osm_data(bbox, "STREETS")
-            if not data or "elements" not in data:
-                print("No Road data returned")
+        if prefetched_tiles is None:
+            data = fetch_osm_data(bbox, "STREETS")
+        if not data or "elements" not in data:
+            print("No Road data returned")
+            if prefetched_tiles is None:
                 return None  # Hard failure — propagate upward.
+            # This prefetch cell had nothing -- other cells in a combined
+            # multi-tile fetch may still carry roads, so keep going instead
+            # of aborting the whole tile's road generation.
+            continue
 
-            assert isinstance(data, dict)
-            n_roads = len([e for e in data["elements"] if e["type"] == "way"])
-            if progress_overlay and progress_overlay.active:
-                progress_overlay.update(
-                    message=f"Roads: tile {_cntr}/{_maxcntr} — bucketing {n_roads} ways…"
-                )
+        assert isinstance(data, dict)
+        n_roads = len([e for e in data["elements"] if e["type"] == "way"])
+        if progress_overlay and progress_overlay.active:
+            progress_overlay.update(
+                message=f"Roads: tile {_cntr}/{_maxcntr} — bucketing {n_roads} ways…"
+            )
 
-            nodes = {
-                el["id"]: (el["lat"], el["lon"], 0.0, None)
-                for el in data["elements"]
-                if el["type"] == "node"
-            }
-            node_ids = list(nodes.keys())
-            coord_cache: dict = {}
-            if node_ids:
-                xyz = convert_to_blender_coordinates_batch(
-                    [nodes[nid] for nid in node_ids]
-                )
-                coord_cache = {nid: (x, y) for nid, (x, y, _z) in zip(node_ids, xyz)}
+        nodes = {
+            el["id"]: (el["lat"], el["lon"], 0.0, None)
+            for el in data["elements"]
+            if el["type"] == "node"
+        }
+        node_ids = list(nodes.keys())
+        coord_cache: dict = {}
+        if node_ids:
+            xyz = convert_to_blender_coordinates_batch(
+                [nodes[nid] for nid in node_ids]
+            )
+            coord_cache = {nid: (x, y) for nid, (x, y, _z) in zip(node_ids, xyz)}
 
-            for el in data["elements"]:
-                if el["type"] != "way":
-                    continue
-                tags = el.get("tags", {}) or {}
-                highway = tags.get("highway", "")
-                if (
-                    highway == "service"
-                    and exclude_alleys
-                    and tags.get("service") in alley_service_types
-                ):
-                    continue
-                tier = next(
-                    (t for t, tagset in tier_tags.items() if highway in tagset),
-                    None,
-                )
-                if tier is None or not tier_active[tier]:
-                    continue
-                pts = [
-                    coord_cache[nid]
-                    for nid in el.get("nodes", [])
-                    if nid in coord_cache
-                ]
-                if len(pts) >= 2:
-                    tier_polylines[tier].append(pts)
+        for el in data["elements"]:
+            if el["type"] != "way":
+                continue
+            tags = el.get("tags", {}) or {}
+            highway = tags.get("highway", "")
+            if (
+                highway == "service"
+                and exclude_alleys
+                and tags.get("service") in alley_service_types
+            ):
+                continue
+            tier = next(
+                (t for t, tagset in tier_tags.items() if highway in tagset),
+                None,
+            )
+            if tier is None or not tier_active[tier]:
+                continue
+            pts = [
+                coord_cache[nid]
+                for nid in el.get("nodes", [])
+                if nid in coord_cache
+            ]
+            if len(pts) >= 2:
+                tier_polylines[tier].append(pts)
 
     return tier_polylines

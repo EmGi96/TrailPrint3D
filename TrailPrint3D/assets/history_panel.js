@@ -218,6 +218,96 @@ function tp3dRenderShapeThumbnail(opts) {
     return canvas.toDataURL('image/png');
 }
 
+// Pushes a saved history entry's Settings-popup snapshot (elementSource,
+// every Map-tab field in entry.settingsState, every Elements-tab field in
+// entry.advancedSettings, and which element categories were on/off in
+// entry.elementStates) back to Blender, so picking a history entry restores
+// the *whole* generation, not just the page-specific shape/resolution/coords
+// fields tp3dApplyHistoryEntry already covers. Mirrors
+// tp3dBuildElementSourceSwitch's own push-then-poll-then-resync pattern
+// (settings_modal.js) -- POST every field, wait for Blender's modal timer to
+// actually drain and apply them (~0.5s), then re-fetch /get_source_state to
+// resync this page's own globals and repaint the (possibly not-currently-
+// open) Settings modal. A no-op for entries saved before this existed (they
+// have none of these three fields).
+function tp3dApplyHistorySettings(entry) {
+    if (!entry || (!entry.settingsState && !entry.advancedSettings && !entry.elementStates)) return;
+    var puts = [];
+    if (entry.settingsState) {
+        Object.keys(entry.settingsState).forEach(function(key) {
+            puts.push(fetch('http://127.0.0.1:' + PORT + '/update_setting', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ key: key, value: entry.settingsState[key] })
+            }).catch(function() {}));
+        });
+    }
+    if (entry.advancedSettings) {
+        // '_compositeRemembered' is this page's own bookkeeping (see
+        // element_status.js's tp3dToggleElement), never a real scene field
+        // -- apply_advanced_setting_update's whitelist would just silently
+        // drop it, but skip it here rather than send a request for nothing.
+        Object.keys(entry.advancedSettings).forEach(function(key) {
+            if (key === '_compositeRemembered') return;
+            puts.push(fetch('http://127.0.0.1:' + PORT + '/update_advanced_setting', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ key: key, value: entry.advancedSettings[key] })
+            }).catch(function() {}));
+        });
+    }
+
+    function resync() {
+        return fetch('http://127.0.0.1:' + PORT + '/get_source_state', { cache: 'no-store' })
+            .then(function(r) { return r.json(); })
+            .then(function(s) {
+                ELEMENT_SOURCE = s.elementSource;
+                SETTINGS_STATE = s.settingsState;
+                ADVANCED_SETTINGS_STATE = s.advancedSettings;
+                ELEMENT_STATUS_ORDER = tp3dIsWorldCover() ? ELEMENT_STATUS_ORDER_WORLDCOVER : ELEMENT_STATUS_ORDER_OSM;
+                TP3D_ELEMENT_STATE = {};
+                ELEMENT_STATUS_ORDER.forEach(function(e) { TP3D_ELEMENT_STATE[e[0]] = !!s.elementStates[e[0]]; });
+                tp3dRenderElementStatus();
+                if (window.tp3dRebuildElementsTab) window.tp3dRebuildElementsTab();
+                if (window.tp3dRebuildMapTab) window.tp3dRebuildMapTab();
+                return s;
+            });
+    }
+
+    Promise.all(puts)
+        .then(function() { return new Promise(function(resolve) { setTimeout(resolve, 700); }); })
+        .then(resync)
+        .then(function(s) {
+            // Element on/off has no direct "set" route server-side, only
+            // /toggle_element (a flip) -- diff the live state just fetched
+            // above (which already reflects any elementSource switch from
+            // entry.settingsState) against the entry's own saved
+            // elementStates and toggle only the categories that differ.
+            var desired = entry.elementStates || {};
+            var toggles = [];
+            Object.keys(desired).forEach(function(key) {
+                if (!(key in TP3D_ELEMENT_STATE)) return;
+                if (!!TP3D_ELEMENT_STATE[key] !== !!desired[key]) {
+                    TP3D_ELEMENT_STATE[key] = !!desired[key];
+                    toggles.push(fetch('http://127.0.0.1:' + PORT + '/toggle_element', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ key: key })
+                    }).catch(function() {}));
+                }
+            });
+            tp3dRenderElementStatus();
+            if (window.tp3dRebuildElementsTab) window.tp3dRebuildElementsTab();
+            if (!toggles.length) {
+                if (typeof saveState === 'function') saveState();
+                return;
+            }
+            Promise.all(toggles)
+                .then(function() { return new Promise(function(resolve) { setTimeout(resolve, 700); }); })
+                .then(resync)
+                .then(function() { if (typeof saveState === 'function') saveState(); })
+                .catch(function() {});
+        })
+        .catch(function() {});
+}
+
 (function renderHistoryPanel() {
     var toggleBtn = document.createElement('button');
     toggleBtn.type = 'button';
@@ -344,6 +434,7 @@ function tp3dRenderShapeThumbnail(opts) {
                 if (typeof window.tp3dApplyHistoryEntry === 'function' && entry.settings) {
                     window.tp3dApplyHistoryEntry(entry.settings);
                 }
+                tp3dApplyHistorySettings(entry);
                 closePanel();
             });
 
@@ -386,23 +477,44 @@ function tp3dRenderShapeThumbnail(opts) {
     // that same id -- see _with_render_urls in picker_server.py and
     // entry.render's handling in renderEntries above.
     window.tp3dPushHistory = function(settings, summary, thumbnail) {
-        var elementSource = typeof ELEMENT_SOURCE !== 'undefined' ? ELEMENT_SOURCE : null;
-        var enabledElements = [];
-        if (typeof ELEMENT_STATUS_ORDER !== 'undefined' && typeof TP3D_ELEMENT_STATE !== 'undefined') {
-            enabledElements = ELEMENT_STATUS_ORDER
-                .filter(function(entry) { return !!TP3D_ELEMENT_STATE[entry[0]]; })
-                .map(function(entry) { return entry[0]; });
-        }
-        return fetch('http://127.0.0.1:' + PORT + '/save_history_entry', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                settings: settings, summary: summary || '', thumbnail: thumbnail || null,
-                elementSource: elementSource, enabledElements: enabledElements
+        // /get_source_state is the same snapshot the OSM/ESA WorldCover
+        // switch re-syncs from (settings_modal.js's
+        // tp3dBuildElementSourceSwitch) -- refreshed every ~0.5s by
+        // Blender's own modal timer (picker_server.refresh_state_snapshots),
+        // so it's a more reliable source for "what's actually live right
+        // now" than the page's own ELEMENT_SOURCE/TP3D_ELEMENT_STATE globals,
+        // which a Settings-modal field edit doesn't always keep in sync
+        // (see settings_modal.js's MAP_TAB_CONTROL_VALUES comment). Falls
+        // back to those globals if the fetch fails, same values either way
+        // for the badge row, just possibly a request-cycle stale.
+        return fetch('http://127.0.0.1:' + PORT + '/get_source_state', { cache: 'no-store' })
+            .then(function(r) { return r.json(); })
+            .catch(function() { return null; })
+            .then(function(s) {
+                var elementSource = s ? s.elementSource
+                    : (typeof ELEMENT_SOURCE !== 'undefined' ? ELEMENT_SOURCE : null);
+                var elementStates = s ? s.elementStates
+                    : (typeof TP3D_ELEMENT_STATE !== 'undefined' ? TP3D_ELEMENT_STATE : null);
+                var enabledElements = [];
+                if (typeof ELEMENT_STATUS_ORDER !== 'undefined' && elementStates) {
+                    enabledElements = ELEMENT_STATUS_ORDER
+                        .filter(function(entry) { return !!elementStates[entry[0]]; })
+                        .map(function(entry) { return entry[0]; });
+                }
+                return fetch('http://127.0.0.1:' + PORT + '/save_history_entry', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        settings: settings, summary: summary || '', thumbnail: thumbnail || null,
+                        elementSource: elementSource, enabledElements: enabledElements,
+                        elementStates: elementStates,
+                        settingsState: s ? s.settingsState : null,
+                        advancedSettings: s ? s.advancedSettings : null
+                    })
+                });
             })
-        })
-        .then(function(r) { return r.json(); })
-        .then(function(resp) { return resp && resp.id; })
-        .catch(function() { return null; });
+            .then(function(r) { return r.json(); })
+            .then(function(resp) { return resp && resp.id; })
+            .catch(function() { return null; });
     };
 })();

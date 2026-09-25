@@ -428,170 +428,193 @@ def coloring_main(
     half_width = 1.0 * scaleHor * 0.02 * streamWidthMultiplier
 
     cntr = 0
-    maxcntr = lats * lons
     _t_tiles_start = time.time()
     _ov = _progress.ProgressOverlay.get()
-    if lats * lons < 20 or prefetched_tiles is not None:
-        for k in range(lats):
-            for l in range(lons):
-                cntr = (k) * lons + l + 1
-                print(f"{kind} loop: {((k) * lons + l + 1)}/{maxcntr}")
-                _ov = _progress.ProgressOverlay.get()
-                if _ov.active:
-                    if prefetched_tiles is not None:
-                        _ov.update(
-                            message=f"{kind.capitalize()}: tile {cntr}/{maxcntr} — processing…"
-                        )
-                    else:
-                        _ov.update(
-                            message=f"{kind.capitalize()}: tile {cntr}/{maxcntr} — fetching…"
-                        )
-                        _ov.set_fetch_progress(kind.lower(), cntr / maxcntr)
-                south = minLat + k * lat_step
-                north = south + lat_step
-                west = minLon + l * lon_step
-                east = west + lon_step
 
-                bbox = (south, west, north, east)
-                data = []
-                try:
-                    if prefetched_tiles is not None:
-                        tile_result = prefetched_tiles.get(bbox)
-                        if tile_result is None:
-                            continue
-                        resp, from_cache = tile_result
-                        if not resp:
-                            continue
-                        src = "cache" if from_cache else "Overpass"
-                        print(f"OSM tile ({kind}): loaded from {src} (prefetched)")
-                    else:
-                        result = fetch_osm_data(bbox, kind, return_cache_status=True)
-                        if not result:
-                            continue
-                        resp, from_cache = result
-                        if not resp:
-                            continue
-                        src = "cache" if from_cache else "Overpass"
-                        print(f"OSM tile ({kind}): loaded from {src} (on-demand)")
-
-                except (OSError, ValueError, KeyError) as e:
-                    show_message_box(
-                        f"Something went wrong with fetching OSM data: {e}"
-                    )
-                    _progress.WarningsOverlay.add_warning(
-                        f"Something went wrong with fetching OSM data: {e}", "error"
-                    )
-                    continue
-
-                data = resp
-                n_features = len([e for e in data["elements"] if e["type"] == "way"])
-                if _ov.active:
-                    src = "cached" if from_cache else "live"
-                    _ov.update(
-                        message=f"{kind.capitalize()}: tile {cntr}/{maxcntr} — calculating mesh ({n_features} features, {src})…"
-                    )
-                nodes = build_osm_nodes(data)
-                bodies, negatives = extract_multipolygon_bodies(data["elements"], nodes)
-                total_fetched += n_features + len(bodies) + len(negatives)
-
-                # Track ways already consumed by relations to avoid duplicate geometry
-                relation_way_ids = set()
-                for el in data["elements"]:
-                    if el["type"] == "relation":
-                        for member in el.get("members", []):
-                            if member["type"] == "way":
-                                relation_way_ids.add(member["ref"])
-
-                if _ov.active:
-                    _ov.update(
-                        message=f"{kind.capitalize()}: tile {cntr}/{maxcntr} — building geometry"
-                    )
-
-                # Build Shapely polygons from relation outer rings
-                for coords in bodies:
-                    xy = [
-                        (x, y)
-                        for x, y, _ in (
-                            convert_to_blender_coordinates(lat, lon, ele, 0)
-                            for lat, lon, ele in coords
-                        )
-                    ]
-                    poly = _g2d.xy_ring_to_polygon(xy)
-                    poly = _clip_to_query_bbox(poly)
-                    if poly is not None and not poly.is_empty:
-                        pos_geoms.append(poly)
-                        waterCreated += 1
-                    else:
-                        waterDeleted += 1
-
-                # Build Shapely polygons from relation inner rings (negatives / holes)
-                for coords in negatives:
-                    xy = [
-                        (x, y)
-                        for x, y, _ in (
-                            convert_to_blender_coordinates(lat, lon, ele, 0)
-                            for lat, lon, ele in coords
-                        )
-                    ]
-                    poly = _g2d.xy_ring_to_polygon(xy)
-                    poly = _clip_to_query_bbox(poly)
-                    if poly is not None and not poly.is_empty and poly.area >= col_Area:
-                        neg_geoms.append(poly)
-                        waterCreated += 1
-                    else:
-                        if bpy.app.debug and poly is not None and not poly.is_empty:
-                            _dbg_filtered_small.append(poly)
-                        waterDeleted += 1
-
-                # Process standalone ways: closed → polygon, open → buffered ribbon
-                for element in data["elements"]:
-                    if element["type"] != "way":
-                        waterDeleted += 1
-                        continue
-                    if element["id"] in relation_way_ids:
-                        continue  # already consumed by a relation
-
-                    coords = []
-                    for node_id in element.get("nodes", []):
-                        if node_id in nodes:
-                            node = nodes[node_id]
-                            coords.append(
-                                convert_to_blender_coordinates(
-                                    node["lat"], node["lon"], 0, 0
-                                )
-                            )
-                    if len(coords) < 2:
-                        waterDeleted += 1
-                        continue
-
-                    if coords[0] == coords[-1]:
-                        xy = [(x, y) for x, y, _ in coords]
-                        poly = _g2d.xy_ring_to_polygon(xy)
-                        poly = _clip_to_query_bbox(poly)
-                        if poly is not None and not poly.is_empty:
-                            pos_geoms.append(poly)
-                            waterCreated += 1
-                        else:
-                            waterDeleted += 1
-                    else:
-                        xy = [(x, y) for x, y, _ in coords]
-                        ribbon = _g2d.line_to_ribbon(xy, half_width)
-                        ribbon = _clip_to_query_bbox(ribbon)
-                        if ribbon is not None and not ribbon.is_empty:
-                            pos_geoms.append(ribbon)
-                            if kind == "WATER":
-                                river_geoms.append(ribbon)
-                            waterCreated += 1
-                        else:
-                            waterDeleted += 1
-
-                if not from_cache and prefetched_tiles is None:
-                    time.sleep(
-                        5
-                    )  # Pause to prevent request throttling (skipped when worker pre-fetched)
+    if prefetched_tiles is not None:
+        # A prefetch dataset may be tiled differently than this tile's own
+        # lat_step/lon_step grid -- e.g. one combined fetch shared across
+        # every physical tile of a multi-tile batch (see
+        # generation/terrain_gen.py's fetch_combined_osm_data), whose bbox
+        # keys don't match any single tile's own small grid cells. Iterate
+        # whatever was actually fetched instead of recomputing our own grid
+        # and doing an exact-bbox-tuple lookup, which would silently miss
+        # everything whenever the tiling doesn't line up -- exactly how an
+        # OSM element bigger than one tile (a lake, a forest, ...) could
+        # vanish even though a wider fetch did see it. Each polygon is still
+        # clipped to THIS tile's own query bbox below via
+        # _clip_to_query_bbox, so processing extra/irrelevant cells from a
+        # wider prefetch is safe -- they just clip away to nothing.
+        _tile_sources = list(prefetched_tiles.items())
+    elif lats * lons < 20:
+        _tile_sources = [
+            (
+                (
+                    minLat + k * lat_step,
+                    minLon + l * lon_step,
+                    minLat + k * lat_step + lat_step,
+                    minLon + l * lon_step + lon_step,
+                ),
+                None,
+            )
+            for k in range(lats)
+            for l in range(lons)
+        ]
     else:
         print(f"Region too big. Cant Fetch All {kind} Sources")
         return None
+
+    maxcntr = len(_tile_sources)
+    for idx, (bbox, tile_result) in enumerate(_tile_sources, start=1):
+        cntr = idx
+        print(f"{kind} loop: {cntr}/{maxcntr}")
+        _ov = _progress.ProgressOverlay.get()
+        if _ov.active:
+            if prefetched_tiles is not None:
+                _ov.update(
+                    message=f"{kind.capitalize()}: tile {cntr}/{maxcntr} — processing…"
+                )
+            else:
+                _ov.update(
+                    message=f"{kind.capitalize()}: tile {cntr}/{maxcntr} — fetching…"
+                )
+                _ov.set_fetch_progress(kind.lower(), cntr / maxcntr)
+
+        data = []
+        try:
+            if prefetched_tiles is not None:
+                if tile_result is None:
+                    continue
+                resp, from_cache = tile_result
+                if not resp:
+                    continue
+                src = "cache" if from_cache else "Overpass"
+                print(f"OSM tile ({kind}): loaded from {src} (prefetched)")
+            else:
+                result = fetch_osm_data(bbox, kind, return_cache_status=True)
+                if not result:
+                    continue
+                resp, from_cache = result
+                if not resp:
+                    continue
+                src = "cache" if from_cache else "Overpass"
+                print(f"OSM tile ({kind}): loaded from {src} (on-demand)")
+
+        except (OSError, ValueError, KeyError) as e:
+            show_message_box(
+                f"Something went wrong with fetching OSM data: {e}"
+            )
+            _progress.WarningsOverlay.add_warning(
+                f"Something went wrong with fetching OSM data: {e}", "error"
+            )
+            continue
+
+        data = resp
+        n_features = len([e for e in data["elements"] if e["type"] == "way"])
+        if _ov.active:
+            src = "cached" if from_cache else "live"
+            _ov.update(
+                message=f"{kind.capitalize()}: tile {cntr}/{maxcntr} — calculating mesh ({n_features} features, {src})…"
+            )
+        nodes = build_osm_nodes(data)
+        bodies, negatives = extract_multipolygon_bodies(data["elements"], nodes)
+        total_fetched += n_features + len(bodies) + len(negatives)
+
+        # Track ways already consumed by relations to avoid duplicate geometry
+        relation_way_ids = set()
+        for el in data["elements"]:
+            if el["type"] == "relation":
+                for member in el.get("members", []):
+                    if member["type"] == "way":
+                        relation_way_ids.add(member["ref"])
+
+        if _ov.active:
+            _ov.update(
+                message=f"{kind.capitalize()}: tile {cntr}/{maxcntr} — building geometry"
+            )
+
+        # Build Shapely polygons from relation outer rings
+        for coords in bodies:
+            xy = [
+                (x, y)
+                for x, y, _ in (
+                    convert_to_blender_coordinates(lat, lon, ele, 0)
+                    for lat, lon, ele in coords
+                )
+            ]
+            poly = _g2d.xy_ring_to_polygon(xy)
+            poly = _clip_to_query_bbox(poly)
+            if poly is not None and not poly.is_empty:
+                pos_geoms.append(poly)
+                waterCreated += 1
+            else:
+                waterDeleted += 1
+
+        # Build Shapely polygons from relation inner rings (negatives / holes)
+        for coords in negatives:
+            xy = [
+                (x, y)
+                for x, y, _ in (
+                    convert_to_blender_coordinates(lat, lon, ele, 0)
+                    for lat, lon, ele in coords
+                )
+            ]
+            poly = _g2d.xy_ring_to_polygon(xy)
+            poly = _clip_to_query_bbox(poly)
+            if poly is not None and not poly.is_empty and poly.area >= col_Area:
+                neg_geoms.append(poly)
+                waterCreated += 1
+            else:
+                if bpy.app.debug and poly is not None and not poly.is_empty:
+                    _dbg_filtered_small.append(poly)
+                waterDeleted += 1
+
+        # Process standalone ways: closed → polygon, open → buffered ribbon
+        for element in data["elements"]:
+            if element["type"] != "way":
+                waterDeleted += 1
+                continue
+            if element["id"] in relation_way_ids:
+                continue  # already consumed by a relation
+
+            coords = []
+            for node_id in element.get("nodes", []):
+                if node_id in nodes:
+                    node = nodes[node_id]
+                    coords.append(
+                        convert_to_blender_coordinates(
+                            node["lat"], node["lon"], 0, 0
+                        )
+                    )
+            if len(coords) < 2:
+                waterDeleted += 1
+                continue
+
+            if coords[0] == coords[-1]:
+                xy = [(x, y) for x, y, _ in coords]
+                poly = _g2d.xy_ring_to_polygon(xy)
+                poly = _clip_to_query_bbox(poly)
+                if poly is not None and not poly.is_empty:
+                    pos_geoms.append(poly)
+                    waterCreated += 1
+                else:
+                    waterDeleted += 1
+            else:
+                xy = [(x, y) for x, y, _ in coords]
+                ribbon = _g2d.line_to_ribbon(xy, half_width)
+                ribbon = _clip_to_query_bbox(ribbon)
+                if ribbon is not None and not ribbon.is_empty:
+                    pos_geoms.append(ribbon)
+                    if kind == "WATER":
+                        river_geoms.append(ribbon)
+                    waterCreated += 1
+                else:
+                    waterDeleted += 1
+
+        if not from_cache and prefetched_tiles is None:
+            time.sleep(
+                5
+            )  # Pause to prevent request throttling (skipped when worker pre-fetched)
 
     _t_tiles_total = time.time() - _t_tiles_start
     print(

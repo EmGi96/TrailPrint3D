@@ -119,8 +119,15 @@ def _rg_build_terrain_elements(
     Reads all flags directly from bpy.context.scene.tp3d.
     Returns a dict keyed by element name; values may be None if disabled.
     phase_start/phase_end control the overlay progress range for multi-tile callers.
-    prefetched_osm: result dict from _rg_start_osm_prefetch; if provided the
-    per-kind OSM fetch is skipped (data was already downloaded in the background).
+    prefetched_osm: result dict from _rg_start_osm_prefetch, or from
+    terrain_gen.fetch_combined_osm_data for a multi-tile batch fetched once
+    over the combined bbox of every physical tile; if provided the per-kind
+    OSM fetch below is skipped and this dict is handed straight to
+    coloring_main/createOcean/create_buildings/create_roads as their own
+    prefetched_tiles argument -- each of those iterates whatever bboxes are
+    actually present rather than requiring an exact match against this
+    tile's own grid, so a combined batch dataset (tiled over a larger area
+    than this one tile) works the same as a per-tile one.
     tile_label: optional prefix for progress messages (e.g. "Tile 2/6") used by
     multi-tile callers so element messages keep their tile context visible.
     """
