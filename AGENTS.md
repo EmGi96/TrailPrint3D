@@ -6,7 +6,7 @@ This is a **Blender 5.1+ Python addon** using the Blender Extensions platform. A
 
 ## Terminology
 
-When the user says **"generators"**, they usually mean the HTML configurator pages as a group — `puzzleGenerator.html`, `premium/puzzleGenerator_pe.html`, `premium/multitile_generator.html`, `premium/slidingPuzzleGenerator.html` — the browser-based picker UIs served by `picker_server.py`. Default to that reading unless the surrounding request is clearly about the Blender-side mesh-generation pipeline instead (`utils/generation.py`, `runGeneration()`).
+When the user says **"generators"**, they usually mean the HTML configurator pages as a group — `map_generator.html`, `premium/map_generator_pe.html`, `puzzleGenerator.html`, `premium/puzzleGenerator_pe.html`, `premium/multitile_generator.html`, `premium/slidingPuzzleGenerator.html` — the browser-based picker UIs served by `picker_server.py`. All six share the same served-page machinery (`__PORT__`, `__COMMON_CSS__`, `__SETTINGS_MODAL_JS__`, etc. tokens substituted in `picker_server.py`'s `do_GET`), so a change to that shared plumbing (or to "every generator") applies to all six, not just the four puzzle/multitile ones. Default to that reading unless the surrounding request is clearly about the Blender-side mesh-generation pipeline instead (`utils/generation.py`, `runGeneration()`).
 
 ---
 

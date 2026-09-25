@@ -391,6 +391,42 @@ def customThumbnail(objects, output_path, resolution=256):
     bpy.data.cameras.remove(tmp_cam_data, do_unlink=True)
 
 
+def save_history_thumbnail(history_id, objects):
+    """Render *objects* top-down via customThumbnail() and save it as
+    <history_id>.png under constants.generation_history_thumbnails_dir, for
+    the picker pages' generation-history panel (assets/history_panel.js,
+    served via picker_server.py's /get_history_render) to pick up the next
+    time that page's picker reopens.
+
+    Called from each generator operator's own "generation succeeded" point
+    right after Send -- by then the picker session that recorded this
+    history entry has already POSTed its settings/vector-sketch thumbnail
+    and (almost always) closed its browser window and shut down its own
+    HTTP server, so there is no live page left to push the real render to
+    directly. Independent of the 3MF export flow entirely (no dependency on
+    auto-export being on or the 3MF addon being installed) -- this is the
+    same customThumbnail() the 3MF export thumbnail uses, just called here
+    on its own.
+
+    No-ops quietly with a falsy *history_id* (the sending page failed to
+    reach /save_history_entry, or is an older cached page from before this
+    existed), no *objects*, or in headless mode (customThumbnail needs a
+    live 3D viewport, same limitation the 3MF thumbnail already has).
+    """
+    if not history_id or not objects or bpy.app.background:
+        return
+    import pathlib
+
+    from . import constants as const
+
+    thumb_dir = pathlib.Path(const.generation_history_thumbnails_dir)
+    try:
+        thumb_dir.mkdir(parents=True, exist_ok=True)
+        customThumbnail(list(objects), str(thumb_dir / f"{history_id}.png"))
+    except (OSError, RuntimeError, AttributeError) as e:
+        print(f"[TP3D] Failed to save history thumbnail for {history_id}: {e}")
+
+
 def get_selection_center(objects):
     if not objects:
         return Vector((0, 0, 0))

@@ -127,6 +127,7 @@
         __SETTINGS_STATE_JS__
         __ADVANCED_SETTINGS_STATE_JS__
         __SETTINGS_MODAL_JS__
+        __HISTORY_PANEL_JS__
         __DEM_BOUNDS_JS__
         __MAP_INIT_JS__
 
@@ -279,7 +280,10 @@
             return rings;
         }
 
-        function saveState() {
+        // Shared by saveState() (persists this across reopens) and the
+        // "Send to Blender" handler (records it into the generation history
+        // via tp3dPushHistory, see assets/history_panel.js).
+        function tp3dBuildStateSnapshot() {
             // gpxPaths/gpxNames ARE persisted here so the last-used trail is
             // still selected next time the picker opens (matches
             // premium/map_generator_pe.html). The server still has the
@@ -288,31 +292,75 @@
             // -- see restoreState below for how the map preview itself gets
             // redrawn from that on reopen.
             var c = map.getCenter();
+            return {
+                lat: c.lat, lng: c.lng, zoom: map.getZoom(),
+                baseLayer: activeBaseLayerName,
+                settingsTab: TP3D_SETTINGS_TAB,
+                shape: currentShape,
+                drawMode: drawMode,
+                shapeCenter: shapeCenter,
+                resolution: document.getElementById('resolutionSlider').value,
+                objSize: document.getElementById('objSizeInput').value,
+                coords: coords,
+                prefetch: tp3dPrefetchState(),
+                gpxPaths: gpxPaths,
+                gpxNames: gpxNames
+            };
+        }
+
+        // Short one-line description for a history-panel row -- see
+        // assets/history_panel.js. A trail-only send (no area drawn, see
+        // tp3dHistoryThumbnail below) has no real "shape" at all -- the
+        // currentShape button state is just whatever was last clicked and
+        // never actually used, so the imported trail's own name(s) are a
+        // much more meaningful label there than e.g. "hexagon".
+        function tp3dHistorySummary() {
+            var objSize = document.getElementById('objSizeInput').value || '?';
+            if (gpxNames && gpxNames.length) {
+                return gpxNames.join(', ') + ' • ' + objSize + 'mm';
+            }
+            return currentShape + ' • ' + objSize + 'mm';
+        }
+
+        // Small "shape outline" preview image for a history-panel row -- see
+        // tp3dRenderShapeThumbnail in assets/history_panel.js. Square/circle/
+        // hexagon/octagon are always 1:1 (see the shape buttons' own titles);
+        // rectangle/svg take their aspect ratio from the drawn area instead.
+        // tp3dRenderShapeThumbnail overlays the imported GPX trail (if any)
+        // on its own, reading gpxLayer/coords directly.
+        function tp3dHistoryThumbnail() {
+            if (!coords) {
+                // Trail-only send -- no shape was drawn at all, so there's
+                // nothing to sketch; tp3dRenderShapeThumbnail falls back to
+                // fitting the trail's own extent instead.
+                return tp3dRenderShapeThumbnail({ width: 0, height: 0 });
+            }
+            var objSize = parseFloat(document.getElementById('objSizeInput').value) || 0;
+            var square = (currentShape === 'hexagon' || currentShape === 'square' ||
+                currentShape === 'circle' || currentShape === 'octagon');
+            var w = objSize, h = objSize;
+            if (!square) {
+                w = Math.max(1e-6, Math.abs(coords.east - coords.west));
+                h = Math.max(1e-6, Math.abs(coords.north - coords.south));
+            }
+            var shape = (currentShape === 'hexagon' || currentShape === 'octagon') ? 'hex'
+                : (currentShape === 'circle' ? 'circle' : 'rect');
+            return tp3dRenderShapeThumbnail({ shape: shape, width: w, height: h });
+        }
+
+        function saveState() {
             fetch('http://127.0.0.1:' + PORT + '/save_state', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    lat: c.lat, lng: c.lng, zoom: map.getZoom(),
-                    baseLayer: activeBaseLayerName,
-                    settingsTab: TP3D_SETTINGS_TAB,
-                    shape: currentShape,
-                    drawMode: drawMode,
-                    shapeCenter: shapeCenter,
-                    resolution: document.getElementById('resolutionSlider').value,
-                    objSize: document.getElementById('objSizeInput').value,
-                    coords: coords,
-                    prefetch: tp3dPrefetchState(),
-                    gpxPaths: gpxPaths,
-                    gpxNames: gpxNames
-                })
+                body: JSON.stringify(tp3dBuildStateSnapshot())
             }).catch(function() {});
         }
 
-        function restoreState() {
-            fetch('http://127.0.0.1:' + PORT + '/get_state', { cache: 'no-store' })
-                .then(function(r) { return r.json(); })
-                .then(function(s) {
-                    console.log('[TP3D picker] /get_state returned:', s);
+        // Applies a saved state blob (either the last session's, from
+        // /get_state, or a past entry picked from the history panel) to the
+        // page's own fields -- shared by restoreState() and
+        // window.tp3dApplyHistoryEntry (see assets/history_panel.js).
+        function tp3dApplyStateSnapshot(s) {
                     if (!s) return;
                     if (s.settingsTab) tp3dActivateSettingsTab(s.settingsTab);
                     if (s.baseLayer && baseLayers[s.baseLayer] && s.baseLayer !== activeBaseLayerName) {
@@ -393,6 +441,15 @@
                     // state file, silently wiping the drawn area on every
                     // reopen even when nothing else changed.
                     if (s.lat != null) map.setView([s.lat, s.lng], s.zoom);
+        }
+        window.tp3dApplyHistoryEntry = tp3dApplyStateSnapshot;
+
+        function restoreState() {
+            fetch('http://127.0.0.1:' + PORT + '/get_state', { cache: 'no-store' })
+                .then(function(r) { return r.json(); })
+                .then(function(s) {
+                    console.log('[TP3D picker] /get_state returned:', s);
+                    tp3dApplyStateSnapshot(s);
                 })
                 .catch(function() { updateSendState(); updateStatus(); });
         }
@@ -1032,11 +1089,14 @@
 
             document.getElementById('send').disabled = true;
             document.getElementById('status').textContent = 'Sending to Blender...';
-            fetch('http://127.0.0.1:' + PORT + '/confirm', {
-                method: 'POST',
-                mode: 'cors',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
+            tp3dPushHistory(tp3dBuildStateSnapshot(), tp3dHistorySummary(), tp3dHistoryThumbnail()).then(function(historyId) {
+                payload.history_id = historyId;
+                return fetch('http://127.0.0.1:' + PORT + '/confirm', {
+                    method: 'POST',
+                    mode: 'cors',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
             })
             .then(function() { window.close(); })
             .catch(function() {

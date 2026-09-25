@@ -259,6 +259,7 @@
         __SETTINGS_STATE_JS__
         __ADVANCED_SETTINGS_STATE_JS__
         __SETTINGS_MODAL_JS__
+        __HISTORY_PANEL_JS__
         __DEM_BOUNDS_JS__
         __MAP_INIT_JS__
 
@@ -385,7 +386,10 @@
                 + 'Multiple trails can be imported in the Premium version.</div>';
         }
 
-        function saveState() {
+        // Shared by saveState() (persists this across reopens) and the
+        // "Send to Blender" handler (records it into the generation history
+        // via tp3dPushHistory, see assets/history_panel.js).
+        function tp3dBuildStateSnapshot() {
             // Unlike multitile_generator.html, gpxPaths/gpxNames ARE persisted here --
             // the puzzle page caches the selected trails across reopens
             // instead of treating GPX import as session-only. The server
@@ -395,45 +399,71 @@
             // isn't redrawn on restore, since the raw GPX content isn't kept
             // client-side -- only the already-imported names/paths).
             var c = map.getCenter();
+            return {
+                lat: c.lat, lng: c.lng, zoom: map.getZoom(),
+                baseLayer: activeBaseLayerName,
+                settingsTab: TP3D_SETTINGS_TAB,
+                length: document.getElementById('lengthInput').value,
+                width: document.getElementById('widthInput').value,
+                rows: document.getElementById('rowsInput').value,
+                cols: document.getElementById('colsInput').value,
+                resolution: document.getElementById('resolutionSlider').value,
+                tabSize: document.getElementById('tabSizeInput').value,
+                jitter: document.getElementById('jitterInput').value,
+                puzzleSeed: document.getElementById('puzzleSeedInput').value,
+                puzzleCornerRadius: document.getElementById('puzzleCornerRadiusInput').value,
+                coords: coords,
+                prefetch: tp3dPrefetchState(),
+                drawMode: drawMode,
+                shapeCenter: shapeCenter,
+                gpxPaths: gpxPaths,
+                gpxNames: gpxNames,
+                holderEnabled: document.getElementById('holderEnabled').checked,
+                holderText: document.getElementById('holderTextInput').value,
+                holderWallWidth: document.getElementById('holderWallWidthInput').value,
+                holderCornerRadius: document.getElementById('holderCornerRadiusInput').value,
+                holderSeamEngraving: document.getElementById('holderSeamEngravingInput').checked,
+                holderFrameTerrain: document.getElementById('holderFrameTerrainInput').checked,
+                holderFont: document.getElementById('holderFontSelect').value,
+                holderTextSize: document.getElementById('holderTextSizeInput').value
+            };
+        }
+
+        // Short one-line description for a history-panel row -- see
+        // assets/history_panel.js.
+        function tp3dHistorySummary() {
+            var rows = document.getElementById('rowsInput').value || '?';
+            var cols = document.getElementById('colsInput').value || '?';
+            var length = document.getElementById('lengthInput').value || '?';
+            var width = document.getElementById('widthInput').value || '?';
+            return rows + '×' + cols + ' pieces, ' + length + '×' + width + 'mm';
+        }
+
+        // Small "shape outline" preview image for a history-panel row -- see
+        // tp3dRenderShapeThumbnail in assets/history_panel.js.
+        function tp3dHistoryThumbnail() {
+            return tp3dRenderShapeThumbnail({
+                shape: 'rect',
+                width: parseFloat(document.getElementById('lengthInput').value) || 0,
+                height: parseFloat(document.getElementById('widthInput').value) || 0,
+                rows: parseInt(document.getElementById('rowsInput').value) || 0,
+                cols: parseInt(document.getElementById('colsInput').value) || 0
+            });
+        }
+
+        function saveState() {
             fetch('http://127.0.0.1:' + PORT + '/save_state', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    lat: c.lat, lng: c.lng, zoom: map.getZoom(),
-                    baseLayer: activeBaseLayerName,
-                    settingsTab: TP3D_SETTINGS_TAB,
-                    length: document.getElementById('lengthInput').value,
-                    width: document.getElementById('widthInput').value,
-                    rows: document.getElementById('rowsInput').value,
-                    cols: document.getElementById('colsInput').value,
-                    resolution: document.getElementById('resolutionSlider').value,
-                    tabSize: document.getElementById('tabSizeInput').value,
-                    jitter: document.getElementById('jitterInput').value,
-                    puzzleSeed: document.getElementById('puzzleSeedInput').value,
-                    puzzleCornerRadius: document.getElementById('puzzleCornerRadiusInput').value,
-                    coords: coords,
-                    prefetch: tp3dPrefetchState(),
-                    drawMode: drawMode,
-                    shapeCenter: shapeCenter,
-                    gpxPaths: gpxPaths,
-                    gpxNames: gpxNames,
-                    holderEnabled: document.getElementById('holderEnabled').checked,
-                    holderText: document.getElementById('holderTextInput').value,
-                    holderWallWidth: document.getElementById('holderWallWidthInput').value,
-                    holderCornerRadius: document.getElementById('holderCornerRadiusInput').value,
-                    holderSeamEngraving: document.getElementById('holderSeamEngravingInput').checked,
-                    holderFrameTerrain: document.getElementById('holderFrameTerrainInput').checked,
-                    holderFont: document.getElementById('holderFontSelect').value,
-                    holderTextSize: document.getElementById('holderTextSizeInput').value
-                })
+                body: JSON.stringify(tp3dBuildStateSnapshot())
             }).catch(function() {});
         }
 
-        function restoreState() {
-            fetch('http://127.0.0.1:' + PORT + '/get_state', { cache: 'no-store' })
-                .then(function(r) { return r.json(); })
-                .then(function(s) {
-                    console.log('[TP3D picker] /get_state returned:', s);
+        // Applies a saved state blob (either the last session's, from
+        // /get_state, or a past entry picked from the history panel) to the
+        // page's own fields -- shared by restoreState() and
+        // window.tp3dApplyHistoryEntry (see assets/history_panel.js).
+        function tp3dApplyStateSnapshot(s) {
                     if (!s) return;
                     if (s.settingsTab) tp3dActivateSettingsTab(s.settingsTab);
                     if (s.baseLayer && baseLayers[s.baseLayer] && s.baseLayer !== activeBaseLayerName) {
@@ -518,6 +548,15 @@
                     // state file, silently wiping the drawn area on every
                     // reopen even when nothing else changed.
                     if (s.lat != null) map.setView([s.lat, s.lng], s.zoom);
+        }
+        window.tp3dApplyHistoryEntry = tp3dApplyStateSnapshot;
+
+        function restoreState() {
+            fetch('http://127.0.0.1:' + PORT + '/get_state', { cache: 'no-store' })
+                .then(function(r) { return r.json(); })
+                .then(function(s) {
+                    console.log('[TP3D picker] /get_state returned:', s);
+                    tp3dApplyStateSnapshot(s);
                 })
                 .catch(function() {});
         }
@@ -1231,11 +1270,14 @@
             };
             document.getElementById('send').disabled = true;
             document.getElementById('status').textContent = 'Sending to Blender...';
-            fetch('http://127.0.0.1:' + PORT + '/confirm', {
-                method: 'POST',
-                mode: 'cors',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
+            tp3dPushHistory(tp3dBuildStateSnapshot(), tp3dHistorySummary(), tp3dHistoryThumbnail()).then(function(historyId) {
+                payload.history_id = historyId;
+                return fetch('http://127.0.0.1:' + PORT + '/confirm', {
+                    method: 'POST',
+                    mode: 'cors',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
             })
             .then(function() { window.close(); })
             .catch(function() {

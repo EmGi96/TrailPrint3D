@@ -7,14 +7,19 @@
 import json
 import pathlib
 import queue
+import re
 import shutil
 import socket
 import subprocess as sp
 import sys
 import tempfile
 import threading
+import time
+import uuid
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import cast
+
+from . import constants as const
 
 # Element-status chip clicks (POST /toggle_element, see the picker pages'
 # element_status.js) land on this HTTP server's own background thread --
@@ -153,6 +158,7 @@ _ELEMENT_STATUS_JS_PATH = _ASSETS_DIR / 'element_status.js'
 _SETTINGS_MODAL_JS_PATH = _ASSETS_DIR / 'settings_modal.js'
 _RECT_EDITOR_JS_PATH = _ASSETS_DIR / 'rect_editor.js'
 _PREFETCH_JS_PATH = _ASSETS_DIR / 'prefetch_layer.js'
+_HISTORY_PANEL_JS_PATH = _ASSETS_DIR / 'history_panel.js'
 
 _element_icons_js_cache: str | None = None
 
@@ -175,6 +181,76 @@ def _element_icons_js() -> str:
 _PREFERRED_PORT = 27373
 _active_server: HTTPServer | None = None
 _STATE_PATH = pathlib.Path(tempfile.gettempdir()) / 'trailprint_picker_state.json'
+
+# Per-generator generation history (assets/history_panel.js's right-hand
+# drawer) -- one JSON file per picker page, keyed by html_path.stem the same
+# way _STATE_PATH is keyed for the multi-page-aware state_path below. Kept
+# in the addon's persistent CONFIG dir (unlike the session-only state files
+# above, which live in the OS temp dir) since the whole point of a history is
+# to survive across Blender restarts.
+_HISTORY_DIR = pathlib.Path(const.generation_history_dir)
+_HISTORY_MAX_ENTRIES = 50
+
+# Real top-down Blender renders (export.save_history_thumbnail), written well
+# after this server has usually already shut down -- see /get_history_render
+# and _read_history's own render-lookup below. Entry ids are uuid4().hex (32
+# lowercase hex chars); this regex doubles as the path-traversal guard for
+# both the render lookup and the on-disk filename.
+_HISTORY_THUMBNAILS_DIR = pathlib.Path(const.generation_history_thumbnails_dir)
+_HISTORY_ID_RE = re.compile(r'^[0-9a-f]{32}$')
+
+
+def _history_render_path(entry_id: str) -> 'pathlib.Path | None':
+    if not isinstance(entry_id, str) or not _HISTORY_ID_RE.match(entry_id):
+        return None
+    return _HISTORY_THUMBNAILS_DIR / f'{entry_id}.png'
+
+
+def _read_history(path: pathlib.Path) -> list:
+    try:
+        data = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError):
+        return []
+    return data if isinstance(data, list) else []
+
+
+def _with_render_urls(entries: list) -> list:
+    """Copy of *entries* with a 'render' URL added wherever a real top-down
+    Blender render (export.save_history_thumbnail) now exists on disk for
+    that entry -- checked fresh on every call (GET /get_history only) rather
+    than cached in the JSON file itself, so a picker page that's still open
+    when generation finishes picks it up on its very next poll instead of
+    only after a reopen. Deliberately not folded into _read_history, whose
+    result also feeds straight back into _write_history elsewhere -- this
+    derived field must never actually get persisted.
+    """
+    out = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            out.append(entry)
+            continue
+        render_path = _history_render_path(entry.get('id'))
+        if render_path is not None and render_path.exists():
+            entry = dict(entry, render=f'/get_history_render?id={entry["id"]}')
+        out.append(entry)
+    return out
+
+
+def _write_history(path: pathlib.Path, entries: list) -> None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(entries), encoding='utf-8')
+    except OSError as e:
+        print(f"[TP3D picker] Failed to write history {path}: {e}")
+
+
+def _delete_history_render(entry_id: str) -> None:
+    render_path = _history_render_path(entry_id)
+    if render_path is not None:
+        try:
+            render_path.unlink(missing_ok=True)
+        except OSError as e:
+            print(f"[TP3D picker] Failed to delete history render {render_path}: {e}")
 
 
 def _bring_blender_to_foreground() -> None:
@@ -398,6 +474,7 @@ class _Handler(BaseHTTPRequestHandler):
     obj_size: float = 100.0
     html_path: pathlib.Path = _HTML_PATH
     state_path: pathlib.Path = _STATE_PATH
+    history_path: pathlib.Path = _HISTORY_DIR / f'{_HTML_PATH.stem}.json'
 
     def log_message(self, *args):
         pass
@@ -462,6 +539,34 @@ class _Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
+        if self.path == '/get_history':
+            body = json.dumps(_with_render_urls(_read_history(self.history_path))).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if self.path.startswith('/get_history_render?'):
+            from urllib.parse import parse_qs, urlparse
+            query = parse_qs(urlparse(self.path).query)
+            render_path = _history_render_path(query.get('id', [''])[0])
+            if render_path is None:
+                self.send_response(400)
+                self.end_headers()
+                return
+            try:
+                body = render_path.read_bytes()
+            except OSError:
+                self.send_response(404)
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header('Content-Type', 'image/png')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if self.path.startswith('/get_gpx_content?'):
             from urllib.parse import parse_qs, urlparse
             query = parse_qs(urlparse(self.path).query)
@@ -509,6 +614,7 @@ class _Handler(BaseHTTPRequestHandler):
             .replace('__SETTINGS_STATE_JS__', 'var SETTINGS_STATE = ' + self.settings_state_json.decode('utf-8') + ';')
             .replace('__ADVANCED_SETTINGS_STATE_JS__', 'var ADVANCED_SETTINGS_STATE = ' + self.advanced_settings_json.decode('utf-8') + ';')
             .replace('__SETTINGS_MODAL_JS__', _SETTINGS_MODAL_JS_PATH.read_text(encoding='utf-8'))
+            .replace('__HISTORY_PANEL_JS__', _HISTORY_PANEL_JS_PATH.read_text(encoding='utf-8'))
             .replace('__RECT_EDITOR_JS__', _RECT_EDITOR_JS_PATH.read_text(encoding='utf-8'))
             .replace('__PREFETCH_JS__', _PREFETCH_JS_PATH.read_text(encoding='utf-8'))
             .encode('utf-8')
@@ -607,6 +713,90 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_header('Content-Length', '2')
             self.end_headers()
             self.wfile.write(b'ok')
+            return
+        if self.path == '/save_history_entry':
+            # assets/history_panel.js's tp3dPushHistory -- called by each
+            # picker page's own "Send to Blender" handler right before
+            # /confirm, with the same settings blob shape its saveState()
+            # already builds. Newest entry first, capped to
+            # _HISTORY_MAX_ENTRIES so the file can't grow unbounded.
+            length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(length)
+            try:
+                data = json.loads(body)
+                settings = data.get('settings')
+                summary = data.get('summary') or ''
+                thumbnail = data.get('thumbnail')
+                element_source = data.get('elementSource')
+                enabled_elements = data.get('enabledElements')
+            except (json.JSONDecodeError, AttributeError):
+                settings = None
+                summary = ''
+                thumbnail = None
+                element_source = None
+                enabled_elements = None
+            if isinstance(settings, dict):
+                entry = {
+                    'id': uuid.uuid4().hex,
+                    'timestamp': time.time(),
+                    'summary': str(summary)[:200],
+                    'settings': settings,
+                }
+                # tp3dRenderShapeThumbnail (assets/history_panel.js) draws a
+                # small vector "shape outline" sketch client-side and hands
+                # it over as a data: URL -- sanity-checked and size-capped
+                # here rather than trusted outright, since it's coming from
+                # the browser same as any other POST body.
+                if (isinstance(thumbnail, str) and thumbnail.startswith('data:image/')
+                        and len(thumbnail) < 300_000):
+                    entry['thumbnail'] = thumbnail
+                # Which element source/categories were live at Send time
+                # (read straight off ELEMENT_SOURCE/TP3D_ELEMENT_STATE by
+                # tp3dPushHistory) -- shown as a source badge + icon row under
+                # the thumbnail (history_panel.js's renderEntries).
+                if element_source in ('OSM', 'WORLDCOVER'):
+                    entry['elementSource'] = element_source
+                if isinstance(enabled_elements, list):
+                    entry['enabledElements'] = [k for k in enabled_elements if isinstance(k, str)][:20]
+                entries = _read_history(self.history_path)
+                entries.insert(0, entry)
+                # Entries pushed off the end by the cap may already have a
+                # real render on disk (a generation from well before this one
+                # can easily have finished by now) -- delete it too, or it'd
+                # sit there orphaned forever.
+                for dropped in entries[_HISTORY_MAX_ENTRIES:]:
+                    if isinstance(dropped, dict):
+                        _delete_history_render(dropped.get('id'))
+                del entries[_HISTORY_MAX_ENTRIES:]
+                _write_history(self.history_path, entries)
+                entry_id = entry['id']
+            else:
+                entry_id = None
+            resp = json.dumps({'id': entry_id}).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(resp)))
+            self.end_headers()
+            self.wfile.write(resp)
+            return
+        if self.path == '/delete_history_entry':
+            length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(length)
+            try:
+                entry_id = json.loads(body).get('id')
+            except (json.JSONDecodeError, AttributeError):
+                entry_id = None
+            entries = _read_history(self.history_path)
+            if entry_id is not None:
+                entries = [e for e in entries if e.get('id') != entry_id]
+                _write_history(self.history_path, entries)
+                _delete_history_render(entry_id)
+            resp = json.dumps(_with_render_urls(entries)).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(resp)))
+            self.end_headers()
+            self.wfile.write(resp)
             return
         if self.path in ('/upload_gpx', '/upload_geojson', '/upload_svg'):
             import tempfile
@@ -724,7 +914,9 @@ def start_picker(result_path: str, existing_maps: list | None = None, existing_t
     save/restore, existing-maps/trails reference data, /confirm) is schema-
     agnostic, so other picker pages can reuse it as-is. State is persisted to
     a path keyed off the served HTML file's name so two different picker
-    pages never clobber each other's saved view/selection.
+    pages never clobber each other's saved view/selection. The generation
+    history (assets/history_panel.js) is keyed the same way, but into
+    const.generation_history_dir instead -- see history_path below.
 
     *dem_bounds*, if given, is a {"footprint", "name"} dict for a single DEM file, or
     {"tiles": [{"footprint", "name"}, ...], "name"} for a folder of tiles (see
@@ -766,6 +958,7 @@ def start_picker(result_path: str, existing_maps: list | None = None, existing_t
         _STATE_PATH if html_path == _HTML_PATH
         else pathlib.Path(tempfile.gettempdir()) / f'trailprint_picker_state_{html_path.stem}.json'
     )
+    history_path = _HISTORY_DIR / f'{html_path.stem}.json'
 
     print(f"[TP3D picker] starting session: html_path={html_path} state_path={state_path} "
           f"state_exists={state_path.exists()}")
@@ -782,6 +975,7 @@ def start_picker(result_path: str, existing_maps: list | None = None, existing_t
     _Handler.obj_size = obj_size or 100.0
     _Handler.html_path = html_path
     _Handler.state_path = state_path
+    _Handler.history_path = history_path
 
     server = HTTPServer(('127.0.0.1', port), _Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()

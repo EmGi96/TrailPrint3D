@@ -18,7 +18,7 @@ from bpy.app.translations import (
 from bpy.props import StringProperty  # type: ignore
 from mathutils import Euler, Quaternion, Vector  # type: ignore
 
-from . import addon_preferences, utils
+from . import addon_preferences, export, utils
 from . import constants as const
 from . import progress as _progress
 
@@ -2956,12 +2956,20 @@ class TP3D_OT_puzzle_configurator(bpy.types.Operator):
         if frame_terrain_requested and blank_name in bpy.data.objects:
             bpy.data.objects.remove(bpy.data.objects[blank_name], do_unlink=True)
 
+        finished_objs = piece_objs + ([holder_obj] if holder_obj is not None else [])
+        bpy.context.scene.tp3d["o_time"] = f"Script ran for {time.time() - start_time:.0f} seconds"
+        export.save_history_thumbnail(data.get('history_id'), finished_objs)
+        # Re-zoom LAST, after the thumbnail render -- customThumbnail swaps in
+        # its own temp top-down camera view for the screenshot and then tries
+        # to restore the previous one, but a direct RegionView3D.view_matrix
+        # assignment isn't reliable enough to trust as the final on-screen
+        # state, so explicitly re-focus on the actual finished puzzle
+        # afterward rather than before it (a zoom done before the thumbnail
+        # render could otherwise get clobbered by that restore).
         try:
-            utils.zoom_camera_to_objects(piece_objs + ([holder_obj] if holder_obj is not None else []))
+            utils.zoom_camera_to_objects(finished_objs)
         except (ReferenceError, AttributeError, IndexError):
             pass
-
-        bpy.context.scene.tp3d["o_time"] = f"Script ran for {time.time() - start_time:.0f} seconds"
         self.report({'INFO'}, f"Generated {len(piece_objs)} puzzle piece(s)" + (" + holder" if holder_obj is not None else ""))
 
     def _cleanup(self, context):
@@ -3131,11 +3139,12 @@ class TP3D_OT_map_generator(bpy.types.Operator):
             # Trail-only: no area was drawn — just add the trail(s) using
             # whatever map setup (scale, position) is already active in the
             # scene, same as the sidebar's "Generate Just Trail" button.
-            _generate_trails(context, gpx_paths, overlay, 0.1, 0.95)
+            trails = _generate_trails(context, gpx_paths, overlay, 0.1, 0.95)
             if props.singleColorMode:
                 _progress.WarningsOverlay.add_warning("Single Color Mode is not applied automatically due to performance reasons.", "warn")
                 _progress.WarningsOverlay.add_warning("Use 'Merge with Map' to apply it manually.", "warn")
             bpy.context.scene.tp3d["o_time"] = f"Script ran for {time.time() - start_time:.0f} seconds"
+            export.save_history_thumbnail(data.get('history_id'), trails)
             self.report({'INFO'}, f"Generated {len(gpx_paths)} trail(s)")
             return
 
@@ -3372,11 +3381,6 @@ class TP3D_OT_map_generator(bpy.types.Operator):
                 boolean_operation(blank, cutter_obj, "INTERSECT")
                 bpy.data.objects.remove(cutter_obj, do_unlink=True)
 
-        try:
-            utils.zoom_camera_to_selected(blank)
-        except (ReferenceError, AttributeError):
-            pass
-
         # The map picker always produces a single, finished map tile (never
         # a multi-tile result awaiting manual arrangement/export like the
         # puzzle generator's blank), so it's safe to export it here -- after
@@ -3390,6 +3394,18 @@ class TP3D_OT_map_generator(bpy.types.Operator):
             utils._rg_export(tile_gen)
 
         bpy.context.scene.tp3d["o_time"] = f"Script ran for {time.time() - start_time:.0f} seconds"
+        export.save_history_thumbnail(data.get('history_id'), [blank])
+        # Re-zoom LAST, after the thumbnail render -- customThumbnail swaps
+        # in its own temp top-down camera view for the screenshot and then
+        # tries to restore the previous one, but a direct RegionView3D.view_matrix
+        # assignment isn't reliable enough to trust as the final on-screen
+        # state, so explicitly re-focus on the actual finished map afterward
+        # rather than before it (a zoom done before the thumbnail render
+        # could otherwise get clobbered by that restore).
+        try:
+            utils.zoom_camera_to_selected(blank)
+        except (ReferenceError, AttributeError):
+            pass
         self.report({'INFO'}, "Generated 1 tile")
 
     def _cleanup(self, context):
