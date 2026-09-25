@@ -171,11 +171,15 @@ def export_selected_to_3mf(filename: str = "", is_auto: bool = False):
             except (ValueError, SyntaxError):
                 palette = {}
             if palette:
-                # TEXT/PLATE/SHELL are always one fixed colour; TRAIL is not --
-                # different trail curves can carry different materials (e.g. a
-                # red vs. a yellow trail), so that one must be read from each
-                # object's own material rather than assumed to be constant.
-                _fixed_companion_material = {"TEXT": "WHITE", "PLATE": "BLACK", "SHELL": "BLACK"}
+                # TEXT/PLATE/SHELL/BUILDINGS are always one fixed colour; TRAIL and
+                # ROADS are not always present as separate objects -- ROADS only
+                # exists here when it wasn't baked into the terrain's texture, and
+                # different trail curves can carry different materials (e.g. a red
+                # vs. a yellow trail), so those two must be handled conditionally
+                # rather than assumed to always need tagging.
+                _fixed_companion_material = {
+                    "TEXT": "WHITE", "PLATE": "BLACK", "SHELL": "BLACK", "BUILDINGS": "BUILDINGS",
+                }
                 _palette_dirty = False
                 for dup in duplicates:
                     obj_type = dup.get("Object type")
@@ -184,6 +188,8 @@ def export_selected_to_3mf(filename: str = "", is_auto: bool = False):
                     elif obj_type == "TRAIL" and not tp3d.tex_include_trail:
                         _own_mat = dup.data.materials[0] if dup.data and dup.data.materials else None
                         _ccol = material_to_srgb(_own_mat or bpy.data.materials.get("TRAIL"))
+                    elif obj_type == "ROADS" and not tp3d.tex_include_roads:
+                        _ccol = material_to_srgb(bpy.data.materials.get("BLACK"))
                     else:
                         continue
                     _chex = _srgb_to_hex(*_ccol)
