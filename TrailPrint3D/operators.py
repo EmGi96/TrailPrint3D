@@ -972,55 +972,37 @@ class TP3D_OT_bottom_mark(bpy.types.Operator):
         for zobj in selected_objects:
             zobj.select_set(False)
 
-        generated = False
-        for zobj in selected_objects:
-        
-            #Check for selection and custom property
-            if "BottomMark" not in zobj:
-                continue
+        targets = [
+            zobj for zobj in selected_objects
+            if "BottomMark" in zobj and not zobj["BottomMark"]
+            and zobj.type == "MESH" and "objSize" in zobj
+        ]
 
-            if zobj["BottomMark"]:
-                continue
-
-            if zobj.type == "MESH" and "objSize" in zobj:
-
-                zobj.select_set(True)
-                bpy.context.view_layer.objects.active = zobj
-
-                mark = utils.BottomText(zobj)
-                generated = True
-
-                if bottomMarkCutout:
-
-                    mark.scale.z = 2
-
-                    bpy.ops.object.select_all(action='DESELECT')
-                    mark.select_set(True)
-                    bpy.context.view_layer.objects.active = mark
-                    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-
-                    utils.recalculateNormals(mark)
-                    # Add boolean modifier
-                    bool_mod = zobj.modifiers.new(name="Boolean", type='BOOLEAN')
-                    bool_mod.object = mark
-                    bool_mod.operation = 'DIFFERENCE'
-                    bool_mod.solver = 'MANIFOLD'
-
-                    bpy.context.view_layer.objects.active = zobj
-                    bpy.ops.object.modifier_apply(modifier=bool_mod.name)
-
-                    bpy.data.objects.remove(mark, do_unlink=True)
-
-
-
-                bpy.ops.object.select_all(action='DESELECT')
-                zobj.select_set(False)
-
-
-
-        
-        if not generated:
+        if not targets:
             utils.show_message_box("Not a valid Object selected")
+
+        # Marking a whole puzzle (dozens of pieces, two booleans each) takes
+        # a while -- show how many are done instead of a frozen viewport.
+        overlay = None
+        if len(targets) > 1:
+            overlay = _progress.ProgressOverlay.get()
+            overlay.start()
+        try:
+            n_targets = len(targets)
+            for idx, zobj in enumerate(targets):
+                if overlay is not None:
+                    if _progress.SubprocessProgress.get().is_cancel_requested():
+                        break
+                    overlay.update(
+                        idx / n_targets, "Bottom Mark",
+                        f"{idx}/{n_targets} marked — {zobj.name}…",
+                    )
+                self._mark_tile(context, zobj, bottomMarkCutout)
+                if overlay is not None:
+                    overlay.add_completed_step(f"{zobj.name} marked ({idx + 1}/{n_targets})")
+        finally:
+            if overlay is not None:
+                overlay.finish()
 
         bpy.context.view_layer.objects.active = selected_objects[0]
         for zobj in selected_objects:
@@ -1029,6 +1011,86 @@ class TP3D_OT_bottom_mark(bpy.types.Operator):
 
 
         return{'FINISHED'}
+
+    def _mark_tile(self, context, zobj, bottomMarkCutout):
+        zobj.select_set(True)
+        bpy.context.view_layer.objects.active = zobj
+
+        mark = utils.BottomText(zobj)
+
+        mark.scale.z = 2
+
+        bpy.ops.object.select_all(action='DESELECT')
+        mark.select_set(True)
+        bpy.context.view_layer.objects.active = mark
+        bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+
+        utils.recalculateNormals(mark)
+
+        # Untouched copy of the tile to trim the mark against after
+        # the cut -- the tile itself no longer has any volume where
+        # the mark sits once the cut is applied.
+        trim_obj = None
+        if not bottomMarkCutout:
+            trim_obj = zobj.copy()
+            trim_obj.data = zobj.data.copy()
+            context.scene.collection.objects.link(trim_obj)
+
+        # Add boolean modifier
+        bool_mod = zobj.modifiers.new(name="Boolean", type='BOOLEAN')
+        bool_mod.object = mark
+        bool_mod.operation = 'DIFFERENCE'
+        bool_mod.solver = 'MANIFOLD'
+
+        bpy.context.view_layer.objects.active = zobj
+        bpy.ops.object.modifier_apply(modifier=bool_mod.name)
+
+        if bottomMarkCutout:
+            bpy.data.objects.remove(mark, do_unlink=True)
+        else:
+            # Trim the mark to the tile's original volume, so where
+            # it runs over a bevel/rounded edge it ends flush with
+            # the tile instead of poking out past it.
+            bpy.context.view_layer.objects.active = mark
+            inter_mod = mark.modifiers.new(name="Intersect", type='BOOLEAN')
+            inter_mod.object = trim_obj
+            inter_mod.operation = 'INTERSECT'
+            inter_mod.solver = 'MANIFOLD'
+            bpy.ops.object.modifier_apply(modifier=inter_mod.name)
+
+            trim_mesh = trim_obj.data
+            bpy.data.objects.remove(trim_obj, do_unlink=True)
+            bpy.data.meshes.remove(trim_mesh)
+
+            # Texture-painted tiles take every face's 3MF colour from
+            # the paint texture, not from materials -- point the
+            # mark's UVs at a TRAIL-coloured texel so it keeps its
+            # colour once joined.
+            from .utils.texture import (
+                UV_LAYER_NAME,
+                material_to_srgb,
+                paint_part_before_join,
+            )
+            painted = paint_part_before_join(
+                zobj, mark, material_to_srgb(bpy.data.materials.get("TRAIL"))
+            )
+
+            # Fill the cutout back in with the trimmed mark and merge
+            # it into the tile -- it keeps its own TRAIL material, so
+            # it still prints as a separate color.
+            bpy.ops.object.select_all(action='DESELECT')
+            mark.select_set(True)
+            zobj.select_set(True)
+            bpy.context.view_layer.objects.active = zobj
+            bpy.ops.object.join()
+
+            if painted:
+                paint_uv = zobj.data.uv_layers.get(UV_LAYER_NAME)
+                if paint_uv is not None:
+                    zobj.data.uv_layers.active = paint_uv
+
+        bpy.ops.object.select_all(action='DESELECT')
+        zobj.select_set(False)
 
 class TP3D_OT_terrain_dummy(bpy.types.Operator):
     bl_idname = "tp3d.terrain_dummy"

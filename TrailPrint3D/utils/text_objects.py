@@ -1,6 +1,7 @@
 ﻿import math
 import os
 import platform
+import re
 
 import bmesh  # type: ignore
 import bpy  # type: ignore
@@ -1313,11 +1314,101 @@ def MedalText():
     return tName, plateObj
 
 
+def _fit_jigsaw_mark(obj, rects, cx, cy, size):
+    """Largest scale for a text block whose padded per-line boxes all sit
+    entirely on obj's flat bottom face.
+
+    rects: one (offset_x, offset_y, half_w, half_h) per text line, in
+    unscaled text units relative to the block's center.
+
+    Probes the bottom by ray-casting straight up from below: a point counts
+    as usable only when the first hit is the flat bottom itself, so a gap
+    left by a neighbor's tab (no hit) and a beveled edge (hit higher up)
+    both reject it. Each box is tested along its border (plus its center)
+    -- the tabs/blanks intrude from the piece's outline, so a border that
+    fits means the whole box does. Candidate centers are tried around the
+    cell center (nearest first) so the mark can dodge a tab that pushes in
+    from one side, while still preferring the center when it's as good.
+
+    Returns (scale, center_x, center_y), or None if nothing fits.
+    """
+    from mathutils.bvhtree import BVHTree  # type: ignore
+
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    bm.transform(obj.matrix_world)
+    if not bm.verts:
+        bm.free()
+        return None
+    bottom_z = min(v.co.z for v in bm.verts)
+    tree = BVHTree.FromBMesh(bm)
+    bm.free()
+
+    up = Vector((0, 0, 1))
+    ray_z = bottom_z - 1.0
+    tol = 0.05
+    pad = size * 0.03
+    samples = 24
+
+    def on_flat_bottom(x, y):
+        hit, _normal, _index, _dist = tree.ray_cast(Vector((x, y, ray_z)), up)
+        return hit is not None and hit.z <= bottom_z + tol
+
+    def box_fits(bx, by, rx, ry):
+        if not on_flat_bottom(bx, by):
+            return False
+        for k in range(samples + 1):
+            t = -1 + 2 * k / samples
+            if not (on_flat_bottom(bx + t * rx, by - ry)
+                    and on_flat_bottom(bx + t * rx, by + ry)
+                    and on_flat_bottom(bx - rx, by + t * ry)
+                    and on_flat_bottom(bx + rx, by + t * ry)):
+                return False
+        return True
+
+    def fits(px, py, s):
+        return all(
+            box_fits(px + ox * s, py + oy * s, hw * s + pad, hh * s + pad)
+            for ox, oy, hw, hh in rects
+        )
+
+    step = size * 0.04
+    offsets = sorted(
+        ((i * step, j * step) for i in range(-4, 5) for j in range(-4, 5)),
+        key=lambda o: o[0] ** 2 + o[1] ** 2,
+    )
+    block_half = max(max(abs(ox) + hw, abs(oy) + hh) for ox, oy, hw, hh in rects)
+    s_max = (size / 2) / max(block_half, 1e-6)
+
+    best_s, best_x, best_y = 0.0, cx, cy
+    for ox, oy in offsets:
+        px, py = cx + ox, cy + oy
+        # Only move off-center for a clearly bigger mark (>= 5% larger).
+        lo = best_s * 1.05
+        if lo >= s_max or (lo > 0 and not fits(px, py, lo)):
+            continue
+        hi = s_max
+        for _ in range(12):
+            mid = (lo + hi) / 2
+            if fits(px, py, mid):
+                lo = mid
+            else:
+                hi = mid
+        if lo > best_s:
+            best_s, best_x, best_y = lo, px, py
+
+    if best_s <= 0:
+        return None
+    return best_s, best_x, best_y
+
+
 def BottomText(obj):
 
     from . import transform_MapObject  # deferred to avoid circular import at load time
 
-    name = obj.name
+    # Drop Blender's duplicate-name suffix (".001", ".002", ...) so a piece
+    # renamed "A1.001" on collision is still marked "A1".
+    name = re.sub(r"\.\d{3,}$", "", obj.name)
     if "objSize" not in obj:
         return
 
@@ -1334,12 +1425,20 @@ def BottomText(obj):
     ys = [v.y for v in world_bbox]
     size = max(max(xs) - min(xs), max(ys) - min(ys))
 
-        # Place text objects
     # Jigsaw puzzle pieces (cut_into_puzzle_pieces, tagged "PuzzleShape" ==
-    # "JIGSAW") get a larger mark relative to their own size than every other
-    # object (regular maps, multitile tiles, sliding-puzzle pieces).
-    size_divisor = 5 if obj.get("PuzzleShape") == "JIGSAW" else 10
-    text_size = (size / size_divisor)
+    # "JIGSAW") get a two-line mark ("AA" over "17") sized to the largest
+    # clean area of their own bottom face (see _fit_jigsaw_mark) -- their
+    # tabs/blanks cut into the cell unpredictably, so no fixed fraction of
+    # the piece size fits every piece. Everything else (regular maps,
+    # multitile tiles, sliding-puzzle pieces) keeps a fixed one-line size.
+    is_jigsaw = obj.get("PuzzleShape") == "JIGSAW"
+    if is_jigsaw:
+        label_match = re.match(r"^([A-Za-z]+)(\d+)$", name)
+        mark_text = f"{label_match.group(1)}\n{label_match.group(2)}" if label_match else name
+        text_size = 1.0
+    else:
+        mark_text = name
+        text_size = size / 10
 
 
 
@@ -1372,9 +1471,63 @@ def BottomText(obj):
     tName.scale.x *= -1
 
 
-    update_text_object("t_name", name)
+    update_text_object("t_name", mark_text)
+    if is_jigsaw:
+        # Labels are caps + digits (no descenders), so the default line
+        # spacing leaves a gap the fit would have to work around for nothing.
+        tName.data.space_line = 0.65
 
     convert_text_to_mesh("t_name", obj.name, False)
+
+    if is_jigsaw:
+        verts = [(v.co.x, v.co.y) for v in tName.data.vertices]
+        vxs = [x for x, _y in verts]
+        vys = [y for _x, y in verts]
+        local_cx = (max(vxs) + min(vxs)) / 2
+        local_cy = (max(vys) + min(vys)) / 2
+
+        # One box per text line, relative to the block's own center, so a
+        # narrow line isn't held to a wider line's width. Lines are split at
+        # the widest Y band no edge crosses -- vertex heights alone aren't
+        # enough, a straight stem (e.g. "1") has none along its length.
+        line_groups = [verts]
+        if "\n" in mark_text:
+            spans = sorted(
+                (min(verts[a][1], verts[b][1]), max(verts[a][1], verts[b][1]))
+                for a, b in (e.vertices for e in tName.data.edges)
+            )
+            best_gap, split_y = 0.0, None
+            reach = spans[0][1] if spans else 0.0
+            for lo_y, hi_y in spans[1:]:
+                if lo_y - reach > best_gap:
+                    best_gap, split_y = lo_y - reach, (lo_y + reach) / 2
+                reach = max(reach, hi_y)
+            if split_y is not None:
+                line_groups = [[p for p in verts if p[1] > split_y],
+                               [p for p in verts if p[1] <= split_y]]
+        rects = []
+        for group in line_groups:
+            gxs = [x for x, _y in group]
+            gys = [y for _x, y in group]
+            rects.append((
+                -((max(gxs) + min(gxs)) / 2 - local_cx),  # X mirrored in world
+                (max(gys) + min(gys)) / 2 - local_cy,
+                (max(gxs) - min(gxs)) / 2,
+                (max(gys) - min(gys)) / 2,
+            ))
+
+        fit = _fit_jigsaw_mark(obj, rects, cx, cy, size)
+        if fit is None:
+            # No clean spot found (degenerate piece) -- fall back to a fixed
+            # size at the cell center.
+            fit = (size / 8, cx, cy)
+        s, px, py = fit
+        # Scale is (-s, s, 1) -- X stays mirrored, so a local X offset lands
+        # at -s * local_cx in world space; shift the location to put the
+        # text's own bbox center exactly on (px, py).
+        tName.scale = (-s, s, 1)
+        tName.location.x = px + s * local_cx
+        tName.location.y = py - s * local_cy
 
     tName.name = name + "_Mark"
 

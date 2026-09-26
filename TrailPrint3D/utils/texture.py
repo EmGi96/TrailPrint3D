@@ -454,6 +454,124 @@ def bake_trail_into_texture(terrain_obj, trail_polygon, material=None):
     return True
 
 
+def paint_part_before_join(target_obj, part_obj, srgb):
+    """Map every loop of part_obj onto one texel of target_obj's MMU_Paint
+    texture that carries colour *srgb*, so the part keeps that colour in 3MF
+    paint export once it's joined into target_obj.
+
+    Once a mesh is flagged 3mf_is_paint_texture, the exporter colours every
+    triangle from the texture via its UVs; per-face materials are only a
+    fallback, and that fallback converts the material colour with a gamma
+    curve that never matches this addon's plain x255 palette hex -- so a
+    joined part otherwise ends up on the default filament.
+
+    The exporter samples texel (round(u*(W-1)), round(v*(H-1))), so a UV of
+    exactly (x/(W-1), y/(H-1)) hits texel (x, y) with no rounding risk. The
+    texel is picked without disturbing the top surface where possible:
+      1. any texel already that colour (e.g. a baked trail) -- image unchanged;
+      2. else an image corner no top-face triangle can sample (always true
+         for cropped puzzle pieces, whose crop has a border, and for
+         non-rectangular shapes);
+      3. else the top-right corner texel is overwritten -- a single texel,
+         far below nozzle size.
+
+    Returns False (no-op) when target_obj has no paint texture.
+    """
+    mesh = target_obj.data
+    if not mesh.get("3mf_is_paint_texture"):
+        return False
+
+    image = None
+    for slot in target_obj.material_slots:
+        mat = slot.material
+        if mat and mat.use_nodes:
+            image = next((n.image for n in mat.node_tree.nodes
+                          if n.type == "TEX_IMAGE" and n.image), None)
+            if image:
+                break
+    if image is None:
+        return False
+
+    W, H = image.size
+    if W < 2 or H < 2:
+        return False
+
+    arr = np.empty(W * H * 4, dtype=np.float32)
+    image.pixels.foreach_get(arr)
+    arr = arr.reshape((H, W, 4))
+    target = np.array(srgb, dtype=np.int16)
+
+    texel = None
+    rgb = np.rint(arr[:, :, :3] * 255).astype(np.int16)
+    match = np.argwhere(np.all(np.abs(rgb - target) <= 1, axis=2))
+    if len(match):
+        ty, tx = match[0]
+        texel = (int(tx), int(ty))
+
+    if texel is None:
+        uv_layer = mesh.uv_layers.get(UV_LAYER_NAME)
+        tri_u = tri_v = None
+        if uv_layer is not None:
+            mesh.calc_loop_triangles()
+            n_tris = len(mesh.loop_triangles)
+            tri_loops = np.empty(n_tris * 3, dtype=np.int32)
+            mesh.loop_triangles.foreach_get("loops", tri_loops)
+            tri_poly = np.empty(n_tris, dtype=np.int32)
+            mesh.loop_triangles.foreach_get("polygon_index", tri_poly)
+            normals = np.empty(len(mesh.polygons) * 3, dtype=np.float32)
+            mesh.polygons.foreach_get("normal", normals)
+            top = normals.reshape(-1, 3)[tri_poly, 2] >= 0.1
+            uv_flat = np.empty(len(mesh.loops) * 2, dtype=np.float32)
+            uv_layer.data.foreach_get("uv", uv_flat)
+            uvs = uv_flat.reshape(-1, 2)[tri_loops.reshape(-1, 3)[top]]
+            tri_u = uvs[:, :, 0] * (W - 1)
+            tri_v = uvs[:, :, 1] * (H - 1)
+
+        # (0, 0) is left alone -- it's the BASE anchor sides/bottoms use.
+        for cx, cy in ((W - 1, H - 1), (W - 1, 0), (0, H - 1)):
+            if tri_u is None:
+                texel = (cx, cy)
+                break
+            # Conservative: any top triangle whose pixel bbox reaches this
+            # texel's rounding cell counts as covering it.
+            covered = np.any(
+                (tri_u.min(axis=1) <= cx + 0.5) & (tri_u.max(axis=1) >= cx - 0.5)
+                & (tri_v.min(axis=1) <= cy + 0.5) & (tri_v.max(axis=1) >= cy - 0.5)
+            )
+            if not covered:
+                texel = (cx, cy)
+                break
+        if texel is None:
+            texel = (W - 1, H - 1)
+
+        tx, ty = texel
+        arr[ty, tx] = (srgb[0] / 255.0, srgb[1] / 255.0, srgb[2] / 255.0, 1.0)
+        image.pixels.foreach_set(arr.ravel())
+        image.pack()
+
+    # Make sure the colour is a declared filament, same as bake_trail_into_texture.
+    import ast
+    try:
+        palette = ast.literal_eval(mesh.get("3mf_paint_extruder_colors", "{}"))
+    except (ValueError, SyntaxError):
+        palette = {}
+    hexcol = _srgb_to_hex(*srgb)
+    if hexcol not in palette.values():
+        palette[(max(palette.keys()) + 1) if palette else 1] = hexcol
+        mesh["3mf_paint_extruder_colors"] = str(palette)
+
+    part_mesh = part_obj.data
+    while part_mesh.uv_layers:
+        part_mesh.uv_layers.remove(part_mesh.uv_layers[0])
+    part_uv = part_mesh.uv_layers.new(name=UV_LAYER_NAME)
+    tx, ty = texel
+    uv_flat = np.empty(len(part_mesh.loops) * 2, dtype=np.float32)
+    uv_flat[0::2] = tx / (W - 1)
+    uv_flat[1::2] = ty / (H - 1)
+    part_uv.data.foreach_set("uv", uv_flat)
+    return True
+
+
 def tag_solid_color_for_paint_export(obj, srgb, palette):
     """Give a companion mesh a 1×1 solid-colour paint texture.
 
