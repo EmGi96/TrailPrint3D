@@ -114,9 +114,7 @@
              those existing input elements still exist in the DOM for it to
              relocate (same ids, so saveState/restoreState/regeneratePuzzle's
              own listeners below keep working unchanged regardless of where
-             they end up living). Tolerance (mm) used to be here too; it was
-             dropped rather than moved, so the puzzle-cut tolerance sent on
-             Send just falls back to _apply_puzzle_result's own 0.3 default. -->
+             they end up living). -->
         <div id="puzzleTabFieldsSource" style="display:none;">
             <div class="field-row">
                 <label for="tabSizeInput">Tab Size</label>
@@ -133,6 +131,10 @@
             <div class="field-row" id="puzzleCornerRadiusRow">
                 <label for="puzzleCornerRadiusInput">Corner Radius</label>
                 <input type="number" id="puzzleCornerRadiusInput" min="0" max="30" step="1.0" value="4">
+            </div>
+            <div class="field-row">
+                <label for="puzzleToleranceInput">Tolerance (mm)</label>
+                <input type="number" id="puzzleToleranceInput" min="0" max="2" step="0.05" value="0.3" title="Gap between neighboring puzzle pieces (each piece shrinks by half of it)">
             </div>
         </div>
         <div style="display: flex; flex-direction: column; gap: 10px;">
@@ -412,6 +414,7 @@
                 jitter: document.getElementById('jitterInput').value,
                 puzzleSeed: document.getElementById('puzzleSeedInput').value,
                 puzzleCornerRadius: document.getElementById('puzzleCornerRadiusInput').value,
+                puzzleTolerance: document.getElementById('puzzleToleranceInput').value,
                 coords: coords,
                 prefetch: tp3dPrefetchState(),
                 drawMode: drawMode,
@@ -483,6 +486,7 @@
                     if (s.jitter != null) document.getElementById('jitterInput').value = s.jitter;
                     if (s.puzzleSeed != null) document.getElementById('puzzleSeedInput').value = s.puzzleSeed;
                     if (s.puzzleCornerRadius != null) document.getElementById('puzzleCornerRadiusInput').value = s.puzzleCornerRadius;
+                    if (s.puzzleTolerance != null) document.getElementById('puzzleToleranceInput').value = s.puzzleTolerance;
                     if (s.drawMode) {
                         drawMode = s.drawMode;
                         document.querySelectorAll('.draw-mode-btn').forEach(function(b) {
@@ -1162,6 +1166,7 @@
         document.getElementById('jitterInput').addEventListener('input', function() { regeneratePuzzle(); saveState(); });
         document.getElementById('puzzleSeedInput').addEventListener('input', function() { regeneratePuzzle(); saveState(); });
         document.getElementById('puzzleCornerRadiusInput').addEventListener('input', function() { regeneratePuzzle(); saveState(); });
+        document.getElementById('puzzleToleranceInput').addEventListener('input', saveState);
         document.getElementById('resolutionSlider').addEventListener('input', function() {
             document.getElementById('resolutionValue').textContent = this.value;
             saveState();
@@ -1239,6 +1244,13 @@
             saveState();
         });
 
+        // Piece-to-piece gap for cut_into_puzzle_pieces. Not `|| 0.3` -- an
+        // explicit 0 must survive; only a blank/invalid field falls back.
+        function tp3dPuzzleToleranceValue() {
+            var v = parseFloat(document.getElementById('puzzleToleranceInput').value);
+            return isNaN(v) ? 0.3 : Math.max(0, v);
+        }
+
         document.getElementById('send').onclick = function() {
             if (!coords) return;
             // bbox/pieces are sent relative to the PUZZLE's own true
@@ -1256,6 +1268,7 @@
                 resolution: parseInt(document.getElementById('resolutionSlider').value) || 4,
                 puzzleSeed: document.getElementById('puzzleSeedInput').value || '',
                 puzzleCornerRadius: parseFloat(document.getElementById('puzzleCornerRadiusInput').value) || 0,
+                tolerance: tp3dPuzzleToleranceValue(),
                 gpx_paths: gpxPaths,
                 holder: {
                     enabled: document.getElementById('holderEnabled').checked,

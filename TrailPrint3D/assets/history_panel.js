@@ -339,6 +339,191 @@ function tp3dApplyHistorySettings(entry) {
         try { return new Date(ts * 1000).toLocaleString(); } catch (e) { return ''; }
     }
 
+    // Group key for "same area/shape" -- bbox rounded to ~0.11m at the
+    // equator (plenty tight to treat as "the same drawn area" while still
+    // absorbing float noise from repeatedly reading it back off the map),
+    // plus the shape if the page's own state blob has one (map_generator*
+    // and multitile_generator do; the grid-based puzzle pages don't, so
+    // bbox alone is the whole key there). A trail-only send has no coords
+    // at all -- never grouped with anything, each stays its own singleton,
+    // same as before this existed.
+    function tp3dHistoryGroupKey(entry) {
+        var s = (entry && entry.settings) || {};
+        var c = s.coords;
+        if (!c || typeof c.north !== 'number' || typeof c.south !== 'number' ||
+            typeof c.east !== 'number' || typeof c.west !== 'number') {
+            return 'nobbox:' + entry.id;
+        }
+        function r(v) { return Math.round(v * 1e6) / 1e6; }
+        return [s.shape || '', r(c.north), r(c.south), r(c.east), r(c.west)].join('|');
+    }
+
+    // entries arrives newest-first (server insert order, see
+    // picker_server.py's /save_history_entry) -- grouping preserves that: a
+    // group surfaces wherever its newest member would've sorted on its own,
+    // and group[0] is always that newest member (shown as the collapsed
+    // card; see buildGroupCard).
+    function tp3dGroupHistoryEntries(entries) {
+        var order = [];
+        var byKey = {};
+        entries.forEach(function(entry) {
+            var key = tp3dHistoryGroupKey(entry);
+            if (!byKey[key]) { byKey[key] = []; order.push(key); }
+            byKey[key].push(entry);
+        });
+        return order.map(function(key) { return byKey[key]; });
+    }
+
+    // Applies a single entry -- the original (pre-grouping) click behavior,
+    // now shared by both a singleton group's own card and an unfolded
+    // group's individual member rows.
+    function selectEntry(entry) {
+        if (typeof window.tp3dApplyHistoryEntry === 'function' && entry.settings) {
+            window.tp3dApplyHistoryEntry(entry.settings);
+        }
+        tp3dApplyHistorySettings(entry);
+        closePanel();
+    }
+
+    // Builds one entry's row (thumbnail, time, summary, delete button,
+    // element source/icon row) with no click-to-apply behavior of its own --
+    // buildGroupCard wires that up differently depending on whether the
+    // entry is a singleton or one member of an unfolded group.
+    function buildEntryRow(entry) {
+        var row = document.createElement('div');
+        row.className = 'history-entry';
+
+        var top = document.createElement('div');
+        top.className = 'history-entry-top';
+        row.appendChild(top);
+
+        // entry.render is a real top-down Blender screenshot
+        // (export.save_history_thumbnail), only ever added by the server
+        // once that generation has actually finished -- which usually
+        // happens well after the session that recorded this entry
+        // already closed, so it never exists yet on the very same
+        // Send. entry.thumbnail (the vector sketch, always present
+        // immediately) is the fallback until then.
+        var thumbSrc = entry.render
+            ? 'http://127.0.0.1:' + PORT + entry.render
+            : entry.thumbnail;
+        if (thumbSrc) {
+            var thumbWrap = document.createElement('span');
+            thumbWrap.className = 'history-entry-thumb-wrap';
+            var thumb = document.createElement('img');
+            thumb.className = 'history-entry-thumb';
+            thumb.src = thumbSrc;
+            thumb.alt = '';
+            thumbWrap.appendChild(thumb);
+            top.appendChild(thumbWrap);
+        }
+
+        var text = document.createElement('div');
+        text.className = 'history-entry-text';
+        var time = document.createElement('div');
+        time.className = 'history-entry-time';
+        time.textContent = fmtTime(entry.timestamp);
+        var summary = document.createElement('div');
+        summary.className = 'history-entry-summary';
+        summary.textContent = entry.summary || '';
+        text.appendChild(time);
+        text.appendChild(summary);
+        top.appendChild(text);
+
+        var del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'history-entry-delete';
+        del.title = 'Remove from history';
+        del.textContent = '✕';
+        del.addEventListener('click', function(e) {
+            e.stopPropagation();
+            fetch('http://127.0.0.1:' + PORT + '/delete_history_entry', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: entry.id })
+            })
+            .then(function(r) { return r.json(); })
+            .then(renderEntries)
+            .catch(function() {});
+        });
+        top.appendChild(del);
+
+        // Below the thumbnail: which element source (OSM/ESA) was active
+        // and tiny icons for every element category that was enabled.
+        // Missing on entries saved before this existed -- just omitted.
+        if (entry.elementSource || (entry.enabledElements && entry.enabledElements.length)) {
+            var elemsRow = document.createElement('div');
+            elemsRow.className = 'history-entry-elements';
+
+            if (entry.elementSource) {
+                var src = document.createElement('span');
+                src.className = 'history-entry-source';
+                src.textContent = entry.elementSource === 'WORLDCOVER' ? 'ESA' : 'OSM';
+                src.title = entry.elementSource === 'WORLDCOVER' ? 'ESA WorldCover' : 'OpenStreetMap';
+                elemsRow.appendChild(src);
+            }
+            (entry.enabledElements || []).forEach(function(key) {
+                var svg = typeof ELEMENT_ICONS !== 'undefined' ? ELEMENT_ICONS[key] : null;
+                if (!svg) return;
+                var icon = document.createElement('span');
+                icon.className = 'history-entry-elem-icon';
+                icon.title = TP3D_ELEMENT_LABELS[key] || key;
+                icon.innerHTML = svg;
+                elemsRow.appendChild(icon);
+            });
+            row.appendChild(elemsRow);
+        }
+
+        return row;
+    }
+
+    // A group of 1 renders and behaves exactly like a plain entry always
+    // did (click applies it). A group of 2+ (repeated regenerations of the
+    // same drawn area/shape -- the clutter this was built to fix) collapses
+    // to just its newest member plus a count badge; clicking it only
+    // unfolds the rest, shown indented below as their own individually-
+    // clickable rows, rather than guessing which one the user meant.
+    function buildGroupCard(group) {
+        var container = document.createElement('div');
+        container.className = 'history-group';
+
+        var head = buildEntryRow(group[0]);
+        container.appendChild(head);
+
+        if (group.length === 1) {
+            head.addEventListener('click', function() { selectEntry(group[0]); });
+            return container;
+        }
+
+        var badge = document.createElement('span');
+        badge.className = 'history-entry-group-badge';
+        badge.textContent = '×' + group.length;
+        badge.title = group.length + ' generations of this same area -- click to see all';
+        var thumbWrap = head.querySelector('.history-entry-thumb-wrap');
+        (thumbWrap || head.querySelector('.history-entry-top')).appendChild(badge);
+        head.classList.add('history-group-head');
+        head.title = 'Click to show all ' + group.length + ' generations of this area';
+
+        var members = document.createElement('div');
+        members.className = 'history-group-members';
+        group.forEach(function(entry) {
+            var row = buildEntryRow(entry);
+            row.classList.add('history-group-member');
+            row.addEventListener('click', function(e) {
+                e.stopPropagation();
+                selectEntry(entry);
+            });
+            members.appendChild(row);
+        });
+        container.appendChild(members);
+
+        head.addEventListener('click', function() {
+            container.classList.toggle('expanded');
+        });
+
+        return container;
+    }
+
     function renderEntries(entries) {
         list.innerHTML = '';
         if (!entries || !entries.length) {
@@ -348,97 +533,8 @@ function tp3dApplyHistorySettings(entry) {
             list.appendChild(empty);
             return;
         }
-        entries.forEach(function(entry) {
-            var row = document.createElement('div');
-            row.className = 'history-entry';
-
-            var top = document.createElement('div');
-            top.className = 'history-entry-top';
-            row.appendChild(top);
-
-            // entry.render is a real top-down Blender screenshot
-            // (export.save_history_thumbnail), only ever added by the server
-            // once that generation has actually finished -- which usually
-            // happens well after the session that recorded this entry
-            // already closed, so it never exists yet on the very same
-            // Send. entry.thumbnail (the vector sketch, always present
-            // immediately) is the fallback until then.
-            var thumbSrc = entry.render
-                ? 'http://127.0.0.1:' + PORT + entry.render
-                : entry.thumbnail;
-            if (thumbSrc) {
-                var thumb = document.createElement('img');
-                thumb.className = 'history-entry-thumb';
-                thumb.src = thumbSrc;
-                thumb.alt = '';
-                top.appendChild(thumb);
-            }
-
-            var text = document.createElement('div');
-            text.className = 'history-entry-text';
-            var time = document.createElement('div');
-            time.className = 'history-entry-time';
-            time.textContent = fmtTime(entry.timestamp);
-            var summary = document.createElement('div');
-            summary.className = 'history-entry-summary';
-            summary.textContent = entry.summary || '';
-            text.appendChild(time);
-            text.appendChild(summary);
-            top.appendChild(text);
-
-            var del = document.createElement('button');
-            del.type = 'button';
-            del.className = 'history-entry-delete';
-            del.title = 'Remove from history';
-            del.textContent = '✕';
-            del.addEventListener('click', function(e) {
-                e.stopPropagation();
-                fetch('http://127.0.0.1:' + PORT + '/delete_history_entry', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ id: entry.id })
-                })
-                .then(function(r) { return r.json(); })
-                .then(renderEntries)
-                .catch(function() {});
-            });
-            top.appendChild(del);
-
-            // Below the thumbnail: which element source (OSM/ESA) was active
-            // and tiny icons for every element category that was enabled.
-            // Missing on entries saved before this existed -- just omitted.
-            if (entry.elementSource || (entry.enabledElements && entry.enabledElements.length)) {
-                var elemsRow = document.createElement('div');
-                elemsRow.className = 'history-entry-elements';
-
-                if (entry.elementSource) {
-                    var src = document.createElement('span');
-                    src.className = 'history-entry-source';
-                    src.textContent = entry.elementSource === 'WORLDCOVER' ? 'ESA' : 'OSM';
-                    src.title = entry.elementSource === 'WORLDCOVER' ? 'ESA WorldCover' : 'OpenStreetMap';
-                    elemsRow.appendChild(src);
-                }
-                (entry.enabledElements || []).forEach(function(key) {
-                    var svg = typeof ELEMENT_ICONS !== 'undefined' ? ELEMENT_ICONS[key] : null;
-                    if (!svg) return;
-                    var icon = document.createElement('span');
-                    icon.className = 'history-entry-elem-icon';
-                    icon.title = TP3D_ELEMENT_LABELS[key] || key;
-                    icon.innerHTML = svg;
-                    elemsRow.appendChild(icon);
-                });
-                row.appendChild(elemsRow);
-            }
-
-            row.addEventListener('click', function() {
-                if (typeof window.tp3dApplyHistoryEntry === 'function' && entry.settings) {
-                    window.tp3dApplyHistoryEntry(entry.settings);
-                }
-                tp3dApplyHistorySettings(entry);
-                closePanel();
-            });
-
-            list.appendChild(row);
+        tp3dGroupHistoryEntries(entries).forEach(function(group) {
+            list.appendChild(buildGroupCard(group));
         });
     }
 

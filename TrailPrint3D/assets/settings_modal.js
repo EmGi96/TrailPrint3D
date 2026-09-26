@@ -650,13 +650,12 @@ function tp3dBuildMapTab() {
 
 // Two-button OSM / ESA WorldCover switch at the top of the Elements tab --
 // only built when ELEMENT_SOURCE is defined (see element_status.js); every
-// picker page now carries that token, so this shows up in all of them.
-// Posts to the existing /update_setting route's
-// 'elementSource' field (utils.ui_state._SETTINGS_ROW_FIELDS), then patches
-// ELEMENT_SOURCE and the chip strip/Elements tab in place instead of
-// reloading the whole page -- a reload used to close this modal right after
-// the switch was clicked from inside it, which read as broken. Returns the
-// whole labeled block (heading + button pair), not just the buttons.
+// picker page now carries that token, so this shows up in all of them. The
+// actual switch (POST /update_setting, poll, re-sync + repaint) lives in
+// element_status.js's tp3dSwitchElementSource, shared with the compact pill
+// toggle in the element-status row itself -- this just builds the buttons
+// and wires them to it. Returns the whole labeled block (heading + button
+// pair), not just the buttons.
 function tp3dBuildElementSourceSwitch() {
     var block = document.createElement('div');
     block.className = 'element-source-block';
@@ -672,43 +671,92 @@ function tp3dBuildElementSourceSwitch() {
         var btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'shape-btn' + (ELEMENT_SOURCE === opt[0] ? ' active' : '');
+        btn.setAttribute('data-tp3d-source-btn', '');
         btn.textContent = opt[1];
-        btn.addEventListener('click', function() {
-            if (ELEMENT_SOURCE === opt[0]) return;
-            wrap.querySelectorAll('button').forEach(function(b) { b.disabled = true; });
-            fetch('http://127.0.0.1:' + PORT + '/update_setting', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ key: 'elementSource', value: opt[0] })
-            }).then(function() {
-                // Blender's modal timer only ticks every 0.5s -- wait for at
-                // least one tick so the switch is actually applied and this
-                // server's cached snapshots are refreshed
-                // (picker_server.refresh_state_snapshots) before asking for
-                // them back below.
-                return new Promise(function(resolve) { setTimeout(resolve, 700); });
-            }).then(function() {
-                return fetch('http://127.0.0.1:' + PORT + '/get_source_state', { cache: 'no-store' });
-            }).then(function(r) { return r.json(); })
-            .then(function(s) {
-                ELEMENT_SOURCE = s.elementSource;
-                SETTINGS_STATE = s.settingsState;
-                ADVANCED_SETTINGS_STATE = s.advancedSettings;
-                ELEMENT_STATUS_ORDER = tp3dIsWorldCover() ? ELEMENT_STATUS_ORDER_WORLDCOVER : ELEMENT_STATUS_ORDER_OSM;
-                TP3D_ELEMENT_STATE = {};
-                ELEMENT_STATUS_ORDER.forEach(function(entry) { TP3D_ELEMENT_STATE[entry[0]] = !!s.elementStates[entry[0]]; });
-                tp3dRenderElementStatus();
-                window.tp3dRebuildElementsTab();
-                saveState();
-            })
-            .catch(function() {
-                wrap.querySelectorAll('button').forEach(function(b) { b.disabled = false; });
-            });
-        });
+        btn.addEventListener('click', function() { tp3dSwitchElementSource(opt[0]); });
         wrap.appendChild(btn);
     });
     block.appendChild(wrap);
     return block;
+}
+
+// Small two-button Paint on Map / Single Extruder Mode switch -- mirrors
+// panels.py's own "Paint or Single Extruder Mode" row in the "6. Map
+// Elements" sidebar section, which only shows up there when
+// props.elementSource == "OSM" (ESA WorldCover has no per-element
+// paint-vs-remesh split of its own). Unlike that sidebar row, this stays
+// visible under WorldCover too -- just disabled with neither side marked
+// active -- rather than disappearing, so the row doesn't jump around as the
+// source switch above it is used. Posts straight to /update_setting's
+// 'elementMode' key (now part of _SETTINGS_ROW_FIELDS, same whitelist
+// elementSource itself uses) -- no poll-and-resync needed here the way the
+// source switch needs one: unlike elementSource, changing elementMode
+// doesn't change which fields/cards the rest of this tab shows, so there's
+// nothing else on this page that needs to react to it.
+function tp3dBuildElementModeSwitch() {
+    var row = document.createElement('div');
+    row.className = 'adv-field-row element-mode-row';
+
+    var label = document.createElement('label');
+    label.textContent = 'Paint or Single Extruder Mode';
+    row.appendChild(label);
+
+    var isWorldCover = tp3dIsWorldCover();
+    var wrap = document.createElement('div');
+    wrap.className = 'element-mode-switch';
+    wrap.title = isWorldCover ? 'Only available for OpenStreetMap' : '';
+    [['PAINT', 'Paint'], ['SINGLECOLORMODE_REMESH', 'Single Extruder']].forEach(function(opt) {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'element-mode-btn' + (!isWorldCover && SETTINGS_STATE.elementMode === opt[0] ? ' active' : '');
+        btn.disabled = isWorldCover;
+        btn.textContent = opt[1];
+        btn.addEventListener('click', function() {
+            if (SETTINGS_STATE.elementMode === opt[0]) return;
+            SETTINGS_STATE.elementMode = opt[0];
+            wrap.querySelectorAll('button').forEach(function(b) { b.classList.toggle('active', b === btn); });
+            tp3dSendMapField({ key: 'elementMode', endpoint: 'update_setting' }, opt[0]);
+        });
+        wrap.appendChild(btn);
+    });
+    row.appendChild(wrap);
+    return row;
+}
+
+// Simple on/off toggle for OSM element smoothing (props.col_osmSmoothing,
+// panels.py's "Element Smoothing" -- a 0-1 FACTOR slider that
+// _taubin_smooth_ocean_polys in utils/terrain.py turns into 0-20 smoothing
+// rounds). Exposed here as a plain toggle rather than the underlying
+// slider -- most people just want "rounded" vs. "sharp" element edges, not
+// to dial in an exact amount. ON always writes TP3D_OSM_SMOOTHING_ON (a
+// moderate 10 rounds); OFF always writes back to exactly 0. OSM-only, same
+// as panels.py's own placement inside its `elif props.elementSource ==
+// "OSM":` branch -- ESA WorldCover has no equivalent option.
+var TP3D_OSM_SMOOTHING_ON = 0.5;
+function tp3dBuildOsmSmoothingToggle() {
+    var row = document.createElement('div');
+    row.className = 'adv-field-row element-mode-row';
+    row.title = 'Rounds element polygon edges, making them easier to print';
+
+    var label = document.createElement('label');
+    label.textContent = 'Element Smoothing';
+    row.appendChild(label);
+
+    var isOn = (ADVANCED_SETTINGS_STATE.colOsmSmoothing || 0) > 0;
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'element-mode-btn' + (isOn ? ' active' : '');
+    btn.textContent = isOn ? 'On' : 'Off';
+    btn.addEventListener('click', function() {
+        isOn = !isOn;
+        var value = isOn ? TP3D_OSM_SMOOTHING_ON : 0.0;
+        ADVANCED_SETTINGS_STATE.colOsmSmoothing = value;
+        btn.classList.toggle('active', isOn);
+        btn.textContent = isOn ? 'On' : 'Off';
+        tp3dSendAdvancedUpdate('colOsmSmoothing', value);
+    });
+    row.appendChild(btn);
+    return row;
 }
 
 function tp3dBuildElementsTab() {
@@ -717,6 +765,7 @@ function tp3dBuildElementsTab() {
 
     if (typeof ELEMENT_SOURCE !== 'undefined') {
         wrap.appendChild(tp3dBuildElementSourceSwitch());
+        wrap.appendChild(tp3dBuildElementModeSwitch());
     }
 
     // ESA WorldCover has none of OSM's per-category thresholds or
@@ -733,6 +782,8 @@ function tp3dBuildElementsTab() {
         return wrap;
     }
 
+    wrap.appendChild(tp3dBuildOsmSmoothingToggle());
+
     var simpleRow = document.createElement('div');
     simpleRow.className = 'elements-row';
     SIMPLE_ELEMENT_ORDER.forEach(function(key) { simpleRow.appendChild(tp3dBuildSimpleElementCard(key)); });
@@ -747,7 +798,7 @@ function tp3dBuildElementsTab() {
     return wrap;
 }
 
-// Relocates the puzzle-cut field-rows (Tab Size, Jitter, Seed, Corner Radius)
+// Relocates the puzzle-cut field-rows (Tab Size, Jitter, Seed, Corner Radius, Tolerance)
 // out of their hidden sidebar container into this tab -- same elements, same
 // ids, so the page's own saveState/restoreState/regeneratePuzzle listeners
 // keep working unchanged regardless of where they end up living in the DOM.

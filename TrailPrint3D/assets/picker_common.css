@@ -67,6 +67,21 @@ body { font-family: 'Segoe UI', sans-serif; background: #1a1a1a; color: #eee; ma
 .history-entry-elem-icon { width: 15px; height: 15px; flex-shrink: 0; color: #4caf50; }
 .history-entry-elem-icon svg { width: 100%; height: 100%; }
 .history-empty { color: #888; font-size: 12px; padding: 20px; text-align: center; }
+/* Repeated regenerations of the same drawn area/shape (tp3dHistoryGroupKey
+   in history_panel.js) collapse into one card, newest on top, with a count
+   badge on its thumbnail; clicking it unfolds .history-group-members
+   (hidden by default) instead of applying anything. */
+.history-group { display: flex; flex-direction: column; gap: 6px; }
+.history-entry-thumb-wrap { position: relative; flex-shrink: 0; display: inline-flex; }
+.history-entry-group-badge { position: absolute; bottom: -4px; right: -4px; background: #007bff;
+    color: #fff; font-size: 10px; font-weight: bold; border-radius: 999px; min-width: 18px;
+    height: 18px; line-height: 16px; text-align: center; padding: 0 4px; border: 2px solid #2a2a2a;
+    pointer-events: none; }
+.history-group-head { position: relative; }
+.history-group.expanded .history-group-head { border-color: #007bff; }
+.history-group-members { display: none; flex-direction: column; gap: 6px; margin-left: 14px;
+    padding-left: 10px; border-left: 2px solid #3a3a3a; }
+.history-group.expanded .history-group-members { display: flex; }
 .adv-field-row { display: flex; align-items: center; justify-content: space-between; gap: 10px;
     font-size: 14px; color: #aaa; min-width: 0; }
 .adv-field-row input[type=number] { width: 76px; background: #2a2a2a; color: #eee; border: 1px solid #444;
@@ -173,6 +188,18 @@ body { font-family: 'Segoe UI', sans-serif; background: #1a1a1a; color: #eee; ma
 .element-source-label { font-size: 12px; font-weight: bold; color: #aaa; margin-bottom: 6px; }
 .element-source-switch { display: flex; gap: 6px; }
 .element-source-switch .shape-btn { flex: 1; padding: 8px 6px; font-size: 13px; }
+/* Paint on Map / Single Extruder Mode switch (tp3dBuildElementModeSwitch) --
+   a compact .adv-field-row (label left, small pill-pair right) rather than
+   the full-width block the Element Source switch above uses, since this one
+   stays on screen even while disabled under ESA WorldCover and shouldn't
+   dominate the tab. */
+.element-mode-row { margin: 2px 0 8px; }
+.element-mode-switch { display: flex; gap: 4px; flex-shrink: 0; }
+.element-mode-btn { padding: 3px 8px; font-size: 10px; font-weight: bold; letter-spacing: 0.2px;
+    background: #333; color: #ccc; border: 1px solid #444; border-radius: 4px; cursor: pointer; }
+.element-mode-btn:hover:not(:disabled):not(.active) { background: #3d3d3d; border-color: #007bff; color: #eee; }
+.element-mode-btn.active { background: #007bff; border-color: #007bff; color: #fff; }
+.element-mode-btn:disabled { opacity: 0.4; cursor: not-allowed; background: #2a2a2a; color: #666; border-color: #333; }
 .elements-row { display: flex; flex-wrap: nowrap; justify-content: center; gap: 10px;
     overflow-x: auto; padding-bottom: 4px; }
 .element-card { background: #232323; border: 1px solid #444; border-radius: 6px; padding: 8px 10px;
@@ -224,6 +251,17 @@ body { font-family: 'Segoe UI', sans-serif; background: #1a1a1a; color: #eee; ma
 #elementStatus { flex-shrink: 0; display: flex; align-items: center; gap: 16px; padding: 10px 16px;
     background: #202020; border-bottom: 1px solid #444; overflow-x: auto; }
 .element-chip-wrap { flex-shrink: 0; }
+/* Compact OSM/ESA pill toggle in the element-status row itself
+   (element_status.js's tp3dBuildCompactSourceSwitch) -- a quicker way to
+   switch source than opening the Settings modal for its own full-width
+   .element-source-switch pair below. */
+.element-source-switch-compact { flex-shrink: 0; display: flex; background: #2a2a2a;
+    border: 1px solid #444; border-radius: 14px; padding: 2px; gap: 2px; }
+.source-switch-btn { border: none; background: none; color: #999; font-size: 11px; font-weight: bold;
+    letter-spacing: 0.3px; padding: 4px 10px; border-radius: 12px; cursor: pointer; transition: all 0.15s; }
+.source-switch-btn:hover:not(.active):not(:disabled) { color: #eee; }
+.source-switch-btn.active { background: #007bff; color: #fff; }
+.source-switch-btn:disabled { opacity: 0.6; cursor: progress; }
 /* Hover flyout with a Water/Roads chip's sub-categories (element_status.js). Fixed so the
    strip's overflow-x can't clip it; no gap to the chip so the hover isn't lost on the way down. */
 .element-flyout { position: fixed; z-index: 2000; display: flex; flex-direction: column; gap: 6px; padding: 10px 12px;

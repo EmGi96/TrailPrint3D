@@ -2621,7 +2621,8 @@ class TP3D_OT_puzzle_configurator(bpy.types.Operator):
         bbox = data.get('bbox')
         pieces = data.get('pieces') or []
         gpx_paths = data.get('gpx_paths', [])
-        tolerance = float(data.get('tolerance', 0.3) or 0.3)
+        tolerance = data.get('tolerance')
+        tolerance = 0.3 if tolerance is None else max(0.0, float(tolerance))
         puzzle_corner_radius = float(data.get('puzzleCornerRadius') or 0)
         # Read early (normally read just before the holder is actually built,
         # much later below) -- frame_terrain_requested/frame_margin are

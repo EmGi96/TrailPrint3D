@@ -160,18 +160,86 @@ function tp3dToggleElement(key) {
     }).catch(function() {});
 }
 
-// Named (not an IIFE) so the OSM/ESA WorldCover switch (settings_modal.js)
-// can call this again on any picker page after patching
+// Actually performs the OSM <-> ESA WorldCover switch: posts to the
+// existing /update_setting route's 'elementSource' field
+// (utils.ui_state._SETTINGS_ROW_FIELDS), waits for Blender's modal timer to
+// drain and apply it, then re-fetches /get_source_state and patches every
+// page-global this file (and settings_modal.js/history_panel.js) read off
+// of, plus a full repaint -- instead of reloading the whole page, which
+// used to close the Settings modal the switch was clicked from. Shared by
+// both switch UIs that can trigger this: the compact pill in the
+// element-status row (tp3dBuildCompactSourceSwitch below) and the
+// full-width two-button switch in the Settings modal's Elements tab
+// (settings_modal.js's tp3dBuildElementSourceSwitch) -- '[data-tp3d-source-btn]'
+// marks every button from either one, so whichever is currently on screen
+// gets disabled for the round-trip and neither can double-fire the other.
+function tp3dSwitchElementSource(newSource) {
+    if (typeof ELEMENT_SOURCE === 'undefined' || ELEMENT_SOURCE === newSource) return;
+    document.querySelectorAll('[data-tp3d-source-btn]').forEach(function(b) { b.disabled = true; });
+    fetch('http://127.0.0.1:' + PORT + '/update_setting', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'elementSource', value: newSource })
+    }).then(function() {
+        return new Promise(function(resolve) { setTimeout(resolve, 700); });
+    }).then(function() {
+        return fetch('http://127.0.0.1:' + PORT + '/get_source_state', { cache: 'no-store' });
+    }).then(function(r) { return r.json(); })
+    .then(function(s) {
+        ELEMENT_SOURCE = s.elementSource;
+        SETTINGS_STATE = s.settingsState;
+        ADVANCED_SETTINGS_STATE = s.advancedSettings;
+        ELEMENT_STATUS_ORDER = tp3dIsWorldCover() ? ELEMENT_STATUS_ORDER_WORLDCOVER : ELEMENT_STATUS_ORDER_OSM;
+        TP3D_ELEMENT_STATE = {};
+        ELEMENT_STATUS_ORDER.forEach(function(entry) { TP3D_ELEMENT_STATE[entry[0]] = !!s.elementStates[entry[0]]; });
+        tp3dRenderElementStatus();
+        if (window.tp3dRebuildElementsTab) window.tp3dRebuildElementsTab();
+        if (typeof saveState === 'function') saveState();
+    })
+    .catch(function() {
+        document.querySelectorAll('[data-tp3d-source-btn]').forEach(function(b) { b.disabled = false; });
+    });
+}
+
+// Small "OSM | ESA" pill toggle for the element-status row itself -- the
+// quick way to switch source without opening the Settings modal. Rebuilt
+// fresh on every tp3dRenderElementStatus() call (same as the chips) so its
+// active side always matches the live ELEMENT_SOURCE, including right after
+// a switch triggered from the *other* switch UI (the modal's own).
+function tp3dBuildCompactSourceSwitch() {
+    var wrap = document.createElement('div');
+    wrap.className = 'element-source-switch-compact';
+    if (typeof ELEMENT_SOURCE === 'undefined') return wrap;
+    [['OSM', 'OSM'], ['WORLDCOVER', 'ESA']].forEach(function(opt) {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'source-switch-btn' + (ELEMENT_SOURCE === opt[0] ? ' active' : '');
+        btn.setAttribute('data-tp3d-source-btn', '');
+        btn.textContent = opt[1];
+        btn.title = opt[0] === 'OSM' ? 'Switch element source to OpenStreetMap' : 'Switch element source to ESA WorldCover';
+        btn.addEventListener('click', function() { tp3dSwitchElementSource(opt[0]); });
+        wrap.appendChild(btn);
+    });
+    return wrap;
+}
+
+// Named (not an IIFE) so the OSM/ESA WorldCover switch (tp3dSwitchElementSource
+// above) can call this again on any picker page after patching
 // ELEMENT_SOURCE/ELEMENT_STATUS_ORDER/TP3D_ELEMENT_STATE in place, instead
 // of reloading the whole page (which used to close the Settings modal the
 // switch was clicked from).
 function tp3dRenderElementStatus() {
     var container = document.getElementById('elementStatus');
     if (!container) return;
-    // Clears only the previously-rendered chips -- not the Settings gear
-    // button, which settings_modal.js prepends into this same container --
-    // so a re-render after switching source doesn't disturb it.
-    container.querySelectorAll('.element-chip-wrap').forEach(function(el) { el.remove(); });
+    // Clears only the previously-rendered chips and compact switch -- not
+    // the Settings gear button, which settings_modal.js prepends into this
+    // same container -- so a re-render after switching source doesn't
+    // disturb it.
+    container.querySelectorAll('.element-chip-wrap, .element-source-switch-compact').forEach(function(el) { el.remove(); });
+    // Inserted before the chips loop below so it always lands right after
+    // the gear button (if present) and before every chip, regardless of
+    // re-render order -- see the loop's own insertBefore comment.
+    container.insertBefore(tp3dBuildCompactSourceSwitch(), container.querySelector('.prefetch-bar'));
 
     ELEMENT_STATUS_ORDER.forEach(function(entry) {
         var key = entry[0], label = entry[1];

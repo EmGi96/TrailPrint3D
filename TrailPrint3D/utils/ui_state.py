@@ -296,6 +296,7 @@ def apply_element_toggle(tp3d, key):
 # construction.
 _SETTINGS_ROW_FIELDS = {
     "elementSource": ("elementSource", str),
+    "elementMode": ("elementMode", str),
     "scaleElevation": ("scaleElevation", float),
     "elevationMode": ("elevationMode", str),
     "fixedHeightMM": ("fixedHeightMM", float),
@@ -370,6 +371,12 @@ _ADVANCED_SETTINGS_FIELDS = [
         "attr": "disableElevationOutlierFix",
         "type": bool,
         "group": "Elevation",
+    },
+    {
+        "key": "colOsmSmoothing",
+        "attr": "col_osmSmoothing",
+        "type": float,
+        "group": "OSM",
     },
     {
         "key": "colWPondsActive",
