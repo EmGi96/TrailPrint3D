@@ -3,6 +3,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
 import bpy  # type: ignore
+from bpy.app.translations import pgettext_iface as _
 
 
 def _parse_points(points, point_type):
@@ -28,7 +29,8 @@ def _parse_points(points, point_type):
         try:
             timestamp = (
                 datetime.fromisoformat(time.text.replace("Z", "+00:00"))
-                if time is not None else None
+                if time is not None
+                else None
             )
         except (ValueError, AttributeError):
             timestamp = None
@@ -36,7 +38,7 @@ def _parse_points(points, point_type):
         segcoords.append((lat, lon, elevation, timestamp))
         lowestElevation = min(lowestElevation, elevation)
 
-    tp3d = getattr(bpy.context.scene, 'tp3d', None)
+    tp3d = getattr(bpy.context.scene, "tp3d", None)
     if tp3d is not None:
         tp3d["o_verticesPath"] = f"{point_type} Path vertices: {len(segcoords)}"
 
@@ -56,7 +58,11 @@ def read_gpx(filepath):
     try:
         tree = ET.parse(filepath)
     except ET.ParseError as exc:
-        raise RuntimeError(f"Malformed GPX file '{filepath}': {exc}") from exc
+        raise RuntimeError(
+            _("Malformed GPX file '{filepath}': {exc}").format(
+                filepath=filepath, exc=exc
+            )
+        ) from exc
     root = tree.getroot()
 
     segmentlist = []
@@ -85,9 +91,7 @@ def read_gpx(filepath):
         for seg in trksegs:
             points = [p for p in seg if strip_ns(p.tag) == "trkpt"]
             if points:
-                segmentlist.append(
-                    _parse_points(points, "TRKPT")
-                )
+                segmentlist.append(_parse_points(points, "TRKPT"))
 
     # --------------------------------------------------
     # Routes (fallback or additional if no segments found)
@@ -96,9 +100,7 @@ def read_gpx(filepath):
     for rte in routes:
         points = [p for p in rte if strip_ns(p.tag) == "rtept"]
         if points:
-            segmentlist.append(
-                _parse_points(points, "RTEPT")
-            )
+            segmentlist.append(_parse_points(points, "RTEPT"))
 
     # --------------------------------------------------
     # Edge case: GPX with direct trkpt/rtept (rare but real)
@@ -106,9 +108,7 @@ def read_gpx(filepath):
     if not segmentlist:
         points = findall_any(root, ["trkpt", "rtept"])
         if points:
-            segmentlist.append(
-                _parse_points(points, "POINT")
-            )
+            segmentlist.append(_parse_points(points, "POINT"))
 
     return segmentlist
 
@@ -119,10 +119,10 @@ def read_igc(filepath):
     coordinates = []
     lowestElevation = 10000
 
-    with open(filepath, 'r') as file:
+    with open(filepath, "r") as file:
         for line in file:
             # IGC B records contain position data
-            if line.startswith('B'):
+            if line.startswith("B"):
                 try:
                     # Extract time (HHMMSS)
                     time_str = line[1:7]
@@ -136,7 +136,7 @@ def read_igc(filepath):
                     lat_min = int(lat_str[2:4])
                     lat_min_frac = int(lat_str[4:7]) / 1000.0
                     lat = lat_deg + (lat_min + lat_min_frac) / 60.0
-                    if lat_str[7] == 'S':
+                    if lat_str[7] == "S":
                         lat = -lat
 
                     # Extract longitude (DDDMMmmmE/W)
@@ -145,18 +145,28 @@ def read_igc(filepath):
                     lon_min = int(lon_str[3:5])
                     lon_min_frac = int(lon_str[5:8]) / 1000.0
                     lon = lon_deg + (lon_min + lon_min_frac) / 60.0
-                    if lon_str[8] == 'W':
+                    if lon_str[8] == "W":
                         lon = -lon
 
                     # Extract pressure altitude (in meters)
-                    _pressure_alt = int(line[25:30]) # if used in the future, remove _ which signifies not using the variable to the IDE
+                    _pressure_alt = int(
+                        line[25:30]
+                    )  # if used in the future, remove _ which signifies not using the variable to the IDE
 
                     # Extract GPS altitude (in meters)
                     gps_alt = int(line[30:35])
 
                     # Create timestamp (using current date since IGC files don't store date in B records)
                     now = datetime.now(tz=timezone.utc)
-                    timestamp = datetime(now.year, now.month, now.day, hours, minutes, seconds, tzinfo=timezone.utc)
+                    timestamp = datetime(
+                        now.year,
+                        now.month,
+                        now.day,
+                        hours,
+                        minutes,
+                        seconds,
+                        tzinfo=timezone.utc,
+                    )
 
                     # Use GPS altitude for elevation
                     elevation = gps_alt
@@ -177,6 +187,53 @@ def read_igc(filepath):
     return segmentlist
 
 
+def compute_gpx_details(filepath):
+    """Return ((min_lat, max_lat, min_lon, max_lon), trail_name) for a GPX file,
+    or None on failure. Used to cache a trail's geographic bounding box at file-pick
+    time -- cheap (no network, just XML parsing), so the panel can estimate
+    the generated map's real-world size without needing a full generation
+    run. See TP3D_OT_pick_gpx_file.
+    Also returns the embedded trail name if available.
+    """
+    try:
+        segments = read_gpx(filepath)
+    except (RuntimeError, OSError):
+        return None
+
+    lats = [pt[0] for seg in segments for pt in seg]
+    lons = [pt[1] for seg in segments for pt in seg]
+    if not lats or not lons:
+        return None
+
+    bbox = (min(lats), max(lats), min(lons), max(lons))
+
+    # Extract trail name from GPX XML (<trk><name> or <gpx><name>), fallback to filename
+    trail_name = None
+    try:
+        tree = ET.parse(filepath)
+        root = tree.getroot()
+        # Handle GPX namespace if present
+        ns = {"gpx": root.tag.split("}")[0].strip("{")} if "}" in root.tag else {}
+
+        # Look for <name> inside <trk> or root <gpx>
+        name_elem = (
+            root.find(".//gpx:trk/gpx:name", ns) if ns else root.find(".//trk/name")
+        )
+        if name_elem is None or not name_elem.text:
+            name_elem = root.find("./gpx:name", ns) if ns else root.find("./name")
+
+        if name_elem is not None and name_elem.text:
+            trail_name = name_elem.text.strip()
+    except Exception:
+        trail_name = ""
+
+    if not trail_name:
+        filename = os.path.basename(filepath)
+        trail_name = os.path.splitext(filename)[0]
+
+    return bbox, trail_name
+
+
 def read_gpx_directory(directory_path):
     """Reads all GPX files in a directory and extracts coordinates, elevation, and timestamps."""
 
@@ -193,13 +250,13 @@ def read_gpx_directory(directory_path):
 
             file_extension = os.path.splitext(filepath)[1].lower()
             co = None
-            if file_extension == '.gpx':
+            if file_extension == ".gpx":
                 tree = ET.parse(filepath)
                 root = tree.getroot()
                 version = root.get("version")
                 print(f"File Name: {filename}, File Version: {version}")
                 co = read_gpx(filepath)
-            elif file_extension == '.igc':
+            elif file_extension == ".igc":
                 co = read_igc(filepath)
 
             if co is None:
@@ -229,22 +286,23 @@ def read_gpx_directory(directory_path):
 
 def read_gpx_file():
 
-    gpx_file_path = bpy.context.scene.tp3d.get('file_path', None)
+    gpx_file_path = bpy.context.scene.tp3d.get("file_path", None)
 
     coords = []
     file_extension = os.path.splitext(gpx_file_path)[1].lower()
-    if file_extension == '.gpx':
+    if file_extension == ".gpx":
         tree = ET.parse(gpx_file_path)
         root = tree.getroot()
 
-        ns = {'default': root.tag.split('}')[0].strip('{')}
+        ns = {"default": root.tag.split("}")[0].strip("{")}
         GPXsections = len(root.findall(".//default:trkseg", ns))
         print(f"GPX Sections found in GPX File: {GPXsections}")
         coords = read_gpx(gpx_file_path)
-    elif file_extension == '.igc':
+    elif file_extension == ".igc":
         coords = read_igc(gpx_file_path)
     else:
         from . import show_message_box  # deferred to avoid circular import at load time
+
         show_message_box("Unsupported file format. Please use .gpx or .igc files.")
         return
 
@@ -254,15 +312,15 @@ def read_gpx_file():
 def read_gpx_and_create_heightmap(length=100.0, height=20.0):
     from .geo import haversine  # deferred to avoid circular import at load time
 
-    gpx_file_path = bpy.context.scene.tp3d.get('file_path', None)
+    gpx_file_path = bpy.context.scene.tp3d.get("file_path", None)
     if not gpx_file_path or not os.path.exists(gpx_file_path):
         print("Invalid or missing GPX file path.")
         return
 
     points = []
     total_distance = 0.0
-    max_elevation = float('-inf')
-    min_elevation = float('inf')
+    max_elevation = float("-inf")
+    min_elevation = float("inf")
     prev_point = None
 
     separate_paths = read_gpx_file()
@@ -286,10 +344,10 @@ def read_gpx_and_create_heightmap(length=100.0, height=20.0):
         print("No valid points or zero-length route.")
         return
 
-    curve_data = bpy.data.curves.new(name='RouteProfile', type='CURVE')
-    curve_data.dimensions = '2D'
-    curve_data.fill_mode = 'BOTH'
-    spline = curve_data.splines.new('POLY')
+    curve_data = bpy.data.curves.new(name=_("RouteProfile"), type="CURVE")
+    curve_data.dimensions = "2D"
+    curve_data.fill_mode = "BOTH"
+    spline = curve_data.splines.new("POLY")
     spline.use_cyclic_u = True  # Close the shape
 
     profile_points = []
@@ -297,8 +355,10 @@ def read_gpx_and_create_heightmap(length=100.0, height=20.0):
     print(f"Min elevation: {min_elevation}")
 
     for lat, lon, elevation, distance in points:
-        x = (distance / total_distance) * length - length/2
-        y = ((elevation-min_elevation) / (max_elevation-min_elevation)) * (height-2) + 2
+        x = (distance / total_distance) * length - length / 2
+        y = ((elevation - min_elevation) / (max_elevation - min_elevation)) * (
+            height - 2
+        ) + 2
         profile_points.append((x, y))
 
     bottom_left = (profile_points[0][0], -0.0)
@@ -316,10 +376,10 @@ def read_gpx_and_create_heightmap(length=100.0, height=20.0):
 
     bpy.context.view_layer.objects.active = curve_obj
     curve_obj.select_set(True)
-    bpy.ops.object.convert(target='MESH')
+    bpy.ops.object.convert(target="MESH")
 
-    bpy.ops.object.mode_set(mode='EDIT')
-    bpy.ops.mesh.select_all(action='SELECT')
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
     bpy.ops.mesh.extrude_region_move(TRANSFORM_OT_translate={"value": (0, 0, 1)})
     bpy.ops.object.editmode_toggle()
 

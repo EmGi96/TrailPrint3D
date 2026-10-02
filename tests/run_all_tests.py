@@ -25,9 +25,51 @@ collected after each run and aggregated into a final total.
 """
 
 import os
+import platform
 import sys
 
 _TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def _wire_bundled_wheels():
+    """Extract the addon's bundled wheels (shapely/shapelysmooth) and add them to sys.path.
+
+    Running tests via `-P script.py` bypasses the Blender Extensions install
+    step that normally unpacks `[wheels]` from blender_manifest.toml, so
+    Blender's bundled Python can't see shapely. Shapely ships a compiled
+    `shapely.lib` extension module, which zipimport cannot load straight out
+    of a .whl zip, so the wheel must be extracted to a real directory on
+    disk first (cached under tests/.wheel_cache/ so this only happens once).
+    """
+    import zipfile
+
+    wheels_dir = os.path.join(os.path.dirname(_TESTS_DIR), "TrailPrint3D", "wheels")
+    if not os.path.isdir(wheels_dir):
+        return
+
+    machine = platform.machine().lower()
+    is_arm = machine in ("arm64", "aarch64")
+    if sys.platform.startswith("win"):
+        shapely_wheel = "shapely-2.1.2-cp313-cp313-win_arm64.whl" if is_arm else "shapely-2.1.2-cp313-cp313-win_amd64.whl"
+    elif sys.platform == "darwin":
+        shapely_wheel = "shapely-2.1.2-cp313-cp313-macosx_11_0_arm64.whl" if is_arm else "shapely-2.1.2-cp313-cp313-macosx_10_13_x86_64.whl"
+    else:
+        shapely_wheel = "shapely-2.1.2-cp313-cp313-manylinux_2_17_x86_64.whl"
+
+    cache_dir = os.path.join(_TESTS_DIR, ".wheel_cache")
+    for wheel_name in (shapely_wheel, "shapelysmooth-0.2.1-py3-none-any.whl"):
+        wheel_path = os.path.join(wheels_dir, wheel_name)
+        if not os.path.isfile(wheel_path):
+            continue
+        extract_dir = os.path.join(cache_dir, os.path.splitext(wheel_name)[0])
+        if not os.path.isdir(extract_dir):
+            with zipfile.ZipFile(wheel_path) as zf:
+                zf.extractall(extract_dir)
+        if extract_dir not in sys.path:
+            sys.path.insert(0, extract_dir)
+
+
+_wire_bundled_wheels()
 
 _script_args = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 _RUN_OVERPASS = "--overpass" in _script_args
@@ -39,6 +81,7 @@ _TEST_FILES = [
     "test_geometry2d.py",
     "test_gpx.py",
     "test_osm_pipeline.py",
+    "test_prefetch.py",
     "test_updater.py",
 ]
 

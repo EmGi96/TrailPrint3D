@@ -1,23 +1,26 @@
 ﻿import math
 import os
 import platform
+from typing import cast
 
 import bmesh  # type: ignore
 import bpy  # type: ignore
 from mathutils import Vector  # type: ignore
 
-from .. import temp
 from .mesh_ops import recalculateNormals
 
 try:
     from ..premium.utils_pe import textIcon  # type: ignore[import]
 except ImportError:
+
     def textIcon(*_):
         return None
+
 
 try:
     from ..premium.utils_pe import add_medal_handle  # type: ignore[import]
 except ImportError:
+
     def add_medal_handle(*_args, **_kwargs):
         return None
 
@@ -25,12 +28,20 @@ except ImportError:
 def update_text_object(obj_name, new_text):
     """Updates the text of a Blender text object."""
     text_obj = bpy.data.objects.get(obj_name)
-    if text_obj and text_obj.type == 'FONT':
+    if text_obj and text_obj.type == "FONT":
         text_obj.data.body = new_text
 
 
-def create_text(name, text, position, scale_multiplier, rotation=(0, 0, 0), extrude=20, font_path=None):
-    txt_data = bpy.data.curves.new(name=name, type='FONT')
+def create_text(
+    name,
+    text,
+    position,
+    scale_multiplier,
+    rotation=(0, 0, 0),
+    extrude=20,
+    font_path=None,
+):
+    txt_data = bpy.data.curves.new(name=name, type="FONT")
     txt_obj = bpy.data.objects.new(name=name, object_data=txt_data)
     bpy.context.collection.objects.link(txt_obj)
 
@@ -46,9 +57,9 @@ def create_text(name, text, position, scale_multiplier, rotation=(0, 0, 0), extr
 
     txt_data.body = text
     txt_data.extrude = extrude
-    #txt_data.font = bpy.data.fonts.load("C:/Windows/Fonts/ariblk.ttf")  # Adjust path if needed
+    # txt_data.font = bpy.data.fonts.load("C:/Windows/Fonts/ariblk.ttf")  # Adjust path if needed
     txt_data.font = bpy.data.fonts.load(textFont)
-    txt_data.align_x = 'CENTER'
+    txt_data.align_x = "CENTER"
     txt_data.align_y = "CENTER"
 
     txt_obj.scale = (scale_multiplier, scale_multiplier, 1)
@@ -60,7 +71,7 @@ def create_text(name, text, position, scale_multiplier, rotation=(0, 0, 0), extr
     return txt_obj
 
 
-def appendTextIcon(textobject, icon, scaleM= 1):
+def appendTextIcon(textobject, icon, scaleM=1):
 
     addon_dir = os.path.dirname(os.path.dirname(__file__))
     filepath = os.path.join(addon_dir, "assets", "other.blend")
@@ -76,7 +87,7 @@ def appendTextIcon(textobject, icon, scaleM= 1):
             bpy.data.objects.remove(old_obj, do_unlink=True)
 
     # Append the object from the blend file
-    with bpy.data.libraries.load(filepath, link=False) as (data_from, data_to):
+    with bpy.data.libraries.load(filepath, link=False) as (data_from, data_to): # type: ignore
         if object_name in data_from.objects:
             data_to.objects.append(object_name)
         else:
@@ -99,9 +110,8 @@ def appendTextIcon(textobject, icon, scaleM= 1):
     obj.scale.x = scaleM / 5
     obj.scale.y = scaleM / 5
 
-
     depsgraph = bpy.context.evaluated_depsgraph_get()
-    obj_eval = obj.evaluated_get(depsgraph)
+    obj_eval: bpy.types.Object = cast(bpy.types.Object, obj.evaluated_get(depsgraph))
     bbox = [Vector(corner) for corner in obj_eval.bound_box]
     icon_xSize = max(v.x for v in bbox) - min(v.x for v in bbox)
 
@@ -114,12 +124,13 @@ def appendTextIcon(textobject, icon, scaleM= 1):
 
     text_xSize = text_xSize / obj.scale.x
 
-    obj.location -= obj.matrix_world.to_3x3() @ Vector((text_xSize/2 + 0.5, 0, 0))
-    textobject.location += textobject.matrix_world.to_3x3() @ Vector((icon_xSize/2 + 0.5, 0, 0))
-
+    obj.location -= obj.matrix_world.to_3x3() @ Vector((text_xSize / 2 + 0.5, 0, 0))
+    textobject.location += textobject.matrix_world.to_3x3() @ Vector(
+        (icon_xSize / 2 + 0.5, 0, 0)
+    )
 
     # Make the object active and selected
-    bpy.ops.object.select_all(action='DESELECT')
+    bpy.ops.object.select_all(action="DESELECT")
     obj.select_set(True)
     textobject.select_set(True)
     bpy.context.view_layer.objects.active = obj
@@ -133,7 +144,7 @@ def replaceShapeText(textfield, textobj):
     total_length = bpy.context.scene.tp3d.total_length
     time_str = bpy.context.scene.tp3d.sTime_str
     average_speed = bpy.context.scene.tp3d.average_speed
-    trail_date =  bpy.context.scene.tp3d.trail_date
+    trail_date = bpy.context.scene.tp3d.trail_date
 
     if "{length}" in textfield:
         textfield = textfield.replace("{length}", f"{total_length:.2f}km")
@@ -152,7 +163,11 @@ def replaceShapeText(textfield, textobj):
         update_text_object(textobj.name, textfield)
     elif "{scale}" in textfield:
         obj_size_mm = bpy.context.scene.tp3d.objSize
-        map_scale_ratio = f"1:{round(bpy.context.scene.tp3d.sMapInKm * 1_000_000 / obj_size_mm)}" if obj_size_mm != 0 else ""
+        map_scale_ratio = (
+            f"1:{round(bpy.context.scene.tp3d.sMapInKm * 1_000_000 / obj_size_mm)}"
+            if obj_size_mm != 0
+            else ""
+        )
         textfield = textfield.replace("{scale}", map_scale_ratio)
         update_text_object(textobj.name, textfield)
     elif "{name}" in textfield:
@@ -166,7 +181,7 @@ def replaceShapeText(textfield, textobj):
     return textfield
 
 
-def convert_text_to_mesh(text_obj_name, mesh_obj_name, merge = True):
+def convert_text_to_mesh(text_obj_name, mesh_obj_name, merge=True):
     # Get the text and mesh objects
     text_obj = bpy.data.objects.get(text_obj_name)
     mesh_obj = bpy.data.objects.get(mesh_obj_name)
@@ -176,23 +191,23 @@ def convert_text_to_mesh(text_obj_name, mesh_obj_name, merge = True):
         return
 
     # Ensure the text object is selected and active
-    bpy.ops.object.select_all(action='DESELECT')
+    bpy.ops.object.select_all(action="DESELECT")
     text_obj.select_set(True)
     bpy.context.view_layer.objects.active = text_obj
 
     # Convert text to mesh
-    bpy.ops.object.convert(target='MESH')
+    bpy.ops.object.convert(target="MESH")
 
     # Enter edit mode
-    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.object.mode_set(mode="EDIT")
 
     # Enable auto-merge vertices
-    bpy.ops.mesh.select_all(action='SELECT')
+    bpy.ops.mesh.select_all(action="SELECT")
     bpy.ops.mesh.remove_doubles(threshold=0.002)
-    #bpy.context.tool_settings.use_mesh_automerge = True
+    # bpy.context.tool_settings.use_mesh_automerge = True
 
     # Switch back to object mode to move it
-    bpy.ops.object.mode_set(mode='OBJECT')
+    bpy.ops.object.mode_set(mode="OBJECT")
 
     recalculateNormals(text_obj)
 
@@ -207,20 +222,47 @@ def convert_text_to_mesh(text_obj_name, mesh_obj_name, merge = True):
 
     if merge == True:
         # Add boolean modifier
-        bool_mod = text_obj.modifiers.new(name="Boolean", type='BOOLEAN')
+        bool_mod = text_obj.modifiers.new(name="Boolean", type="BOOLEAN")
         bool_mod.object = mesh_obj
-        bool_mod.operation = 'INTERSECT'
-        bool_mod.solver = 'MANIFOLD'
-
+        bool_mod.operation = "INTERSECT"
+        bool_mod.solver = "MANIFOLD"
 
         # Apply the boolean modifier
-        bpy.ops.object.select_all(action='DESELECT')
+        bpy.ops.object.select_all(action="DESELECT")
         text_obj.select_set(True)
         bpy.context.view_layer.objects.active = text_obj
         bpy.ops.object.modifier_apply(modifier=bool_mod.name)
 
         # Move the text object up by 1
         text_obj.location.z += 0.4
+
+
+def convert_text_to_mesh_obj(text_obj, merge=False):
+    """Object-based equivalent of convert_text_to_mesh — no name lookup.
+
+    The name-based version does `bpy.data.objects.get(name)` and breaks
+    when Blender has suffixed the actual object (e.g. 't_name.003' after
+    a prior run left a 't_name' in the scene): it converts the stale
+    object instead, leaving the caller's freshly-created font un-meshed.
+    Passing the object directly sidesteps all of that.
+    """
+    from .mesh_ops import recalculateNormals  # cycle-safe
+
+    if text_obj is None or text_obj.type != 'FONT':
+        return text_obj
+
+    bpy.ops.object.select_all(action='DESELECT')
+    text_obj.select_set(True)
+    bpy.context.view_layer.objects.active = text_obj
+    bpy.ops.object.convert(target='MESH')
+
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_all(action='SELECT')
+    bpy.ops.mesh.remove_doubles()
+    bpy.ops.object.mode_set(mode='OBJECT')
+
+    recalculateNormals(text_obj)
+    return text_obj
 
 
 def _apply_plate_bevel(obj, bevel_amount, thickness):
@@ -244,821 +286,22 @@ def _apply_plate_bevel(obj, bevel_amount, thickness):
                     bevel_edges.append(edge)
                     break
     if bevel_edges:
-        bmesh.ops.bevel(bm, geom=bevel_edges, offset=bevel_amount, segments=1, affect='EDGES', profile = 0.5)
+        bmesh.ops.bevel(
+            bm,
+            geom=bevel_edges,
+            offset=bevel_amount,
+            segments=1,
+            affect="EDGES",
+            profile=0.5,
+        )
         bm.to_mesh(obj.data)
     bm.free()
     obj.data.update()
 
 
-def HexagonInnerText(MapObject):
-
-    from . import (  # deferred to avoid circular import at load time
-        projection,
-        transform_MapObject,
-    )
-
-    size = bpy.context.scene.tp3d.objSize
-    name = bpy.context.scene.tp3d.modelname
-    centerx = bpy.context.scene.tp3d.o_centerx
-    centery = bpy.context.scene.tp3d.o_centery
-    titlefield = bpy.context.scene.tp3d.titlefield
-    textfield1 = bpy.context.scene.tp3d.textfield1
-    textfield2 = bpy.context.scene.tp3d.textfield2
-    textfield3 = bpy.context.scene.tp3d.textfield3
-    titleIcon = bpy.context.scene.tp3d.titleIcon
-    iconString1 = bpy.context.scene.tp3d.iconText1
-    iconString2 = bpy.context.scene.tp3d.iconText2
-    iconString3 = bpy.context.scene.tp3d.iconText3
-    xTerrainOffset = bpy.context.scene.tp3d.xTerrainOffset
-    yTerrainOffset = bpy.context.scene.tp3d.yTerrainOffset
-
-    textSize = bpy.context.scene.tp3d.textSize
-    textSize2 = bpy.context.scene.tp3d.textSizeTitle
-    shapeRotation = bpy.context.scene.tp3d.shapeRotation
-
-    if textSize2 == 0:
-        textSize2 = textSize
-
-
-    #dist =  (size/2 - size/2 * (1-pathScale)/2)
-    dist =  (size/2 - size/2 * (1-0.8)/2)
-
-    temp_y = math.sin(math.radians(90)) * (dist  * math.cos(math.radians(30)))
-
-
-
-    tName = create_text("t_name", "Name", (0, temp_y, 0.1),1)
-
-    for i, (text_name, angle) in enumerate(zip(["t_length", "t_elevation", "t_duration"], [210, 270, 330])):
-        angle_centered = angle + 90
-        x = math.cos(math.radians(angle)) * (dist * math.cos(math.radians(30)))
-        y = math.sin(math.radians(angle)) * (dist * math.cos(math.radians(30)))
-        rot_z = math.radians(angle_centered)
-        create_text(text_name, text_name.split("_")[1].capitalize(), (x, y, 0.1),1,  (0, 0, rot_z), 100)
-
-    tElevation = bpy.data.objects.get("t_elevation")
-    tLength = bpy.data.objects.get("t_length")
-    tDuration = bpy.data.objects.get("t_duration")
-
-
-
-    transform_MapObject(tName, centerx + xTerrainOffset, centery + yTerrainOffset)
-    transform_MapObject(tElevation, centerx + xTerrainOffset, centery + yTerrainOffset)
-    transform_MapObject(tLength, centerx + xTerrainOffset, centery + yTerrainOffset)
-    transform_MapObject(tDuration,centerx + xTerrainOffset, centery + yTerrainOffset)
-
-    #Scale text sizes to mm values (blender units)
-    bpy.context.view_layer.update()
-    current_height = tName.dimensions.y
-    if current_height == 0:
-        current_height = tElevation.dimensions.y
-    if current_height == 0:
-        current_height = tLength.dimensions.y
-    if current_height == 0:
-        current_height = 5
-    scale_factor_title = textSize2 / current_height
-    tName.scale.x *= scale_factor_title
-    tName.scale.y *= scale_factor_title
-
-    scale_factor = textSize / current_height
-    tElevation.scale.x *= scale_factor
-    tLength.scale.x *= scale_factor
-    tDuration.scale.x *= scale_factor
-    tElevation.scale.y *= scale_factor
-    tLength.scale.y *= scale_factor
-    tDuration.scale.y *= scale_factor
-
-    bpy.ops.object.select_all(action='DESELECT')
-
-    tName.select_set(True)
-    tElevation.select_set(True)
-    tLength.select_set(True)
-    tDuration.select_set(True)
-    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-
-    titlefield = replaceShapeText(titlefield, tName)
-    textfield1 = replaceShapeText(textfield1, tLength)
-    textfield2 = replaceShapeText(textfield2, tElevation)
-    textfield3 = replaceShapeText(textfield3, tDuration)
-
-    icon0 = None
-    icon1 = None
-    icon2 = None
-    icon3 = None
-
-
-    icon0 = textIcon(titleIcon,tName,MapObject,False, textSize2 )
-    icon1 = textIcon(iconString1,tLength,MapObject,False, textSize)
-    icon2 = textIcon(iconString2,tElevation,MapObject,False,textSize)
-    icon3 = textIcon(iconString3,tDuration,MapObject,False,textSize)
-
-
-    projection("separate",MapObject,tName)
-    projection("separate",MapObject,tLength)
-    projection("separate",MapObject,tElevation)
-    projection("separate",MapObject,tDuration)
-
-    for _icon in (icon0, icon1, icon2, icon3):
-        if _icon is None:
-            continue
-        bpy.ops.object.select_all(action='DESELECT')
-        _icon.select_set(True)
-        bpy.context.view_layer.objects.active = _icon
-        bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY', center='MEDIAN')
-
-        # Delete bottom faces by z-position instead of face-normal direction.
-        # Normal-based selection (selectBottomFaces threshold -0.95) fails when
-        # recalc_normals flips the bottom copy upward for taller icons (high minThickness).
-        bm = bmesh.new()
-        bm.from_mesh(_icon.data)
-        if bm.verts:
-            min_z = min(v.co.z for v in bm.verts)
-            faces_to_del = [f for f in bm.faces if f.calc_center_median().z < (min_z + 0.3)]
-            bmesh.ops.delete(bm, geom=faces_to_del, context='FACES')
-            bm.to_mesh(_icon.data)
-        bm.free()
-
-
-    if icon0 != None:
-        projection("separate", MapObject, icon0)
-    if icon1 != None:
-        projection("separate", MapObject, icon1)
-    if icon2 != None:
-        projection("separate", MapObject, icon2)
-    if icon3 != None:
-        projection("separate", MapObject, icon3)
-
-    bpy.ops.object.select_all(action='DESELECT')
-
-    if icon0 != None: icon0.select_set(True)
-    if icon1 != None: icon1.select_set(True)
-    if icon2 != None: icon2.select_set(True)
-    if icon3 != None: icon3.select_set(True)
-
-
-    tName.select_set(True)
-    tElevation.select_set(True)
-    tLength.select_set(True)
-    tDuration.select_set(True)
-    #curveObj.select_set(True)
-
-
-    bpy.context.view_layer.objects.active = tName
-
-    bpy.ops.object.join()
-    bpy.ops.object.origin_set(type='ORIGIN_CURSOR', center='MEDIAN')
-
-    tName.name = name + "_Text"
-    tName.rotation_euler[2] += shapeRotation * (3.14159265 / 180)
-
-    tName.select_set(True)
-    bpy.context.view_layer.objects.active = tName
-    bpy.ops.object.transform_apply(location = False, rotation=True, scale = False)
-    bpy.ops.object.origin_set(type='ORIGIN_CURSOR', center='MEDIAN')
-
-
-    textobj = tName
-    return textobj
-
-
-def HexagonOuterText():
-
-    from . import transform_MapObject  # deferred to avoid circular import at load time
-
-    size = bpy.context.scene.tp3d.objSize
-    outerBorderSize = bpy.context.scene.tp3d.outerBorderSize
-    plateThickness = bpy.context.scene.tp3d.plateThickness
-    name = bpy.context.scene.tp3d.modelname
-    centerx = bpy.context.scene.tp3d.o_centerx
-    centery = bpy.context.scene.tp3d.o_centery
-    text_angle_preset = bpy.context.scene.tp3d.text_angle_preset
-    titlefield = bpy.context.scene.tp3d.titlefield
-    textfield1 = bpy.context.scene.tp3d.textfield1
-    textfield2 = bpy.context.scene.tp3d.textfield2
-    textfield3 = bpy.context.scene.tp3d.textfield3
-    textfield4 = bpy.context.scene.tp3d.textfield4
-    textfield5 = bpy.context.scene.tp3d.textfield5
-    titleIcon = bpy.context.scene.tp3d.titleIcon
-    iconString1 = bpy.context.scene.tp3d.iconText1
-    iconString2 = bpy.context.scene.tp3d.iconText2
-    iconString3 = bpy.context.scene.tp3d.iconText3
-    iconString4 = bpy.context.scene.tp3d.iconText4
-    iconString5 = bpy.context.scene.tp3d.iconText5
-
-
-    outersize = size * ( 1 + outerBorderSize/100)
-    thickness = plateThickness
-    textSize = bpy.context.scene.tp3d.textSize
-    textSize2 = bpy.context.scene.tp3d.textSizeTitle
-    shapeRotation = bpy.context.scene.tp3d.shapeRotation
-
-    if textSize2 == 0:
-        textSize2 = textSize
-
-
-    verts = []
-    faces = []
-    for i in range(6):
-        angle = math.radians(60 * i)
-        x = outersize/2 * math.cos(angle)
-        y = outersize/2 * math.sin(angle)
-        verts.append((x, y, 0))
-    verts.append((0, 0, 0))  # Center vertex
-    faces = [[i, (i + 1) % 6, 6] for i in range(6)]
-    mesh = bpy.data.meshes.new("HexagonOuter")
-    outerHex = bpy.data.objects.new("HexagonOuter", mesh)
-    bpy.context.collection.objects.link(outerHex)
-    mesh.from_pydata(verts, [], faces)
-    mesh.update()
-    outerHex.name = name
-    outerHex.data.name = name
-
-    bpy.context.view_layer.objects.active = outerHex
-    bpy.ops.object.mode_set(mode='EDIT')
-    bpy.ops.mesh.select_all(action='SELECT')
-    bpy.ops.mesh.extrude_region_move()
-    bpy.ops.transform.translate(value=(0, 0, -8))#bpy.ops.mesh.select_all(action='DESELECT')
-
-    bpy.ops.object.mode_set(mode='OBJECT')
-
-    # Get the mesh data
-    mesh = outerHex.data
-
-    # Get selected faces
-    selected_faces = [face for face in mesh.polygons if face.select]
-
-    if selected_faces:
-        for face in selected_faces:
-            for vert_idx in face.vertices:
-                vert = mesh.vertices[vert_idx]
-                vert.co.z =  - thickness
-    else:
-        print("No face selected.")
-
-    _apply_plate_bevel(outerHex, bpy.context.scene.tp3d.plateBevel, thickness)
-    recalculateNormals(outerHex)
-
-    if bpy.context.scene.tp3d.handleStyle != 'NONE' and temp.PREMIUMVERSION:
-        add_medal_handle(outerHex, thickness, bpy.context.scene.tp3d.handleStyle, bpy.context.scene.tp3d.plateBevel)
-
-    transform_MapObject(outerHex, centerx, centery)
-
-
-    dist = (outersize - size)/4 + size/2
-
-
-
-    # Hexagon sides sit at 30/90/150/210/270/330 deg. Title takes the flat
-    # top (90), text1-3 take the three bottom sides (210/270/330), and
-    # field4/field5 take the two remaining upper sides (30/150) -- the only
-    # ones left empty. Upper-half sides (sin(angle) > 0, same half as the
-    # title) need the same +180 flip as the title to read right-side up;
-    # the lower-half sides don't.
-    text_specs = [
-        ("t_name", 90, True),
-        ("t_length", 210, False),
-        ("t_elevation", 270, False),
-        ("t_duration", 330, False),
-        ("t_field4", 30, True),
-        ("t_field5", 150, True),
-    ]
-    for text_name, base_angle, flip in text_specs:
-        angle = base_angle + text_angle_preset
-        angle_centered = angle + 90
-        x = math.cos(math.radians(angle)) * (dist * math.cos(math.radians(30)))
-        y = math.sin(math.radians(angle)) * (dist * math.cos(math.radians(30)))
-        rot_z = math.radians(angle_centered)
-        if flip:
-            rot_z += math.radians(180)
-        create_text(text_name, text_name.split("_")[1].capitalize(), (x, y,1.4),1,  (0, 0, rot_z), 0.4)
-
-    tName = bpy.data.objects.get("t_name")
-    tElevation = bpy.data.objects.get("t_elevation")
-    tLength = bpy.data.objects.get("t_length")
-    tDuration = bpy.data.objects.get("t_duration")
-    tField4 = bpy.data.objects.get("t_field4")
-    tField5 = bpy.data.objects.get("t_field5")
-
-
-
-    transform_MapObject(tName, centerx, centery)
-    transform_MapObject(tElevation, centerx, centery)
-    transform_MapObject(tLength, centerx, centery)
-    transform_MapObject(tDuration, centerx, centery)
-    transform_MapObject(tField4, centerx, centery)
-    transform_MapObject(tField5, centerx, centery)
-
-
-    #Scale text sizes to mm values (blender units)
-    bpy.context.view_layer.update()
-    current_height = tName.dimensions.y
-    if current_height == 0:
-        current_height = tElevation.dimensions.y
-    if current_height == 0:
-        current_height = tLength.dimensions.y
-    if current_height == 0:
-        current_height = 5
-    scale_factor_title = textSize2 / current_height
-    tName.scale.x *= scale_factor_title
-    tName.scale.y *= scale_factor_title
-
-    scale_factor = textSize / current_height
-    tElevation.scale.x *= scale_factor
-    tLength.scale.x *= scale_factor
-    tDuration.scale.x *= scale_factor
-    tField4.scale.x *= scale_factor
-    tField5.scale.x *= scale_factor
-    tElevation.scale.y *= scale_factor
-    tLength.scale.y *= scale_factor
-    tDuration.scale.y *= scale_factor
-    tField4.scale.y *= scale_factor
-    tField5.scale.y *= scale_factor
-
-    bpy.ops.object.select_all(action='DESELECT')
-
-    tName.select_set(True)
-    tElevation.select_set(True)
-    tLength.select_set(True)
-    tDuration.select_set(True)
-    tField4.select_set(True)
-    tField5.select_set(True)
-
-    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-
-
-    titlefield = replaceShapeText(titlefield, tName)
-    textfield1 = replaceShapeText(textfield1, tLength)
-    textfield2 = replaceShapeText(textfield2, tElevation)
-    textfield3 = replaceShapeText(textfield3, tDuration)
-    textfield4 = replaceShapeText(textfield4, tField4)
-    textfield5 = replaceShapeText(textfield5, tField5)
-
-    icon0 = None
-    icon1 = None
-    icon2 = None
-    icon3 = None
-    icon4 = None
-    icon5 = None
-
-
-    icon0 = textIcon(titleIcon,tName,outerHex, False, textSize2)
-    icon1 = textIcon(iconString1,tLength,outerHex, False, textSize)
-    icon2 = textIcon(iconString2,tElevation,outerHex, False, textSize)
-    icon3 = textIcon(iconString3,tDuration,outerHex, False, textSize)
-    icon4 = textIcon(iconString4,tField4,outerHex, False, textSize)
-    icon5 = textIcon(iconString5,tField5,outerHex, False, textSize)
-
-
-    convert_text_to_mesh("t_name", outerHex.name, False)
-    convert_text_to_mesh("t_elevation", outerHex.name, False)
-    convert_text_to_mesh("t_length", outerHex.name, False)
-    convert_text_to_mesh("t_duration", outerHex.name, False)
-    convert_text_to_mesh("t_field4", outerHex.name, False)
-    convert_text_to_mesh("t_field5", outerHex.name, False)
-
-
-
-    bpy.ops.object.select_all(action='DESELECT')
-
-    if icon0 != None: icon0.select_set(True)
-    if icon1 != None: icon1.select_set(True)
-    if icon2 != None: icon2.select_set(True)
-    if icon3 != None: icon3.select_set(True)
-    if icon4 != None: icon4.select_set(True)
-    if icon5 != None: icon5.select_set(True)
-
-    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-
-
-    tName.select_set(True)
-    tElevation.select_set(True)
-    tLength.select_set(True)
-    tDuration.select_set(True)
-    tField4.select_set(True)
-    tField5.select_set(True)
-
-
-    bpy.context.view_layer.objects.active = tName
-
-
-    bpy.ops.object.join()
-
-    bpy.ops.object.origin_set(type='ORIGIN_CURSOR', center='MEDIAN')
-
-    tName.name = name + "_Text"
-    outerHex.name = name + "_Plate"
-
-    tName.location.z += plateThickness
-    outerHex.location.z += plateThickness
-
-
-    #SHAPE ROTATION
-    outerHex.rotation_euler[2] += shapeRotation * (3.14159265 / 180)
-    outerHex.select_set(True)
-    bpy.context.view_layer.objects.active = outerHex
-    bpy.ops.object.transform_apply(location = False, rotation=True, scale = False)
-
-    bpy.ops.object.origin_set(type='ORIGIN_CURSOR', center='MEDIAN')
-
-
-    plateobj = outerHex
-
-    textobj = tName
-    return textobj, plateobj
-
-
-def HexagonFrontText():
-
-    from . import transform_MapObject  # deferred to avoid circular import at load time
-
-    size = bpy.context.scene.tp3d.objSize
-    outerBorderSize = bpy.context.scene.tp3d.outerBorderSize
-    plateThickness = bpy.context.scene.tp3d.plateThickness
-    name = bpy.context.scene.tp3d.modelname
-    centerx = bpy.context.scene.tp3d.o_centerx
-    centery = bpy.context.scene.tp3d.o_centery
-    text_angle_preset = bpy.context.scene.tp3d.text_angle_preset
-    titlefield = bpy.context.scene.tp3d.titlefield
-    textfield1 = bpy.context.scene.tp3d.textfield1
-    textfield2 = bpy.context.scene.tp3d.textfield2
-    textfield3 = bpy.context.scene.tp3d.textfield3
-    titleIcon = bpy.context.scene.tp3d.titleIcon
-    iconString1 = bpy.context.scene.tp3d.iconText1
-    iconString2 = bpy.context.scene.tp3d.iconText2
-    iconString3 = bpy.context.scene.tp3d.iconText3
-    minThickness = bpy.context.scene.tp3d.minThickness
-
-    outersize = size * ( 1 + outerBorderSize/100)
-    thickness = plateThickness
-    textSize = bpy.context.scene.tp3d.textSize
-    textSize2 = bpy.context.scene.tp3d.textSizeTitle
-    shapeRotation = bpy.context.scene.tp3d.shapeRotation
-
-
-
-    if textSize2 == 0:
-        textSize2 = textSize
-
-
-    verts = []
-    faces = []
-    for i in range(6):
-        angle = math.radians(60 * i)
-        x = outersize/2 * math.cos(angle)
-        y = outersize/2 * math.sin(angle)
-        verts.append((x, y, 0))
-    verts.append((0, 0, 0))  # Center vertex
-    faces = [[i, (i + 1) % 6, 6] for i in range(6)]
-    mesh = bpy.data.meshes.new("HexagonOuter")
-    outerHex = bpy.data.objects.new("HexagonOuter", mesh)
-    bpy.context.collection.objects.link(outerHex)
-    mesh.from_pydata(verts, [], faces)
-    mesh.update()
-    outerHex.name = name
-    outerHex.data.name = name
-
-    bpy.context.view_layer.objects.active = outerHex
-    bpy.ops.object.mode_set(mode='EDIT')
-    bpy.ops.mesh.select_all(action='SELECT')
-    bpy.ops.mesh.extrude_region_move()
-    bpy.ops.transform.translate(value=(0, 0, -8))#bpy.ops.mesh.select_all(action='DESELECT')
-
-    bpy.ops.object.mode_set(mode='OBJECT')
-
-    # Get the mesh data
-    mesh = outerHex.data
-
-    # Get selected faces
-    selected_faces = [face for face in mesh.polygons if face.select]
-
-    if selected_faces:
-        for face in selected_faces:
-            for vert_idx in face.vertices:
-                vert = mesh.vertices[vert_idx]
-                vert.co.z =  - thickness;
-    else:
-        print("No face selected.")
-
-    _apply_plate_bevel(outerHex, bpy.context.scene.tp3d.plateBevel, thickness)
-    recalculateNormals(outerHex)
-
-    if bpy.context.scene.tp3d.handleStyle != 'NONE' and temp.PREMIUMVERSION:
-        add_medal_handle(outerHex, thickness, bpy.context.scene.tp3d.handleStyle, bpy.context.scene.tp3d.plateBevel)
-
-    transform_MapObject(outerHex, centerx, centery)
-
-    dist = outersize/2
-
-    for i, (text_name, angle) in enumerate(zip(["t_name","t_length", "t_elevation", "t_duration"], [90 + text_angle_preset, 210 + text_angle_preset, 270 + text_angle_preset, 330 + text_angle_preset])):
-        angle_centered = angle + 90
-        x = math.cos(math.radians(angle)) * (dist * math.cos(math.radians(30)))
-        y = math.sin(math.radians(angle)) * (dist * math.cos(math.radians(30)))
-        rot_z = math.radians(angle_centered)
-        #if i == 0:
-            #rot_z += math.radians(180)
-        create_text(text_name, text_name.split("_")[1].capitalize(), (x, y,minThickness/2 - plateThickness / 2),1,  (math.radians(90), 0, rot_z), 0.4)
-
-    tName = bpy.data.objects.get("t_name")
-    tElevation = bpy.data.objects.get("t_elevation")
-    tLength = bpy.data.objects.get("t_length")
-    tDuration = bpy.data.objects.get("t_duration")
-
-
-    transform_MapObject(tName, centerx, centery)
-    transform_MapObject(tElevation, centerx, centery)
-    transform_MapObject(tLength, centerx, centery)
-    transform_MapObject(tDuration, centerx, centery)
-
-    #Scale text sizes to mm values (blender units)
-    bpy.context.view_layer.update()
-    current_height = tName.dimensions.y
-    if current_height == 0:
-        current_height = tElevation.dimensions.y
-    if current_height == 0:
-        current_height = tLength.dimensions.y
-    if current_height == 0:
-        current_height = 5
-    scale_factor = textSize2 / current_height
-    tName.scale.x *= scale_factor
-    tName.scale.y *= scale_factor
-
-    scale_factor = textSize / current_height
-    tElevation.scale.x *= scale_factor
-    tLength.scale.x *= scale_factor
-    tDuration.scale.x *= scale_factor
-    tElevation.scale.y *= scale_factor
-    tLength.scale.y *= scale_factor
-    tDuration.scale.y *= scale_factor
-
-
-    bpy.ops.object.select_all(action='DESELECT')
-
-    tName.select_set(True)
-    tElevation.select_set(True)
-    tLength.select_set(True)
-    tDuration.select_set(True)
-
-    bpy.ops.object.transform_apply(location = False, rotation=False, scale = True)
-
-
-
-    titlefield = replaceShapeText(titlefield, tName)
-    textfield1 = replaceShapeText(textfield1, tLength)
-    textfield2 = replaceShapeText(textfield2, tElevation)
-    textfield3 = replaceShapeText(textfield3, tDuration)
-
-    icon0 = None
-    icon1 = None
-    icon2 = None
-    icon3 = None
-
-    icon0 = textIcon(titleIcon,tName,outerHex, False, textSize2)
-    icon1 = textIcon(iconString1,tLength,outerHex, False, textSize)
-    icon2 = textIcon(iconString2,tElevation,outerHex, False, textSize)
-    icon3 = textIcon(iconString3,tDuration,outerHex, False, textSize)
-
-    convert_text_to_mesh("t_name", outerHex.name, False)
-    convert_text_to_mesh("t_elevation", outerHex.name, False)
-    convert_text_to_mesh("t_length", outerHex.name, False)
-    convert_text_to_mesh("t_duration", outerHex.name, False)
-
-
-
-    bpy.ops.object.select_all(action='DESELECT')
-
-    if icon0 != None: icon0.select_set(True)
-    if icon1 != None: icon1.select_set(True)
-    if icon2 != None: icon2.select_set(True)
-    if icon3 != None: icon3.select_set(True)
-
-    tName.select_set(True)
-    tElevation.select_set(True)
-    tLength.select_set(True)
-    tDuration.select_set(True)
-
-    bpy.context.view_layer.objects.active = tName
-
-    bpy.ops.object.join()
-
-    bpy.ops.object.origin_set(type='ORIGIN_CURSOR', center='MEDIAN')
-
-    tName.name = name + "_Text"
-    outerHex.name = name + "_Plate"
-
-    tName.location.z += plateThickness
-    outerHex.location.z += plateThickness
-
-    #SHAPE ROTATION
-    outerHex.rotation_euler[2] += shapeRotation * (3.14159265 / 180)
-    outerHex.select_set(True)
-    bpy.context.view_layer.objects.active = outerHex
-    bpy.ops.object.transform_apply(location = False, rotation=True, scale = False)
-    bpy.ops.object.origin_set(type='ORIGIN_CURSOR', center='MEDIAN')
-
-
-    plateobj = outerHex
-
-    textobj = tName
-
-    return textobj, plateobj
-
-
-def OctagonOuterText():
-
-    from . import transform_MapObject  # deferred to avoid circular import at load time
-
-    size = bpy.context.scene.tp3d.objSize
-    outerBorderSize = bpy.context.scene.tp3d.outerBorderSize
-    plateThickness = bpy.context.scene.tp3d.plateThickness
-    name = bpy.context.scene.tp3d.modelname
-    centerx = bpy.context.scene.tp3d.o_centerx
-    centery = bpy.context.scene.tp3d.o_centery
-    text_angle_preset = bpy.context.scene.tp3d.text_angle_preset
-    titlefield = bpy.context.scene.tp3d.titlefield
-    textfield1 = bpy.context.scene.tp3d.textfield1
-    textfield2 = bpy.context.scene.tp3d.textfield2
-    textfield3 = bpy.context.scene.tp3d.textfield3
-    titleIcon = bpy.context.scene.tp3d.titleIcon
-    iconString1 = bpy.context.scene.tp3d.iconText1
-    iconString2 = bpy.context.scene.tp3d.iconText2
-    iconString3 = bpy.context.scene.tp3d.iconText3
-
-
-    num_sides = 8
-    outersize = size * (1 + outerBorderSize / 100)
-    thickness = plateThickness
-    textSize = bpy.context.scene.tp3d.textSize
-    textSize2 = bpy.context.scene.tp3d.textSizeTitle
-    shapeRotation = bpy.context.scene.tp3d.shapeRotation
-
-    if textSize2 == 0:
-        textSize2 = textSize
-
-    verts = []
-    faces = []
-
-    # Create vertices for octagon
-    for i in range(num_sides):
-        angle = math.radians(360 / num_sides * i + 22.5)
-        x = outersize / 2 * math.cos(angle)
-        y = outersize / 2 * math.sin(angle)
-        verts.append((x, y, 0))
-    verts.append((0, 0, 0))  # center vertex
-    faces = [[i, (i + 1) % num_sides, num_sides] for i in range(num_sides)]
-
-    mesh = bpy.data.meshes.new("OctagonOuter")
-    outerOct = bpy.data.objects.new("OctagonOuter", mesh)
-    bpy.context.collection.objects.link(outerOct)
-    mesh.from_pydata(verts, [], faces)
-    mesh.update()
-    outerOct.name = name
-    outerOct.data.name = name
-
-    bpy.context.view_layer.objects.active = outerOct
-    bpy.ops.object.mode_set(mode='EDIT')
-    bpy.ops.mesh.select_all(action='SELECT')
-    bpy.ops.mesh.extrude_region_move()
-    bpy.ops.transform.translate(value=(0, 0, -8))
-    bpy.ops.object.mode_set(mode='OBJECT')
-
-    mesh = outerOct.data
-    selected_faces = [face for face in mesh.polygons if face.select]
-
-    if selected_faces:
-        for face in selected_faces:
-            for vert_idx in face.vertices:
-                vert = mesh.vertices[vert_idx]
-                vert.co.z = -thickness
-    else:
-        print("No face selected.")
-
-    _apply_plate_bevel(outerOct, bpy.context.scene.tp3d.plateBevel, thickness)
-    recalculateNormals(outerOct)
-
-    if bpy.context.scene.tp3d.handleStyle != 'NONE' and temp.PREMIUMVERSION:
-        add_medal_handle(outerOct, thickness, bpy.context.scene.tp3d.handleStyle, bpy.context.scene.tp3d.plateBevel)
-
-    transform_MapObject(outerOct, centerx, centery)
-
-    #Text placement
-    dist = (outersize - size) / 4 + size / 2
-    text_labels = ["t_name", "t_length", "t_elevation", "t_duration"]
-
-    # Choose 4 corners of the octagon
-    base_angles = [90 + text_angle_preset, 225 + text_angle_preset, 270 + text_angle_preset, 315 + text_angle_preset]
-
-    for i, (text_name, angle) in enumerate(zip(text_labels, base_angles)):
-        angle_centered = angle + 90
-        x = math.cos(math.radians(angle)) * (dist * math.cos(math.radians(22.5)))
-        y = math.sin(math.radians(angle)) * (dist * math.cos(math.radians(22.5)))
-        rot_z = math.radians(angle_centered)
-        if i == 0:
-            rot_z += math.radians(180)
-        create_text(text_name, text_name.split("_")[1].capitalize(), (x, y,1.4),1,  (0, 0, rot_z), 0.4)
-
-
-
-    # Get text objects
-    tName = bpy.data.objects.get("t_name")
-    tElevation = bpy.data.objects.get("t_elevation")
-    tLength = bpy.data.objects.get("t_length")
-    tDuration = bpy.data.objects.get("t_duration")
-
-    # Position relative to plate
-    transform_MapObject(tName, centerx, centery)
-    transform_MapObject(tElevation, centerx, centery)
-    transform_MapObject(tLength, centerx, centery)
-    transform_MapObject(tDuration, centerx, centery)
-
-    #Scale text sizes to mm values (blender units)
-    bpy.context.view_layer.update()
-    current_height = tName.dimensions.y
-    if current_height == 0:
-        current_height = tElevation.dimensions.y
-    if current_height == 0:
-        current_height = tLength.dimensions.y
-    if current_height == 0:
-        current_height = 5
-    scale_factor = textSize2 / current_height
-    tName.scale.x *= scale_factor
-    tName.scale.y *= scale_factor
-
-    scale_factor = textSize / current_height
-    tElevation.scale.x *= scale_factor
-    tLength.scale.x *= scale_factor
-    tDuration.scale.x *= scale_factor
-    tElevation.scale.y *= scale_factor
-    tLength.scale.y *= scale_factor
-    tDuration.scale.y *= scale_factor
-
-    bpy.ops.object.select_all(action='DESELECT')
-
-    tName.select_set(True)
-    tElevation.select_set(True)
-    tLength.select_set(True)
-    tDuration.select_set(True)
-
-    bpy.ops.object.transform_apply(location = False, rotation=False, scale = True)
-
-    titlefield = replaceShapeText(titlefield, tName)
-    textfield1 = replaceShapeText(textfield1, tLength)
-    textfield2 = replaceShapeText(textfield2, tElevation)
-    textfield3 = replaceShapeText(textfield3, tDuration)
-
-    icon0 = None
-    icon1 = None
-    icon2 = None
-    icon3 = None
-
-    icon0 = textIcon(titleIcon,tName,outerOct, False, textSize2)
-    icon1 = textIcon(iconString1,tLength,outerOct, False, textSize)
-    icon2 = textIcon(iconString2,tElevation,outerOct, False, textSize)
-    icon3 = textIcon(iconString3,tDuration,outerOct, False, textSize)
-
-    convert_text_to_mesh("t_name", outerOct.name, False)
-    convert_text_to_mesh("t_elevation", outerOct.name, False)
-    convert_text_to_mesh("t_length", outerOct.name, False)
-    convert_text_to_mesh("t_duration", outerOct.name, False)
-
-
-    bpy.ops.object.select_all(action='DESELECT')
-
-    if icon0 != None: icon0.select_set(True)
-    if icon1 != None: icon1.select_set(True)
-    if icon2 != None: icon2.select_set(True)
-    if icon3 != None: icon3.select_set(True)
-
-    tName.select_set(True)
-    tElevation.select_set(True)
-    tLength.select_set(True)
-    tDuration.select_set(True)
-    bpy.context.view_layer.objects.active = tName
-    bpy.ops.object.join()
-    bpy.ops.object.origin_set(type='ORIGIN_CURSOR', center='MEDIAN')
-
-    tName.name = name + "_Text"
-    outerOct.name = name + "_Plate"
-
-    tName.location.z += plateThickness
-    outerOct.location.z += plateThickness
-
-
-    #SHAPE ROTATION
-    outerOct.rotation_euler[2] += shapeRotation * (3.14159265 / 180)
-    outerOct.select_set(True)
-    bpy.context.view_layer.objects.active = outerOct
-    bpy.ops.object.transform_apply(location = False, rotation=True, scale = False)
-    bpy.ops.object.origin_set(type='ORIGIN_CURSOR', center='MEDIAN')
-
-
-    plateobj = outerOct
-
-    textobj = tName
-
-    return textobj, plateobj
-
-
-def wrap_mesh_around_circle(obj, radius, base_angle_rad, upper, anchor_x=0.0, anchor_y=0.0):
+def wrap_mesh_around_circle(
+    obj, radius, base_angle_rad, upper, anchor_x=0.0, anchor_y=0.0
+):
     """Bend a flat mesh into an arc of the given radius, centered on base_angle_rad.
 
     Local X (the flat reading direction) becomes angle around the circle;
@@ -1099,238 +342,28 @@ def wrap_mesh_around_circle(obj, radius, base_angle_rad, upper, anchor_x=0.0, an
     obj.data.update()
 
 
-def MedalText():
-
-    from . import transform_MapObject  # deferred to avoid circular import at load time
-
-    size = bpy.context.scene.tp3d.objSize
-    outerBorderSize = bpy.context.scene.tp3d.outerBorderSize
-    plateThickness = bpy.context.scene.tp3d.plateThickness
-    name = bpy.context.scene.tp3d.modelname
-    centerx = bpy.context.scene.tp3d.o_centerx
-    centery = bpy.context.scene.tp3d.o_centery
-    text_angle_preset = bpy.context.scene.tp3d.text_angle_preset
-    titlefield = bpy.context.scene.tp3d.titlefield
-    textfield1 = bpy.context.scene.tp3d.textfield1
-    textfield2 = bpy.context.scene.tp3d.textfield2
-    textfield3 = bpy.context.scene.tp3d.textfield3
-    titleIcon = bpy.context.scene.tp3d.titleIcon
-    iconString1 = bpy.context.scene.tp3d.iconText1
-    iconString2 = bpy.context.scene.tp3d.iconText2
-    iconString3 = bpy.context.scene.tp3d.iconText3
-
-    outersize = size * (1 + outerBorderSize / 100)
-    thickness = plateThickness
-    textSize = bpy.context.scene.tp3d.textSize
-    textSize2 = bpy.context.scene.tp3d.textSizeTitle
-    shapeRotation = bpy.context.scene.tp3d.shapeRotation
-
-    if textSize2 == 0:
-        textSize2 = textSize
-
-    # --- Plate circle (slightly bigger, same center as coin, behind it in Z) ---
-    plate_radius = outersize / 2
-    num_segments = 64
-
-    verts = []
-    for i in range(num_segments):
-        angle = 2 * math.pi * i / num_segments
-        x = plate_radius * math.cos(angle)
-        y = plate_radius * math.sin(angle)
-        verts.append((x, y, 0))
-
-    edges = [(i, (i + 1) % num_segments) for i in range(num_segments)]
-    plate_mesh_data = bpy.data.meshes.new("MedalPlate")
-    plateObj = bpy.data.objects.new("MedalPlate", plate_mesh_data)
-    bpy.context.collection.objects.link(plateObj)
-    plate_mesh_data.from_pydata(verts, edges, [])
-    plate_mesh_data.update()
-
-    bpy.context.view_layer.objects.active = plateObj
-    bpy.ops.object.mode_set(mode='EDIT')
-    bpy.ops.mesh.select_all(action='SELECT')
-    bpy.ops.mesh.fill()
-    bpy.ops.mesh.extrude_region_move()
-    bpy.ops.transform.translate(value=(0, 0, -8))
-    bpy.ops.object.mode_set(mode='OBJECT')
-
-    plate_mesh_data = plateObj.data
-    selected_faces = [face for face in plate_mesh_data.polygons if face.select]
-    if selected_faces:
-        for face in selected_faces:
-            for vert_idx in face.vertices:
-                vert = plate_mesh_data.vertices[vert_idx]
-                vert.co.z = -thickness
-    else:
-        print("No face selected.")
-
-    _apply_plate_bevel(plateObj, bpy.context.scene.tp3d.plateBevel, thickness)
-    recalculateNormals(plateObj)
-
-    if bpy.context.scene.tp3d.handleStyle != 'NONE' and temp.PREMIUMVERSION:
-        add_medal_handle(plateObj, thickness, bpy.context.scene.tp3d.handleStyle, bpy.context.scene.tp3d.plateBevel)
-
-    plateObj.name = name
-    plateObj.data.name = name
-    transform_MapObject(plateObj, centerx, centery)
-
-    # --- Curved text in the ring between coin edge and plate edge ---
-    # Text sits at the midpoint of the ring so it fits in the open space the map doesn't cover.
-    # Angles: title at top (90°), other three spaced 90° apart around the
-    # lower arc (left/bottom/right), symmetric about the bottom (270°).
-    text_radius = (size / 2 + outersize / 2) / 2
-    text_specs = [
-        ("t_name",      90),
-        ("t_length",    180),
-        ("t_elevation", 270),
-        ("t_duration",  0),
-    ]
-
-    # Build each label flat and unrotated at the local origin. Placing icons
-    # and measuring bounding boxes against flat, un-deformed text (rather
-    # than an already-curved one) is what makes the icon/text spacing land
-    # right — the arc bend is applied afterwards, once, to the finished
-    # icon+text mesh as a single rigid unit.
-    for text_name, base_deg in text_specs:
-        create_text(text_name, text_name.split("_")[1].capitalize(), (0, 0, 1.4), 1, (0, 0, 0), 0.4)
-
-    tName      = bpy.data.objects.get("t_name")
-    tElevation = bpy.data.objects.get("t_elevation")
-    tLength    = bpy.data.objects.get("t_length")
-    tDuration  = bpy.data.objects.get("t_duration")
-
-    # Scale text to physical mm values
-    bpy.context.view_layer.update()
-    current_height = tName.dimensions.y
-    if current_height == 0:
-        current_height = tElevation.dimensions.y
-    if current_height == 0:
-        current_height = tLength.dimensions.y
-    if current_height == 0:
-        current_height = 5
-
-    scale_factor_title = textSize2 / current_height
-    tName.scale.x *= scale_factor_title
-    tName.scale.y *= scale_factor_title
-
-    scale_factor = textSize / current_height
-    tElevation.scale.x *= scale_factor
-    tLength.scale.x    *= scale_factor
-    tDuration.scale.x  *= scale_factor
-    tElevation.scale.y *= scale_factor
-    tLength.scale.y    *= scale_factor
-    tDuration.scale.y  *= scale_factor
-
-    bpy.ops.object.select_all(action='DESELECT')
-    tName.select_set(True)
-    tElevation.select_set(True)
-    tLength.select_set(True)
-    tDuration.select_set(True)
-    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-
-    titlefield  = replaceShapeText(titlefield,  tName)
-    textfield1  = replaceShapeText(textfield1,  tLength)
-    textfield2  = replaceShapeText(textfield2,  tElevation)
-    textfield3  = replaceShapeText(textfield3,  tDuration)
-
-    icon0 = textIcon(titleIcon,   tName,      plateObj, False, textSize2)
-    icon1 = textIcon(iconString1, tLength,    plateObj, False, textSize)
-    icon2 = textIcon(iconString2, tElevation, plateObj, False, textSize)
-    icon3 = textIcon(iconString3, tDuration,  plateObj, False, textSize)
-
-    text_group = {
-        "t_name":      (tName,      icon0),
-        "t_length":    (tLength,    icon1),
-        "t_elevation": (tElevation, icon2),
-        "t_duration":  (tDuration,  icon3),
-    }
-
-    # Convert each label to a mesh, fold its icon (still flat) into it, then
-    # bend the combined flat unit into an arc as one rigid piece.
-    for text_name, base_deg in text_specs:
-        txt_obj, icon = text_group[text_name]
-
-        convert_text_to_mesh(text_name, plateObj.name, False)
-
-        # Bake the icon-accommodation shift (appendTextIcon nudges the text
-        # object sideways to make room for the icon) into the mesh and
-        # zero out the object transform. The wrap below treats local
-        # coordinates as final world-space coordinates, so a leftover
-        # object.location here would silently offset the whole label away
-        # from the ring. Measure the text's own center now, before the
-        # icon is joined in, so the icon's shape can't skew it.
-        bpy.ops.object.select_all(action='DESELECT')
-        txt_obj.select_set(True)
-        bpy.context.view_layer.objects.active = txt_obj
-        bpy.ops.object.transform_apply(location=True, rotation=False, scale=False)
-
-        bm = bmesh.new()
-        bm.from_mesh(txt_obj.data)
-        xs = [v.co.x for v in bm.verts]
-        ys = [v.co.y for v in bm.verts]
-        anchor_x = (min(xs) + max(xs)) / 2 if xs else 0.0
-        anchor_y = (min(ys) + max(ys)) / 2 if ys else 0.0
-        bm.free()
-
-        if icon is not None:
-            bpy.ops.object.select_all(action='DESELECT')
-            icon.select_set(True)
-            txt_obj.select_set(True)
-            bpy.context.view_layer.objects.active = txt_obj
-            bpy.ops.object.join()
-
-        angle_deg = base_deg + text_angle_preset
-        # Strict > (not >=) so the two fields that now sit exactly on the
-        # left/right cardinal points (180°/0°, sin == 0) fall in with the
-        # rest of the bottom arc's "lower" convention rather than flipping
-        # to match the title's "upper" one right at that boundary.
-        upper = math.sin(math.radians(angle_deg)) > 0
-        wrap_mesh_around_circle(txt_obj, text_radius, math.radians(angle_deg), upper, anchor_x, anchor_y)
-        transform_MapObject(txt_obj, centerx, centery)
-
-    bpy.ops.object.select_all(action='DESELECT')
-    tName.select_set(True)
-    tElevation.select_set(True)
-    tLength.select_set(True)
-    tDuration.select_set(True)
-    bpy.context.view_layer.objects.active = tName
-    bpy.ops.object.join()
-    bpy.ops.object.origin_set(type='ORIGIN_CURSOR', center='MEDIAN')
-
-    tName.name    = name + "_Text"
-    plateObj.name = name + "_Plate"
-
-    tName.location.z    += plateThickness
-    plateObj.location.z += plateThickness
-
-    # Shape rotation applied to plate
-    plateObj.rotation_euler[2] += shapeRotation * (3.14159265 / 180)
-    plateObj.select_set(True)
-    bpy.context.view_layer.objects.active = plateObj
-    bpy.ops.object.transform_apply(location=False, rotation=True, scale=False)
-    bpy.ops.object.origin_set(type='ORIGIN_CURSOR', center='MEDIAN')
-
-    return tName, plateObj
-
-
 def BottomText(obj):
 
     from . import transform_MapObject  # deferred to avoid circular import at load time
 
-    name = obj.name
-    if "objSize" in obj:
-        size = obj["objSize"]
-    else:
+    # Drop Blender's duplicate-name suffix (".001", ".002", ...) so a piece
+    # renamed "A1.001" on collision is still marked "A1".
+    name = re.sub(r"\.\d{3,}$", "", obj.name)
+    if "objSize" not in obj:
         return
 
         # Place text objects
-    text_size = (size / 10)
+    text_size = size / 10
 
+    tName = create_text("t_name", "Name", (0, 0, 1.1), text_size)
 
-
-    tName = create_text("t_name", "Name", (0, 0,1.1),text_size)
-
-
+    # obj.location -- for puzzle/sliding-puzzle pieces this is each piece's
+    # own regularly-spaced RASTER cell center (cut_into_puzzle_pieces /
+    # cut_into_sliding_puzzle_pieces re-home the origin there via
+    # set_origin_to_3d_cursor), not that piece's own bounding-box center --
+    # a jigsaw piece's actual shape is skewed off-center by its own tabs/
+    # blanks bulging asymmetrically into its neighbors, so the bbox center
+    # would place the mark off to one side instead of centered on the cell.
     cx = obj.location.x
     cy = obj.location.y
 
@@ -1341,14 +374,63 @@ def BottomText(obj):
 
     tName.scale.x *= -1
 
-
     update_text_object("t_name", name)
 
     convert_text_to_mesh("t_name", obj.name, False)
 
+    if is_jigsaw:
+        verts = [(v.co.x, v.co.y) for v in tName.data.vertices]
+        vxs = [x for x, _y in verts]
+        vys = [y for _x, y in verts]
+        local_cx = (max(vxs) + min(vxs)) / 2
+        local_cy = (max(vys) + min(vys)) / 2
+
+        # One box per text line, relative to the block's own center, so a
+        # narrow line isn't held to a wider line's width. Lines are split at
+        # the widest Y band no edge crosses -- vertex heights alone aren't
+        # enough, a straight stem (e.g. "1") has none along its length.
+        line_groups = [verts]
+        if "\n" in mark_text:
+            spans = sorted(
+                (min(verts[a][1], verts[b][1]), max(verts[a][1], verts[b][1]))
+                for a, b in (e.vertices for e in tName.data.edges)
+            )
+            best_gap, split_y = 0.0, None
+            reach = spans[0][1] if spans else 0.0
+            for lo_y, hi_y in spans[1:]:
+                if lo_y - reach > best_gap:
+                    best_gap, split_y = lo_y - reach, (lo_y + reach) / 2
+                reach = max(reach, hi_y)
+            if split_y is not None:
+                line_groups = [[p for p in verts if p[1] > split_y],
+                               [p for p in verts if p[1] <= split_y]]
+        rects = []
+        for group in line_groups:
+            gxs = [x for x, _y in group]
+            gys = [y for _x, y in group]
+            rects.append((
+                -((max(gxs) + min(gxs)) / 2 - local_cx),  # X mirrored in world
+                (max(gys) + min(gys)) / 2 - local_cy,
+                (max(gxs) - min(gxs)) / 2,
+                (max(gys) - min(gys)) / 2,
+            ))
+
+        fit = _fit_jigsaw_mark(obj, rects, cx, cy, size)
+        if fit is None:
+            # No clean spot found (degenerate piece) -- fall back to a fixed
+            # size at the cell center.
+            fit = (size / 8, cx, cy)
+        s, px, py = fit
+        # Scale is (-s, s, 1) -- X stays mirrored, so a local X offset lands
+        # at -s * local_cx in world space; shift the location to put the
+        # text's own bbox center exactly on (px, py).
+        tName.scale = (-s, s, 1)
+        tName.location.x = px + s * local_cx
+        tName.location.y = py - s * local_cy
+
     tName.name = name + "_Mark"
 
-    bpy.ops.object.select_all(action='DESELECT')
+    bpy.ops.object.select_all(action="DESELECT")
 
     tName.select_set(True)
 
@@ -1357,5 +439,9 @@ def BottomText(obj):
     mat = bpy.data.materials.get("TRAIL")
     tName.data.materials.clear()
     tName.data.materials.append(mat)
+
+    # Bake the mirrored X scale into the mesh; a negative scale flips normals.
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    recalculateNormals(tName)
 
     return tName

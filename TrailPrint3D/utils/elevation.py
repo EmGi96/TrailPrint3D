@@ -10,9 +10,12 @@ from datetime import datetime, timezone
 
 import bpy  # type: ignore
 import requests  # type: ignore
+from bpy.app.translations import pgettext_iface as _
+from bpy.app.translations import pgettext_rpt as _rpt
 
 from .. import constants as const
 from .. import progress as _progress
+from ..utils.dataclasses import GenerationContext
 
 
 def load_counter():
@@ -123,17 +126,6 @@ def cache_elevation(lat, lon, elevation, api_type="opentopodata"):
     """Cache elevation data"""
     key = f"{lat:.5f}_{lon:.5f}_{api_type}"
     const._elevation_cache[key] = elevation
-
-# Get real elevation for a point
-def get_elevation_single(lat, lon):
-    """Fetches real elevation for a single latitude and longitude using OpenTopoData."""
-
-    dataset = bpy.context.scene.tp3d.dataset
-
-    url = f"https://api.opentopodata.org/v1/{dataset}?locations={lat},{lon}"
-    response = requests.get(url).json()
-    elevation = response['results'][0]['elevation'] if 'results' in response else 0
-    return elevation
 
 def get_elevation_openTopoData(coords, lenv = 0, pointsDone = 0, progress_cb=None):
     """Fetches real elevation for each vertex using OpenTopoData with request batching."""
@@ -313,7 +305,7 @@ def parse_png_rgb_data(png_bytes):
         offset += 12 + length
 
         if chunk_type == b'IHDR':
-            width, height, bit_depth, color_type, _, _, _ = struct.unpack(">IIBBBBB", data)
+            width, height, bit_depth, color_type, _unused, _unused2, _unused3 = struct.unpack(">IIBBBBB", data)
             assert bit_depth == 8 and color_type == 2, "Only 8-bit RGB PNGs supported"
         elif chunk_type == b'IDAT':
             idat_data += data
@@ -325,6 +317,8 @@ def parse_png_rgb_data(png_bytes):
     rgb_array = []
     prev_row = bytearray(stride)
 
+    if height is None:
+        return
     for y in range(height):
         i = y * (stride + 1)
         filter_type = raw[i]
@@ -353,7 +347,7 @@ def parse_png_rgb_data(png_bytes):
                 c = prev_row[i - 3] if i >= 3 else 0
                 recon[i] = (scanline[i] + paeth_predictor(a, b, c)) % 256
         else:
-            raise ValueError(f"Unsupported filter type {filter_type}")
+            raise ValueError(_("Unsupported filter type %s") % filter_type)
 
         # Convert scanline to list of (R, G, B) tuples
         row = [(recon[i], recon[i+1], recon[i+2]) for i in range(0, stride, 3)]
@@ -367,13 +361,10 @@ def terrarium_pixel_to_elevation(r, g, b):
     """Convert Terrarium RGB pixel to elevation in meters."""
     return (r * 256 + g + b / 256) - 32768
 
-def get_elevation_TerrainTiles(coords, lenv=0, pointsDone=0, zoom=10, progress_cb=None):
+def get_elevation_TerrainTiles(bounds, coords, lenv=0, pointsDone=0, zoom=10, progress_cb=None):
 
     num_subdivisions = bpy.context.scene.tp3d.num_subdivisions
-    minLat = bpy.context.scene.tp3d.minLat
-    minLon = bpy.context.scene.tp3d.minLon
-    maxLat = bpy.context.scene.tp3d.maxLat
-    maxLon = bpy.context.scene.tp3d.maxLon
+    minLat, maxLat, minLon, maxLon = bounds
 
     from .geo import haversine  # deferred to avoid circular import at load time
 
@@ -413,10 +404,10 @@ def get_elevation_TerrainTiles(coords, lenv=0, pointsDone=0, zoom=10, progress_c
                 progress_cb(percent_complete)
         try:
             png_bytes = fetch_terrarium_tile_raw(zoom, xtile, ytile)
-            rgb_array = parse_png_rgb_data(png_bytes)
+            rgb_array:list[list[tuple[int, int]]] = parse_png_rgb_data(png_bytes)
         except (requests.RequestException, OSError, AssertionError, ValueError, struct.error, zlib.error) as e:
             print(f"Failed to fetch or parse tile {zoom}/{xtile}/{ytile}: {e}")
-            for idx, _, _ in idx_lat_lon_list:
+            for idx, _lat, _long in idx_lat_lon_list:
                 elevations[idx] = 0
             continue
 
@@ -426,11 +417,6 @@ def get_elevation_TerrainTiles(coords, lenv=0, pointsDone=0, zoom=10, progress_c
             py = min(max(py, 0), 255)
             r, g, b = rgb_array[py][px]
             temp_ele = terrarium_pixel_to_elevation(r, g, b)
-            #if temp_ele < -50:
-            #    temp_ele = -1
-            #    buggyDataset = 1
-            #    invalidElevations += 1
-            #    bpy.context.scene.tp3d.buggyDataset = buggyDataset
             elevations[idx] = temp_ele
     
 
@@ -447,7 +433,14 @@ def fetch_mapterhorn_tile_path(zoom, xtile, ytile):
     tile_path = os.path.join(const.terrarium_cache_dir, f"mapterhorn_{zoom}_{xtile}_{ytile}.webp")
     if not os.path.exists(tile_path) or disableCache:
         url = f"https://tiles.mapterhorn.com/{zoom}/{xtile}/{ytile}.webp"
-        response = requests.get(url)
+        # A single 512px tile should return almost instantly -- this timeout
+        # is just to stop a stalled connection (e.g. right after another
+        # tile's request got dropped mid-batch) from hanging the whole
+        # elevation fetch forever. requests.exceptions.Timeout is a
+        # RequestException subclass, so the existing per-tile except clause
+        # in get_elevation_Mapterhorn already catches it the same way it
+        # catches a hard connection failure.
+        response = requests.get(url, timeout=20)
         response.raise_for_status()
         with open(tile_path, "wb") as f:
             f.write(response.content)
@@ -481,13 +474,10 @@ def parse_webp_rgb_data(webp_path):
     return rgb_array
 
 
-def get_elevation_Mapterhorn(coords, lenv=0, pointsDone=0, zoom=10, progress_cb=None):
+def get_elevation_Mapterhorn(bounds, coords, lenv=0, pointsDone=0, zoom=10, progress_cb=None):
     """Fetch elevation from Mapterhorn terrain tiles (512px WebP, Terrarium encoding)."""
     num_subdivisions = bpy.context.scene.tp3d.num_subdivisions
-    minLat = bpy.context.scene.tp3d.minLat
-    minLon = bpy.context.scene.tp3d.minLon
-    maxLat = bpy.context.scene.tp3d.maxLat
-    maxLon = bpy.context.scene.tp3d.maxLon
+    minLat, maxLat, minLon, maxLon = bounds
 
     from .geo import haversine
 
@@ -548,7 +538,7 @@ def get_elevation_Mapterhorn(coords, lenv=0, pointsDone=0, zoom=10, progress_cb=
 
         if tile_path is None:
             invalidElevations += len(idx_lat_lon_list)
-            for idx, _, _ in idx_lat_lon_list:
+            for idx, _lat, _long in idx_lat_lon_list:
                 elevations[idx] = 0
             continue
 
@@ -557,7 +547,7 @@ def get_elevation_Mapterhorn(coords, lenv=0, pointsDone=0, zoom=10, progress_cb=
         except (OSError, RuntimeError, ValueError, AttributeError) as e:
             print(f"Failed to parse Mapterhorn tile {actual_zoom}/{actual_xtile}/{actual_ytile}: {e}")
             invalidElevations += len(idx_lat_lon_list)
-            for idx, _, _ in idx_lat_lon_list:
+            for idx, _lat, _long in idx_lat_lon_list:
                 elevations[idx] = 0
             continue
 
@@ -624,13 +614,13 @@ def get_elevation_openTopography(coords, lenv=0, pointsDone=0, progress_cb=None)
         )
         if response.status_code == 401:
             _progress.WarningsOverlay.add_warning(
-                "OpenTopography: invalid or missing API key (401). "
-                "Get a free key at portal.opentopography.org", "error")
+                _rpt("OpenTopography: invalid or missing API key (401). "
+                "Get a free key at portal.opentopography.org", "error"))
             return [0.0] * len(coords)
         response.raise_for_status()
     except requests.exceptions.RequestException as e:
         _progress.WarningsOverlay.add_warning(
-            f"OpenTopography: request failed — {e}", "error")
+            _("OpenTopography: request failed — {e}", "error").format(e=e))
         return [0.0] * len(coords)
 
     if progress_cb:
@@ -643,7 +633,7 @@ def get_elevation_openTopography(coords, lenv=0, pointsDone=0, progress_cb=None)
             asc_name = next((n for n in zf.namelist() if n.lower().endswith('.asc')), None)
             if asc_name is None:
                 _progress.WarningsOverlay.add_warning(
-                    "OpenTopography: no .asc file found in ZIP response", "error")
+                    _rpt("OpenTopography: no .asc file found in ZIP response", "error"))
                 return [0.0] * len(coords)
             asc_data = zf.read(asc_name).decode('utf-8')
     except zipfile.BadZipFile:
@@ -652,13 +642,13 @@ def get_elevation_openTopography(coords, lenv=0, pointsDone=0, progress_cb=None)
             asc_data = content.decode('utf-8')
         except (UnicodeDecodeError, AttributeError) as e:
             _progress.WarningsOverlay.add_warning(
-                f"OpenTopography: could not decode response — {e}", "error")
+                _rpt("OpenTopography: could not decode response — {e}", "error").format(e=e))
             return [0.0] * len(coords)
         # Sanity-check: if it looks like an error page rather than a grid, bail out
         if 'ncols' not in asc_data[:500].lower():
             print(f"OpenTopography unexpected response: {asc_data[:300]}")
             _progress.WarningsOverlay.add_warning(
-                "OpenTopography: unexpected response format (check API key / bbox)", "error")
+                _rpt("OpenTopography: unexpected response format (check API key / bbox)", "error"))
             return [0.0] * len(coords)
 
     # --- Parse ASCII Grid header ---
@@ -715,70 +705,87 @@ def get_elevation_openTopography(coords, lenv=0, pointsDone=0, progress_cb=None)
     return elevations
 
 
-def get_elevation_path_openElevation(vertices):
-    """Fetches real elevation for each vertex using OpenTopoData with request batching."""
-    coords = [(v[0], v[1], v[2], v[3]) for v in vertices]
-    elevations = []
-    batch_size = 1000
-    for i in range(0, len(coords), batch_size):
-        batch = coords[i:i + batch_size]
-        # Open-Elevation expects a POST request with JSON body
-        payload = {"locations": [{"latitude": c[0], "longitude": c[1]} for c in batch]}
-        url = "https://api.open-elevation.com/api/v1/lookup"
-        last_request_time = time.monotonic()
+def get_elevation_localDem(coords, lenv=0, pointsDone=0, progress_cb=None):
+    """Sample elevation from a user-selected local GeoTIFF DEM file, or a folder of
+    tiled GeoTIFFs covering a larger area (e.g. a national survey's per-km grid),
+    with no internet required."""
+    if not coords:
+        return []
 
-        headers = {'Content-Type': 'application/json'}
+    demFilePath = bpy.context.scene.tp3d.demFilePath
+    if not demFilePath or not os.path.exists(demFilePath):
+        _progress.WarningsOverlay.add_warning(
+            _rpt("Local DEM: no file/folder selected or not found — set it under Advanced ▸ API"), "error")
+        return [0.0] * len(coords)
 
-        addition = f"(overwrite path) {i + len(batch)}/{len(coords)}"
-        send_api_request(addition)
+    if progress_cb:
+        progress_cb(10)
 
-        response = requests.post(url, json=payload, headers=headers)
+    # deferred to avoid import cost when unused
+    from .geotiff import (
+        GeoTiffError,
+        build_tile_index,
+        dem_contains_point,
+        read_geotiff,
+        sample_geotiff,
+        sample_tile_index,
+    )
 
-        response.raise_for_status()
+    if os.path.isdir(demFilePath):
+        index = build_tile_index(demFilePath)
+        if not index:
+            _progress.WarningsOverlay.add_warning(
+                _rpt("Local DEM: no readable GeoTIFF tiles found in file."), "error")
+            return [0.0] * len(coords)
 
-        data = response.json()
+        if progress_cb:
+            progress_cb(30)
 
-        elevations.extend([r['elevation'] for r in data['results']])
-        now = time.monotonic()
-        elapsed_time = now - last_request_time
-        if i + batch_size < len(coords) and elapsed_time < 1.4:
-            time.sleep(1.4 - elapsed_time)  # Pause to prevent request throttling
+        cache = {}
+        elevations = []
+        missing = 0
+        for lat, lon in coords:
+            value = sample_tile_index(index, lat, lon, cache)
+            if value is None:
+                missing += 1
+                value = 0.0
+            elevations.append(value)
 
-    for i in range(len(vertices)):
-        coords[i] =  (coords[i][0], coords[i][1], elevations[i], coords[i][3])
+        if missing:
+            print(f"Local DEM: {missing} of {len(coords)} points fell outside every tile in the folder (sampled as 0.0)")
+            _progress.WarningsOverlay.add_warning(
+                _rpt("There was an error, see console for details."), "warn")
 
-    return coords
+        if progress_cb:
+            progress_cb(100)
 
-def get_elevation_path_openTopoData(vertices):
+        print(f"Local DEM: sampled {len(elevations)} elevations using {len(cache)}/{len(index)} tiles "
+              f"from folder {os.path.basename(demFilePath.rstrip(os.sep))}")
+        return elevations
 
-    opentopoAdress = bpy.context.scene.tp3d.opentopoAdress
-    dataset = bpy.context.scene.tp3d.dataset
+    try:
+        dem = read_geotiff(demFilePath)
+    except (GeoTiffError, OSError, struct.error, zlib.error) as e:
+        _progress.WarningsOverlay.add_warning(_rpt("There was an error, please see the console for details."), "error")
+        print(f"Local DEM: {e}")
+        return [0.0] * len(coords)
 
-    print("Getting elevation")
-    """Fetches real elevation for each vertex using OpenTopoData with request batching."""
-    coords = [(v[0], v[1], v[2], v[3]) for v in vertices]
-    elevations = []
-    batch_size = 100
-    for i in range(0, len(coords), batch_size):
-        batch = coords[i:i + batch_size]
-        query = "|".join([f"{c[0]},{c[1]}" for c in batch])
-        url = f"{opentopoAdress}{dataset}?locations={query}"
-        last_request_time = time.monotonic()
-        response = requests.get(url).json()
-        addition = f"(overwrite path) {i + len(batch)}/{len(coords)}"
-        send_api_request(addition)
+    if progress_cb:
+        progress_cb(50)
 
-        elevations.extend([r.get('elevation') or 0 for r in response['results']])
+    missing = sum(1 for lat, lon in coords if not dem_contains_point(dem, lat, lon))
+    elevations = [sample_geotiff(dem, lat, lon) for lat, lon in coords]
 
-        now = time.monotonic()
-        elapsed_time = now - last_request_time
-        if i + batch_size < len(coords) and elapsed_time < 1.4:
-            time.sleep(1.4 - elapsed_time)  # Pause to prevent request throttling
+    if missing:
+        print(f"Local DEM: {missing} of {len(coords)} points fell outside the DEM file's coverage (edge-clamped) — you're generating outside this dataset")
+        _progress.WarningsOverlay.add_warning(
+            _rpt("There was an error, see console for details."), "warn")
 
-    for i in range(len(vertices)):
-        coords[i] =  (coords[i][0], coords[i][1], elevations[i], coords[i][3])
+    if progress_cb:
+        progress_cb(100)
 
-    return coords
+    print(f"Local DEM: sampled {len(elevations)} elevations from {dem['width']}x{dem['height']} grid ({os.path.basename(demFilePath)})")
+    return elevations
 
 
 def _elevation_results_key(minLat, maxLat, minLon, maxLon, api, num_subdivisions):
@@ -842,8 +849,11 @@ def fix_invalid_elevations(elevations):
     return fixed, count
 
 
-def compute_and_store_tile_bounds(obj):
+def compute_and_store_tile_bounds(gen_or_obj):
     """Compute geographic bounds from obj's mesh and write them to tp3d.
+
+    Accepts either a GenerationContext (preferred) or a bare bpy Object for
+    backward compatibility with callers that predate the gen refactor.
 
     Returns (world_verts, num_subdivisions, disable_cache, minLat, maxLat, minLon, maxLon).
     """
@@ -851,7 +861,8 @@ def compute_and_store_tile_bounds(obj):
         convert_to_geo,
         haversine,
     )
-
+    gen = gen_or_obj if isinstance(gen_or_obj, GenerationContext) else None
+    obj = gen.runtime.mapObject if gen is not None else gen_or_obj
     mesh = obj.data
     vertices = list(mesh.vertices)
     obj_matrix = obj.matrix_world
@@ -877,16 +888,29 @@ def compute_and_store_tile_bounds(obj):
     realdist1 = haversine(minLat, minLon, maxLat, maxLon)
     realdist2 = haversine(minLat, minLon, maxLat, maxLon)
 
-    bpy.context.scene.tp3d["sMapInKm"] = max(realdist1, realdist2)
-    bpy.context.scene.tp3d.minLat = minLat
-    bpy.context.scene.tp3d.maxLat = maxLat
-    bpy.context.scene.tp3d.minLon = minLon
-    bpy.context.scene.tp3d.maxLon = maxLon
+    if gen is not None:
+        gen.runtime.mapKm = max(realdist1, realdist2)
+        gen.runtime.tbMinLat = minLat
+        gen.runtime.tbMaxLat = maxLat
+        gen.runtime.tbMinLon = minLon
+        gen.runtime.tbMaxLon = maxLon
 
     return world_verts, num_subdivisions, disable_cache, minLat, maxLat, minLon, maxLon
 
 
-def get_tile_elevation(obj, progress_cb=None):
+def get_tile_elevation(gen_or_obj, progress_cb=None):
+    """Fetch terrain elevation for all mesh vertices and return (elevations, diff).
+
+    Accepts either a GenerationContext (preferred — stores results directly into
+    gen.runtime.tileVerts and gen.runtime.elDiff) or a bare bpy Object for backward compatibility
+    with callers that predate the ctx refactor (operators, io_geojson, ctfs path).
+    """
+    if isinstance(gen_or_obj, GenerationContext):
+        gen = gen_or_obj
+        obj = gen.runtime.mapObject
+    else:
+        gen = None
+        obj = gen_or_obj
 
     mesh = obj.data
     api = bpy.context.scene.tp3d.api
@@ -896,7 +920,7 @@ def get_tile_elevation(obj, progress_cb=None):
     # Set chunk size based on API
     if api == "OPENTOPODATA" or api == "OPEN-ELEVATION":
         chunk_size = 100000
-    elif api == "TERRAIN-TILES" or api == "OPENTOPOGRAPHY":
+    elif api == "TERRAIN-TILES" or api == "MAPTERHORN" or api == "OPENTOPOGRAPHY" or api == "LOCAL_DEM":
         chunk_size = 50000000   # single request for all verts
     else:
         chunk_size = 100000  # fallback
@@ -921,7 +945,9 @@ def get_tile_elevation(obj, progress_cb=None):
                     _fixed_count = 0
                 if _fixed_count > 0:
                     print(f"Fixed {_fixed_count} invalid cached elevation value(s)")
-                    bpy.context.scene.tp3d.buggyDataset = 1
+                    gen.runtime.buggyData = 1
+                    if gen is not None:
+                        gen.runtime.buggyData = 1
                 lowestElevation = min(elevations)
                 highestElevation = max(elevations)
                 additionalExtrusion = lowestElevation
@@ -930,6 +956,9 @@ def get_tile_elevation(obj, progress_cb=None):
                 bpy.context.scene.tp3d.lowestElevation = lowestElevation
                 bpy.context.scene.tp3d.highestElevation = highestElevation
                 bpy.context.scene.tp3d.sAdditionalExtrusion = additionalExtrusion
+                if gen is not None:
+                    gen.runtime.tileVerts = elevations
+                    gen.runtime.elDiff = diff
                 return elevations, diff
             else:
                 print(f"Elevation cache vertex count mismatch ({len(elevations)} vs {len(world_verts)}) — refetching")
@@ -947,11 +976,13 @@ def get_tile_elevation(obj, progress_cb=None):
         elif api == "OPEN-ELEVATION":
             chunk_elevations = get_elevation_openElevation(coords, len(world_verts), i, progress_cb=progress_cb)
         elif api == "TERRAIN-TILES":
-            chunk_elevations = get_elevation_TerrainTiles(coords, len(world_verts), i, progress_cb=progress_cb)
+            chunk_elevations = get_elevation_TerrainTiles((minLat, maxLat, minLon, maxLon), coords, len(world_verts), i, progress_cb=progress_cb)
         elif api == "MAPTERHORN":
-            chunk_elevations = get_elevation_Mapterhorn(coords, len(world_verts), i, progress_cb=progress_cb)
+            chunk_elevations = get_elevation_Mapterhorn((minLat, maxLat, minLon, maxLon), coords, len(world_verts), i, progress_cb=progress_cb)
         elif api == "OPENTOPOGRAPHY":
             chunk_elevations = get_elevation_openTopography(coords, len(world_verts), i, progress_cb=progress_cb)
+        elif api == "LOCAL_DEM":
+            chunk_elevations = get_elevation_localDem(coords, len(world_verts), i, progress_cb=progress_cb)
         else:
             chunk_elevations = [0.0] * len(chunk)  # fallback
 
@@ -966,7 +997,8 @@ def get_tile_elevation(obj, progress_cb=None):
         _fixed_count = 0
     if _fixed_count > 0:
         print(f"Fixed {_fixed_count} invalid elevation value(s)")
-        bpy.context.scene.tp3d.buggyDataset = 1
+        if gen is not None:
+            gen.runtime.buggyData = 1
 
     save_elevation_cache()
 
@@ -995,5 +1027,8 @@ def get_tile_elevation(obj, progress_cb=None):
     bpy.context.scene.tp3d.lowestElevation = lowestElevation
     bpy.context.scene.tp3d.highestElevation = highestElevation
     bpy.context.scene.tp3d.sAdditionalExtrusion = additionalExtrusion
+    if gen is not None:
+        gen.runtime.tileVerts = elevations
+        gen.runtime.elDiff = diff
 
     return elevations, diff

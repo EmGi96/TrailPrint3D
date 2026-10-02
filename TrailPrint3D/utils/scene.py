@@ -4,6 +4,7 @@ import webbrowser
 
 import bmesh  # type: ignore
 import bpy  # type: ignore
+from bpy.app.translations import pgettext_iface as _
 from mathutils import Vector, bvhtree  # type: ignore
 
 
@@ -19,8 +20,8 @@ def transform_MapObject(obj, newX, newY):
 
 def zoom_camera_to_objects(objs):
     """Select every object in *objs* and zoom the 3D viewport to fit all of
-    them -- the multi-object counterpart of zoom_camera_to_selected, for
-    results made of several separate objects (e.g. puzzle pieces) where
+    them. Pass a one-item list for a single object; for results made of
+    several separate objects (e.g. puzzle pieces) pass them all, since
     fitting to just one would zoom in too far and miss the rest."""
     objs = [o for o in (objs or []) if o is not None]
     if not objs:
@@ -45,10 +46,6 @@ def zoom_camera_to_objects(objs):
         bpy.ops.view3d.view_selected(use_all_regions=False)
 
 
-def zoom_camera_to_selected(obj):
-    zoom_camera_to_objects([obj])
-
-
 def set_origin_to_3d_cursor(tobj=None):
     if tobj is None:
         tobj = bpy.context.active_object
@@ -59,28 +56,6 @@ def set_origin_to_3d_cursor(tobj=None):
     tobj.select_set(True)
     bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
 
-
-def set_origin_to_3d_cursor_objects(objs):
-    """Select every object in *objs* and set ALL their origins to the 3D
-    cursor in one call -- the multi-object counterpart of
-    set_origin_to_3d_cursor, for results made of several separate objects
-    (e.g. puzzle pieces), matching the pattern zoom_camera_to_objects uses."""
-    objs = [o for o in (objs or []) if o is not None]
-    if not objs:
-        return
-    try:
-        _ = objs[0].select_set  # raises ReferenceError if the object was freed
-    except ReferenceError:
-        return
-
-    bpy.ops.object.select_all(action='DESELECT')
-    for o in objs:
-        try:
-            o.select_set(True)
-        except ReferenceError:
-            continue
-    bpy.context.view_layer.objects.active = objs[0]
-    bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
 
 def set_origin_to_geometry(tobj=None):
     if tobj is None:
@@ -140,7 +115,7 @@ def get_random_world_vertices(obj, count=5):
 def get_object_surface_area(obj, apply_modifiers=True, z_threshold = 0.00):
 
     if obj.type != 'MESH':
-        raise TypeError(f"Object '{obj.name}' is not a mesh.")
+        raise TypeError(_("Object '{name}' is not a mesh.").format(name=obj.name))
 
     obj_eval = None
     if apply_modifiers:
@@ -278,7 +253,7 @@ def setOriginToTerrainFace(obj,tol=0.1,seed=None,max_tries=200):
 def closest_distance_between_objects(obj_a, obj_b, apply_modifiers=True):
 
     if obj_a.type != 'MESH' or obj_b.type != 'MESH':
-        raise TypeError("Both objects must be mesh objects")
+        raise TypeError(_("Both objects must be mesh objects"))
 
     depsgraph = bpy.context.evaluated_depsgraph_get()
 
@@ -316,7 +291,7 @@ def closest_distance_between_objects(obj_a, obj_b, apply_modifiers=True):
         hit = bvh_a.find_nearest(world_co)
 
         if hit:
-            _, _, _, dist = hit
+            _unused, _unused2, _unused3, dist = hit
             if dist < min_dist:
                 min_dist = dist
                 if min_dist == 0.0:
@@ -385,14 +360,6 @@ def show_message_box(message, ic = "ERROR", ti = "ERROR"):
     print(message)
     if not bpy.app.background:
         bpy.context.window_manager.popup_menu(draw, title=ti, icon=ic)
-
-
-def toggle_console():
-    try:
-        if platform.system() == "Windows":
-            bpy.ops.wm.console_toggle()
-    except RuntimeError as e:
-        print(f"Could not toggle console: {e}")
 
 
 def importSVGtoMerge(Mapobject):

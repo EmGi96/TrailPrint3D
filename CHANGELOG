@@ -1,3 +1,33 @@
+Version 3.3
+Upcoming
+
+Added: Quick Access button for all Generators at the Top bar
+Added: Single Tile Map Generator
+Added: GeoJson import for Multi Tile Generator to create multitile maps with custom shapes (e.g Country Maps)
+Added: Quick Toggle of elements inside the Generator pages
+Added: Settings menu inside the Element pages
+Added: Building and Road compatibility for Puzzles (By Clonephaze)
+Added: Single Color mode compatibility for Roads (By Clonephaze)
+Added: Trail Height can be Configured in Single Color mode (By Clonephaze)
+Added: 'ESA WorldCover' Element Source — colors the terrain from land-cover classification instead of individual OSM element toggles, with per-category color toggles
+Added: 'Create a texture' option — bakes element/road/trail colors into a paint texture (requires 3mf addon) (by Clonphaze)
+Added: Sliding Puzzle Generator, with text and Terrain-on-Frame options (Premium)
+Added: Pin Socket cutting — carves a socket for the placed pin into the terrain and surrounding elements
+Added: GeoJSON boundary import to the Single Tile Map Generator
+Added: OSM building can now show roof shapes (By Clonephaze)
+Added: OSM polygon smoothing control (Taubin smoothing) (By Clonephaze)
+Added: GeoJSON and SVG file import as custom map outline Shapes (By Clonephaze)
+Added: Option to smooth Terrain when elevation data hits the API's resolution limit
+Changed: Increased maximum River Width and Road Width Multiplier from 10 to 100
+Changed: Longitude now wraps at any magnitude in the map pickers, allowing continuous panning
+Changed: 3MF export now supports slicer profiles and custom filenames (By Clonephaze)
+Fixed: Clicking a draw-mode toggle button no longer also starts drawing behind it, and switching mode after clicking Draw (before placing the shape) now actually uses the new mode
+Fixed: Puzzle Generator ignoring the configured Map Size
+Fixed: Buildings floating in the air or disappearing on steep faces
+Fixed: Imported GeoJSON/SVG shapes were stretched from a missing Mercator projection and rendered at half their intended size
+Fixed: Roads going completely through the map in Separate-Objects/Single-Color mode
+Fixed: Map view restoration order causing state loss on reopen, and the wrong generator page opening in the premium version
+-----------------------------
 Version 3.2.1
 03.08.2026
 

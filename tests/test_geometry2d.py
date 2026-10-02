@@ -10,7 +10,7 @@ Covers:
   - xy_ring_to_polygon() — ring -> Polygon construction
   - map_footprint_polygon() / footprint_with_holes() — bmesh-object-driven
     footprint extraction (needs real bpy mesh objects)
-  - _earcut_triangulate() / polygon_to_mesh() — polygon-with-holes
+  - _cdt_triangulate() / polygon_to_mesh() — polygon-with-holes
     triangulation and Blender mesh creation
 
 Run with:
@@ -407,24 +407,28 @@ def test_footprint_with_holes_non_mesh_returns_none():
 
 
 # ---------------------------------------------------------------------------
-# _earcut_triangulate() / polygon_to_mesh()
+#  _cdt_triangulate() / polygon_to_mesh()
 # ---------------------------------------------------------------------------
 
-def test_earcut_triangulate_square_no_holes():
+def test_cdt_triangulate_square_no_holes():
+    from shapely.geometry import Polygon
     exterior = [(0, 0), (10, 0), (10, 10), (0, 10)]
-    result = g2d._earcut_triangulate(exterior, [])
+    polygon = Polygon(exterior)
+    result = g2d._cdt_triangulate(polygon, exterior, [])
     assert result is not None
-    verts2d, tris = result
+    verts2d, tris, ring_idx_lists = result
     assert len(verts2d) == 4
-    assert len(tris) == 2  # a square earcuts into exactly 2 triangles
+    assert len(tris) == 2  # a square triangulates into exactly 2 triangles
 
 
-def test_earcut_triangulate_with_hole():
+def test_cdt_triangulate_with_hole():
+    from shapely.geometry import Polygon
     exterior = [(0, 0), (10, 0), (10, 10), (0, 10)]
     hole = [(4, 4), (6, 4), (6, 6), (4, 6)]
-    result = g2d._earcut_triangulate(exterior, [hole])
+    polygon = Polygon(exterior, [hole])
+    result = g2d._cdt_triangulate(polygon, exterior, [hole])
     assert result is not None
-    verts2d, tris = result
+    verts2d, tris, ring_idx_lists = result 
     assert len(verts2d) == 8  # 4 outer + 4 hole verts, shared by index
     assert len(tris) > 2  # more triangles needed to route around the hole
 
@@ -505,8 +509,8 @@ if __name__ == "__main__":
     _run("footprint_with_holes: preserves interior hole", test_footprint_with_holes_preserves_interior_hole)
     _run("footprint_with_holes: non-mesh -> None", test_footprint_with_holes_non_mesh_returns_none)
 
-    _run("_earcut_triangulate: square, no holes", test_earcut_triangulate_square_no_holes)
-    _run("_earcut_triangulate: with hole", test_earcut_triangulate_with_hole)
+    _run("_cdt_triangulate: square, no holes", test_cdt_triangulate_square_no_holes)
+    _run("_cdt_triangulate: with hole", test_cdt_triangulate_with_hole)
     _run("polygon_to_mesh: simple polygon", test_polygon_to_mesh_simple_polygon)
     _run("polygon_to_mesh: polygon with hole", test_polygon_to_mesh_polygon_with_hole)
     _run("polygon_to_mesh: empty/None -> None", test_polygon_to_mesh_empty_polygon_returns_none)
