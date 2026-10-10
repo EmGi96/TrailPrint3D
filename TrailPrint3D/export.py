@@ -275,11 +275,10 @@ def export_selected_to_3mf(
         # Only top‑level objects get parented to the root; children keep their original parent
         top_level = [obj for obj in duplicates if obj.parent is None]
         for obj in top_level:
+            world_matrix = obj.matrix_world.copy()
             obj.parent = root_empty
-            # Adjust inverse matrix so world transform stays unchanged
-            obj.matrix_parent_inverse = (
-                root_empty.matrix_world.inverted() @ obj.matrix_world
-            )
+            obj.matrix_parent_inverse = root_empty.matrix_world.inverted()
+            obj.matrix_world = world_matrix
 
         export_roots = [root_empty]  # only one root object to export
 
