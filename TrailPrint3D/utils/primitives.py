@@ -300,6 +300,36 @@ def create_heart(size, num_subdivisions = 1, name = "Heart"):
 
     return obj
 
+def _snap_outline_to_circle(mesh, num_segments):
+    """Push a flat disk built on a regular `num_segments`-gon onto the true circle.
+
+    The disk's outline is only a polygon: subdividing its edges adds vertices
+    along the straight sides, so the outline keeps `num_segments` visible
+    corners no matter how fine the grid gets. Scaling every vertex radially by
+    cos(angle - sector middle) / cos(pi / num_segments) lands the outline
+    exactly on the circle (the polygon's corners don't move), and the inside
+    follows proportionally, with no change to vertex count or topology.
+    """
+    import numpy as np  # deferred: only needed here
+
+    n = len(mesh.vertices)
+    if n == 0 or num_segments < 3:
+        return
+    co = np.empty(n * 3, dtype=np.float64)
+    mesh.vertices.foreach_get('co', co)
+    co = co.reshape(n, 3)
+
+    sector = 2.0 * math.pi / num_segments
+    angle = np.arctan2(co[:, 1], co[:, 0]) % (2.0 * math.pi)
+    middle = (np.floor(angle / sector) + 0.5) * sector
+    factor = np.cos(angle - middle) / math.cos(sector / 2.0)
+    co[:, 0] *= factor
+    co[:, 1] *= factor
+
+    mesh.vertices.foreach_set('co', co.ravel())
+    mesh.update()
+
+
 def create_circle(radius, num_subdivisions = 1, name = "Circle", num_segments=64):
     _t_start = time.time()
 
@@ -366,6 +396,7 @@ def create_circle(radius, num_subdivisions = 1, name = "Circle", num_segments=64
     # Switch back to Object Mode
     _t = time.time()
     bpy.ops.object.mode_set(mode='OBJECT')
+    _snap_outline_to_circle(obj.data, num_segments)
     print(f"  [circle] total: {time.time()-_t_start:.3f}s")
 
     return obj
@@ -434,6 +465,10 @@ def create_ellipse(radius, num_subdivisions = 1, name = "Ellipse", aspect_ratio 
     # Switch back to Object Mode
     _t = time.time()
     bpy.ops.object.mode_set(mode='OBJECT')
+
+    # Still a unit-aspect disk here (stretched into an ellipse just below), so
+    # the same radial fix puts the outline on the true ellipse afterwards.
+    _snap_outline_to_circle(obj.data, num_segments)
 
     obj.scale.y *= aspect_ratio
 
