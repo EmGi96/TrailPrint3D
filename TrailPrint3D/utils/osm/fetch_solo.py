@@ -5,15 +5,11 @@ import os
 import time
 
 import bpy  # type: ignore
-from bpy.app.translations import pgettext_iface as _
-from bpy.app.translations import pgettext_rpt as _rpt
 
 from ... import constants as const
 from ... import progress as _progress
 from ..geo import convert_to_blender_coordinates_batch
-from .bbox_snap import snap as snap_bbox
-from .exclusions import filter_excluded
-from .fetch_utils import _overpass_request, requested_highway_tags, resolve_road_tiers
+from .fetch_utils import _overpass_request
 
 
 def fetch_osm_data(
@@ -38,20 +34,28 @@ def fetch_osm_data(
         disableCache = settings.disable_cache
         apiRetries = settings.api_retries
         mapsize = settings.mapsize
+        road_big = settings.road_big
+        road_med = settings.road_med
+        road_small = settings.road_small
         water_ponds = settings.water_ponds
         water_small_rivers = settings.water_small_rivers
         water_big_rivers = settings.water_big_rivers
         exclude_alleys = settings.exclude_alleys
+        road_footways = settings.road_footways
+        road_service = settings.road_service
     else:
         disableCache = bpy.context.scene.tp3d.disableCache
         apiRetries = bpy.context.scene.tp3d.apiRetries
         mapsize = bpy.context.scene.tp3d.sMapInKm
-        _tp3d = bpy.context.scene.tp3d
-        water_ponds = bool(_tp3d.show_water and _tp3d.col_wBodiesActive)
-        water_small_rivers = bool(_tp3d.show_water and _tp3d.col_wMinorActive)
-        water_big_rivers = bool(_tp3d.show_water and _tp3d.col_wMajorActive)
-        exclude_alleys = True
-    road_tiers = resolve_road_tiers(settings)
+        road_big = bool(bpy.context.scene.tp3d.el_sBigActive)
+        road_med = bool(bpy.context.scene.tp3d.el_sMedActive)
+        road_small = bool(bpy.context.scene.tp3d.el_sSmallActive)
+        water_ponds = bool(bpy.context.scene.tp3d.col_wPondsActive)
+        water_small_rivers = bool(bpy.context.scene.tp3d.col_wSmallRiversActive)
+        water_big_rivers = bool(bpy.context.scene.tp3d.col_wBigRiversActive)
+        exclude_alleys = bool(bpy.context.scene.tp3d.el_sExcludeAlleys)
+        road_footways = bool(bpy.context.scene.tp3d.el_sFootwaysActive)
+        road_service = bool(bpy.context.scene.tp3d.el_sServiceActive)
 
     # Small/minor waterways are expensive on large maps -- drop them above
     # SMALL_RIVERS_MAXSIZE. Big (wikidata-tagged) rivers and ponds keep
@@ -64,7 +68,7 @@ def fetch_osm_data(
         return path
 
     def make_cache_key(bbox, kind):
-        south, west, north, east = snap_bbox(bbox)
+        south, west, north, east = bbox
         payload = {
             "bbox": [round(south, 7), round(west, 7), round(north, 7), round(east, 7)],
             "kind": kind,
@@ -77,7 +81,13 @@ def fetch_osm_data(
     if kind == "STREETS":
         cache_key = make_cache_key(
             bbox,
-            kind + str(sorted(road_tiers.items())) + str(exclude_alleys),
+            kind
+            + str(road_big)
+            + str(road_med)
+            + str(road_small)
+            + str(exclude_alleys)
+            + str(road_footways)
+            + str(road_service),
         )
     if kind == "WATER":
         cache_key = make_cache_key(
@@ -94,7 +104,7 @@ def fetch_osm_data(
         if age_hours < max_cache_age_hours:
             print("Cached Data found")
             with open(cache_path, "r", encoding="utf-8") as f:
-                data = filter_excluded(json.load(f))
+                data = json.load(f)
                 return (data, True) if return_cache_status else data
 
     south, west, north, east = bbox
@@ -128,10 +138,10 @@ def fetch_osm_data(
         """
 
     OSM_QUERY_BUILDERS = {
-        "WATER": lambda s, w, n, e, ponds=True, small_rivers=True, big_rivers=True, **ctx: (
-        _build_water_query(s, w, n, e, ponds, small_rivers, big_rivers)
+        "WATER": lambda s, w, n, e, ponds=True, small_rivers=True, big_rivers=True, **_: (
+            _build_water_query(s, w, n, e, ponds, small_rivers, big_rivers)
         ),
-        "FOREST": lambda s, w, n, e, **ctx: _simple_query(
+        "FOREST": lambda s, w, n, e, **_: _simple_query(
             s,
             w,
             n,
@@ -143,7 +153,7 @@ def fetch_osm_data(
                 'relation["landuse"="forest"]',
             ],
         ),
-        "SCREE": lambda s, w, n, e, **ctx: _simple_query(
+        "SCREE": lambda s, w, n, e, **_: _simple_query(
             s,
             w,
             n,
@@ -156,7 +166,7 @@ def fetch_osm_data(
                 'nwr["natural"="bare_rock"]',
             ],
         ),
-        "CITY": lambda s, w, n, e, **ctx: _simple_query(
+        "CITY": lambda s, w, n, e, **_: _simple_query(
             s,
             w,
             n,
@@ -166,7 +176,7 @@ def fetch_osm_data(
                 'relation["landuse"~"residential|urban|commercial|industrial"]',
             ],
         ),
-        "GREENSPACE": lambda s, w, n, e, **ctx: _simple_query(
+        "GREENSPACE": lambda s, w, n, e, **_: _simple_query(
             s,
             w,
             n,
@@ -184,7 +194,7 @@ def fetch_osm_data(
                 'relation["landuse"="village_green"]',
             ],
         ),
-        "FARMLAND": lambda s, w, n, e, **ctx: _simple_query(
+        "FARMLAND": lambda s, w, n, e, **_: _simple_query(
             s,
             w,
             n,
@@ -196,7 +206,7 @@ def fetch_osm_data(
                 'relation["landuse"="farmyard"]',
             ],
         ),
-        "GLACIER": lambda s, w, n, e, **ctx: _simple_query(
+        "GLACIER": lambda s, w, n, e, **_: _simple_query(
             s,
             w,
             n,
@@ -206,7 +216,7 @@ def fetch_osm_data(
                 'relation["natural"="glacier"]',
             ],
         ),
-        "COASTLINE": lambda s, w, n, e, **ctx: _simple_query(
+        "COASTLINE": lambda s, w, n, e, **_: _simple_query(
             s,
             w,
             n,
@@ -215,18 +225,19 @@ def fetch_osm_data(
                 'way["natural"="coastline"]',
             ],
         ),
-        "BUILDINGS": lambda s, w, n, e, **ctx: _simple_query(
+        "BUILDINGS": lambda s, w, n, e, **_: _simple_query(
             s,
             w,
             n,
             e,
             [
                 'nwr["building"]',
-                'nwr["building:part"]',
             ],
         ),
-        "STREETS": lambda s, w, n, e, mapsize=0, tier_active=None, exclude_alleys=True, **ctx: (
-            _build_streets_query(s, w, n, e, mapsize, tier_active, exclude_alleys)
+        "STREETS": lambda s, w, n, e, mapsize=0, big=True, med=True, small=False, exclude_alleys=True, footways=False, service=False, **_: (
+            _build_streets_query(
+                s, w, n, e, mapsize, big, med, small, exclude_alleys, footways, service
+            )
         ),
     }
 
@@ -239,28 +250,79 @@ def fetch_osm_data(
                 'way["water"~"river|lake|stream|canal"]',
                 'relation["water"~"river|lake|stream|canal"]',
             ]
-
-        if big_rivers:
-            filters.append('way["waterway"~"river|canal"]')
-
         if small_rivers:
-            filters.append('way["waterway"~"stream|ditch|drain"]')
-
+            # No wikidata filter — includes all minor waterways
+            filters.append('way["waterway"~"stream|river|canal|ditch|drain"]')
+        elif big_rivers:
+            # Only major named rivers (wikidata-tagged)
+            filters.append(
+                'way["waterway"~"stream|river|canal|ditch|drain"]["wikidata"]'
+            )
+        if big_rivers and small_rivers:
+            # small_rivers already covers big ones; wikidata filter would be redundant
+            pass
         if not filters:
             # Fallback: return an empty result query
             return f"{_bbox_header(s, w, n, e)};\n(  );\nout body;\n>;\nout skel qt;"
-
         return _simple_query(s, w, n, e, filters)
 
-    def _build_streets_query(s, w, n, e, mapsize, tier_active, exclude_alleys=True):
-        # tier_active is a {tier_id: bool} dict keyed by utils.osm.roads.TIER_TAGS
-        # (e.g. "highways", "major", "minor", "residential", "service",
-        # "footway", "pedestrian", "cycle_bridle", "track", "path"). requested_highway_tags
-        # already applies the mapsize-based performance gate (see
-        # fetch_utils.allowed_road_tiers) -- dense short-segment tiers are
-        # dropped above STREETS_PRIMARY_THRESHOLD, sparse long-segment tiers
-        # (including Tracks) survive up to ROADS_MAXSIZE.
-        highway_types = sorted(requested_highway_tags(tier_active or {}, mapsize))
+    def _build_streets_query(
+        s,
+        w,
+        n,
+        e,
+        mapsize,
+        big,
+        med,
+        small,
+        exclude_alleys=True,
+        footways=False,
+        service=False,
+    ):
+        all_big = {"primary", "motorway", "primary_link", "motorway_link"}
+        all_med = {
+            "secondary",
+            "tertiary",
+            "secondary_link",
+            "tertiary_link",
+            "unclassified",
+            "trunk",
+            "trunk_link",
+        }
+        all_small = {"residential", "living_street"}
+        all_footway = {"footway"}
+        all_service = {"service"}
+
+        # Build user-requested set. Footways and service roads are each
+        # kept independent of "Small Roads" instead of bundled in: footways
+        # are OSM's own separate non-vehicle category (sidewalks/paths,
+        # Key:highway on the OSM wiki) and trace almost every street, while
+        # service roads need their own alley/driveway/parking_aisle sub-tag
+        # filtering (Key:service) that plain residential streets don't.
+        requested = set()
+        if big:
+            requested |= all_big
+        if med:
+            requested |= all_med
+        if small:
+            requested |= all_small
+        if footways:
+            requested |= all_footway
+        if service:
+            requested |= all_service
+
+        # Apply mapsize performance limits (larger maps = fewer road types
+        # allowed). Footways/service are grouped with the "small" tier for
+        # this gate -- similarly dense, so similarly expensive on a big map.
+        allowed = all_big | all_med | all_small | all_footway | all_service
+        if mapsize > const.ROADS_MAXSIZE:
+            allowed = all_big
+        elif mapsize > const.STREETS_PRIMARY_THRESHOLD:
+            allowed = all_big | all_med
+        elif mapsize > const.STREETS_MAJOR_ONLY_THRESHOLD:
+            allowed = all_big | all_med | all_small | all_footway | all_service
+
+        highway_types = sorted(requested & allowed)
         if not highway_types:
             highway_types = ["motorway", "primary"]
 
@@ -290,15 +352,19 @@ def fetch_osm_data(
 
     builder = OSM_QUERY_BUILDERS.get(kind)
     if builder is None:
-        raise ValueError(_("Unknown OSM kind: {kind}").format(kind=kind))
+        raise ValueError(f"Unknown OSM kind: {kind}")
     query = builder(
         south,
         west,
         north,
         east,
         mapsize=mapsize,
-        tier_active=road_tiers,
+        big=road_big,
+        med=road_med,
+        small=road_small,
         exclude_alleys=exclude_alleys,
+        footways=road_footways,
+        service=road_service,
         ponds=water_ponds,
         small_rivers=water_small_rivers,
         big_rivers=water_big_rivers,
@@ -331,14 +397,13 @@ def fetch_osm_data(
     )
     if data is None:
         _progress.WarningsOverlay.add_warning(
-            _rpt("Failed to fetch {kind} elements from Overpass API").format(kind=kind), "error"
+            f"failed to fetch {kind} elements from Overpass API", "error"
         )
         return None
 
     with open(cache_path, "w", encoding="utf-8") as f:
         json.dump(data, f)
 
-    data = filter_excluded(data)
     return (data, False) if return_cache_status else data
 
 
@@ -352,7 +417,6 @@ def fetch_tier_polylines(
     exclude_alleys: bool,
     alley_service_types: frozenset[str],
     progress_overlay=None,
-    prefetched_tiles=None,
 ) -> dict[str, list] | None:
     """
     Fetch OSM road data over a tiled grid and bucket ways by tier.
@@ -374,105 +438,77 @@ def fetch_tier_polylines(
 
     tier_polylines: dict[str, list] = {tier: [] for tier in tier_tags}
 
-    if prefetched_tiles is not None:
-        # A prefetch dataset may be tiled differently than this tile's own
-        # lat_step/lon_step grid -- e.g. one combined fetch shared across
-        # every physical tile of a multi-tile batch (see
-        # generation/terrain_gen.py's fetch_combined_osm_data). Iterate
-        # whatever was actually fetched instead of an exact-bbox-tuple
-        # lookup against our own grid, which would silently miss a road
-        # network bigger than one tile. Roads are Shapely-unioned by tier
-        # before meshing (_buffer_tiers_to_polygons), so scanning extra
-        # cells from a wider prefetch just adds harmless duplicate buffering
-        # work, not duplicate geometry.
-        _tile_sources = [
-            (bbox, tile_result[0] if tile_result else None)
-            for bbox, tile_result in prefetched_tiles.items()
-        ]
-    else:
-        if lats * lons >= 20:
-            # Area is too large to fetch safely; return empty so the caller can warn.
-            print(
-                f"[TP3D roads] fetch skipped — tile count {lats * lons} exceeds limit of 20"
-            )
-            return tier_polylines
-        _tile_sources = [
-            (
-                (
-                    min_lat + k * lat_step,
-                    min_lon + l * lon_step,
-                    min_lat + k * lat_step + lat_step,
-                    min_lon + l * lon_step + lon_step,
-                ),
-                None,
-            )
-            for k in range(lats)
-            for l in range(lons)
-        ]
+    if lats * lons >= 20:
+        # Area is too large to fetch safely; return empty so the caller can warn.
+        print(
+            f"[TP3D roads] fetch skipped — tile count {lats * lons} exceeds limit of 20"
+        )
+        return tier_polylines
 
-    _maxcntr = len(_tile_sources)
-    for _idx, (bbox, data) in enumerate(_tile_sources, start=1):
-        _cntr = _idx
-        print(f"Roads loop: {_cntr}/{_maxcntr}")
-        if progress_overlay and progress_overlay.active:
-            progress_overlay.update(
-                message=f"Roads: tile {_cntr}/{_maxcntr} — fetching…"
-            )
+    for k in range(lats):
+        for l in range(lons):
+            _cntr = k * lons + l + 1
+            _maxcntr = lats * lons
+            print(f"Roads loop: {_cntr}/{_maxcntr}")
+            if progress_overlay and progress_overlay.active:
+                progress_overlay.update(
+                    message=f"Roads: tile {_cntr}/{_maxcntr} — fetching…"
+                )
 
-        if prefetched_tiles is None:
+            south = min_lat + k * lat_step
+            north = south + lat_step
+            west = min_lon + l * lon_step
+            east = west + lon_step
+            bbox = (south, west, north, east)
+
             data = fetch_osm_data(bbox, "STREETS")
-        if not data or "elements" not in data:
-            print("No Road data returned")
-            if prefetched_tiles is None:
+            if not data or "elements" not in data:
+                print("No Road data returned")
                 return None  # Hard failure — propagate upward.
-            # This prefetch cell had nothing -- other cells in a combined
-            # multi-tile fetch may still carry roads, so keep going instead
-            # of aborting the whole tile's road generation.
-            continue
 
-        assert isinstance(data, dict)
-        n_roads = len([e for e in data["elements"] if e["type"] == "way"])
-        if progress_overlay and progress_overlay.active:
-            progress_overlay.update(
-                message=f"Roads: tile {_cntr}/{_maxcntr} — bucketing {n_roads} ways…"
-            )
+            assert isinstance(data, dict)
+            n_roads = len([e for e in data["elements"] if e["type"] == "way"])
+            if progress_overlay and progress_overlay.active:
+                progress_overlay.update(
+                    message=f"Roads: tile {_cntr}/{_maxcntr} — bucketing {n_roads} ways…"
+                )
 
-        nodes = {
-            el["id"]: (el["lat"], el["lon"], 0.0, None)
-            for el in data["elements"]
-            if el["type"] == "node"
-        }
-        node_ids = list(nodes.keys())
-        coord_cache: dict = {}
-        if node_ids:
-            xyz = convert_to_blender_coordinates_batch(
-                [nodes[nid] for nid in node_ids]
-            )
-            coord_cache = {nid: (x, y) for nid, (x, y, _z) in zip(node_ids, xyz)}
+            nodes = {
+                el["id"]: (el["lat"], el["lon"], 0.0, None)
+                for el in data["elements"]
+                if el["type"] == "node"
+            }
+            node_ids = list(nodes.keys())
+            coord_cache: dict = {}
+            if node_ids:
+                xyz = convert_to_blender_coordinates_batch(
+                    [nodes[nid] for nid in node_ids]
+                )
+                coord_cache = {nid: (x, y) for nid, (x, y, _z) in zip(node_ids, xyz)}
 
-        for el in data["elements"]:
-            if el["type"] != "way":
-                continue
-            tags = el.get("tags", {}) or {}
-            highway = tags.get("highway", "")
-            if (
-                highway == "service"
-                and exclude_alleys
-                and tags.get("service") in alley_service_types
-            ):
-                continue
-            tier = next(
-                (t for t, tagset in tier_tags.items() if highway in tagset),
-                None,
-            )
-            if tier is None or not tier_active[tier]:
-                continue
-            pts = [
-                coord_cache[nid]
-                for nid in el.get("nodes", [])
-                if nid in coord_cache
-            ]
-            if len(pts) >= 2:
-                tier_polylines[tier].append(pts)
+            for el in data["elements"]:
+                if el["type"] != "way":
+                    continue
+                tags = el.get("tags", {}) or {}
+                highway = tags.get("highway", "")
+                if (
+                    highway == "service"
+                    and exclude_alleys
+                    and tags.get("service") in alley_service_types
+                ):
+                    continue
+                tier = next(
+                    (t for t, tagset in tier_tags.items() if highway in tagset),
+                    None,
+                )
+                if tier is None or not tier_active[tier]:
+                    continue
+                pts = [
+                    coord_cache[nid]
+                    for nid in el.get("nodes", [])
+                    if nid in coord_cache
+                ]
+                if len(pts) >= 2:
+                    tier_polylines[tier].append(pts)
 
     return tier_polylines

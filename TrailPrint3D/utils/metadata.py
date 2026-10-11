@@ -11,10 +11,8 @@ def writeMetadata(obj, type = "MAP"):
         return
 
     from ..props import (
-        any_road_active,  # deferred to avoid circular import at load time
-        get_road_active,
+        get_effective_shape,  # deferred to avoid circular import at load time
     )
-    from .osm.roads import TIER_TAGS  # deferred to avoid circular import at load time
 
     if type == "MAP":
         obj["Object type"] = type
@@ -40,7 +38,7 @@ def writeMetadata(obj, type = "MAP"):
             if bpy.context.scene.tp3d.mapmode == "GEOJSON":
                 obj["Shape"] = "CUSTOM"
             else:
-                obj["Shape"] = bpy.context.scene.tp3d.shape
+                obj["Shape"] = get_effective_shape(bpy.context.scene.tp3d)
         obj["Resolution"] = bpy.context.scene.tp3d.num_subdivisions
         obj["Elevation Scale"] = bpy.context.scene.tp3d.scaleElevation
         obj["objSize"] = bpy.context.scene.tp3d.objSize
@@ -48,15 +46,14 @@ def writeMetadata(obj, type = "MAP"):
         obj["overwritePathElevation"] = bpy.context.scene.tp3d.overwritePathElevation
         obj["api"] = bpy.context.scene.tp3d.api
         obj["scalemode"] = bpy.context.scene.tp3d.scalemode
-        obj["elevationMode"] = bpy.context.scene.tp3d.elevationMode
-        obj["fixedHeightMM"] = bpy.context.scene.tp3d.fixedHeightMM
+        obj["fixedElevationScale"] = bpy.context.scene.tp3d.fixedElevationScale
         obj["minThickness"] = bpy.context.scene.tp3d.minThickness
         obj["xTerrainOffset"] = bpy.context.scene.tp3d.xTerrainOffset
         obj["yTerrainOffset"] = bpy.context.scene.tp3d.yTerrainOffset
         obj["singleColorMode"] = bpy.context.scene.tp3d.singleColorMode
         obj["selfHosted"] = bpy.context.scene.tp3d.selfHosted
         obj["Horizontal Scale"] = round(bpy.context.scene.tp3d.sScaleHor,6)
-        obj["Generate Water"] = any([bpy.context.scene.tp3d.col_wBodiesActive, bpy.context.scene.tp3d.col_wMinorActive, bpy.context.scene.tp3d.col_wMajorActive])
+        obj["Generate Water"] = any([bpy.context.scene.tp3d.col_wPondsActive, bpy.context.scene.tp3d.col_wSmallRiversActive, bpy.context.scene.tp3d.col_wBigRiversActive])
         obj["MinWaterSize"] = bpy.context.scene.tp3d.col_wArea
         obj["Keep Non-Manifold"] = bpy.context.scene.tp3d.col_KeepManifold
         obj["Map Size in Km"] = round(bpy.context.scene.tp3d.sMapInKm,2)
@@ -108,9 +105,9 @@ def writeMetadata(obj, type = "MAP"):
         else:
             obj["Map Scale Ratio"] = ""
 
-        obj["col_wBodiesActive"] = bpy.context.scene.tp3d.col_wBodiesActive
-        obj["col_wMinorActive"] = bpy.context.scene.tp3d.col_wMinorActive
-        obj["col_wMajorActive"] = bpy.context.scene.tp3d.col_wMajorActive
+        obj["col_wPondsActive"] = bpy.context.scene.tp3d.col_wPondsActive
+        obj["col_wSmallRiversActive"] = bpy.context.scene.tp3d.col_wSmallRiversActive
+        obj["col_wBigRiversActive"] = bpy.context.scene.tp3d.col_wBigRiversActive
         obj["col_wArea"] = bpy.context.scene.tp3d.col_wArea
         obj["col_fActive"] = bpy.context.scene.tp3d.col_fActive
         obj["col_fArea"] = bpy.context.scene.tp3d.col_fArea
@@ -126,10 +123,13 @@ def writeMetadata(obj, type = "MAP"):
         obj["col_grArea"] = bpy.context.scene.tp3d.col_grArea
 
         obj["el_bActive"] = bpy.context.scene.tp3d.el_bActive
-        obj["el_sActive"] = any_road_active(bpy.context.scene.tp3d)
+        obj["el_sActive"] = any([bpy.context.scene.tp3d.el_sBigActive, bpy.context.scene.tp3d.el_sMedActive, bpy.context.scene.tp3d.el_sSmallActive, bpy.context.scene.tp3d.el_sServiceActive, bpy.context.scene.tp3d.el_sFootwaysActive])
         obj["el_sMultiplier"] = bpy.context.scene.tp3d.el_sMultiplier
-        for _tier in TIER_TAGS:
-            obj[f"road_{_tier}_active"] = get_road_active(bpy.context.scene.tp3d, _tier)
+        obj["el_sBigActive"] = bpy.context.scene.tp3d.el_sBigActive
+        obj["el_sMedActive"] = bpy.context.scene.tp3d.el_sMedActive
+        obj["el_sSmallActive"] = bpy.context.scene.tp3d.el_sSmallActive
+        obj["el_sServiceActive"] = bpy.context.scene.tp3d.el_sServiceActive
+        obj["el_sFootwaysActive"] = bpy.context.scene.tp3d.el_sFootwaysActive
         obj["el_oActive"] = bpy.context.scene.tp3d.el_oActive
 
         obj["elementMode"] = bpy.context.scene.tp3d.elementMode
@@ -180,7 +180,7 @@ def writeMetadata(obj, type = "MAP"):
 
         obj["overwritePathElevation"] = bpy.context.scene.tp3d.overwritePathElevation
 
-        obj["ExportGroup"] = 0 if (bpy.context.scene.tp3d.singleColorMode or "SINGLECOLORMODE" in bpy.context.scene.tp3d.elementMode) else 1
+        obj["ExportGroup"] = 0 if bpy.context.scene.tp3d.singleColorMode else 1
 
     if type == "CITY" or type == "WATER" or type == "FOREST" or type == "GLACIER" or type == "FARMLAND" or type == "SCREE" or type == "GREENSPACE":
         obj["Object type"] = type
@@ -203,21 +203,13 @@ def writeMetadata(obj, type = "MAP"):
         obj["yTerrainOffset"] = bpy.context.scene.tp3d.yTerrainOffset
         obj["elementMode"] = bpy.context.scene.tp3d.elementMode
 
-        # Roads is a real standalone base-to-top piece in Single-Color mode
-        # (see finalize_roads/full_depth in generation.py) so it belongs in
-        # its own print group, like the other coloring elements above.
-        # Buildings always sit on top of both terrain and elements untouched,
-        # so they always print with the map.
-        if type == "ROADS":
-            obj["ExportGroup"] = 0 if "SINGLECOLORMODE" in bpy.context.scene.tp3d.elementMode else 1
-        else:
-            obj["ExportGroup"] = 1
+        obj["ExportGroup"] = 1
 
     if type == "PLATE":
         obj["Object type"] = type
         obj["Addon"] = const.ADDON_NAME
         obj["Version"] = const.ADDON_VERSION
-        obj["Shape"] = bpy.context.scene.tp3d.shape
+        obj["Shape"] = get_effective_shape(bpy.context.scene.tp3d)
         obj["textFont"] = bpy.context.scene.tp3d.textFont
         obj["textSize"] = bpy.context.scene.tp3d.textSize
         obj["text1"] = bpy.context.scene.tp3d.textfield1
@@ -241,7 +233,7 @@ def writeMetadata(obj, type = "MAP"):
         obj["Object type"] = type
         obj["Addon"] = const.ADDON_NAME
         obj["Version"] = const.ADDON_VERSION
-        obj["Shape"] = bpy.context.scene.tp3d.shape
+        obj["Shape"] = get_effective_shape(bpy.context.scene.tp3d)
         obj["textFont"] = bpy.context.scene.tp3d.textFont
         obj["textSize"] = bpy.context.scene.tp3d.textSize
         obj["text1"] = bpy.context.scene.tp3d.textfield1
@@ -265,14 +257,11 @@ def writeMetadata(obj, type = "MAP"):
         obj["Object type"] = type
         obj["Addon"] = const.ADDON_NAME
         obj["Version"] = const.ADDON_VERSION
-        obj["Shape"] = bpy.context.scene.tp3d.shape
+        obj["Shape"] = get_effective_shape(bpy.context.scene.tp3d)
         obj["tolerance"] = bpy.context.scene.tp3d.tolerance
         obj["wallThickness"] = bpy.context.scene.tp3d.shellWallThickness
         obj["xTerrainOffset"] = bpy.context.scene.tp3d.xTerrainOffset
         obj["yTerrainOffset"] = bpy.context.scene.tp3d.yTerrainOffset
-        obj["shapeRotation"] = bpy.context.scene.tp3d.shapeRotation
-        obj["Dovetail"] = False
-        obj["MagnetHoles"] = False
 
         obj["ExportGroup"] = 0  # Printed separate -- it wraps around the map, not stacked with it
 
