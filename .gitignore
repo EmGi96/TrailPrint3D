@@ -14,12 +14,9 @@ build.py
 __pycache__/
 .claude
 **/wheels/_extracted/
-*.wheel_cache*
 
 # Test-generated output
 tests/output/
-tests/.wheel_cache/
 
 # Local editor settings
 .vscode/settings.json
-tp3d-translation-audit.ods

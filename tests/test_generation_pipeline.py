@@ -76,9 +76,7 @@ _BUNDLE_DIR = os.path.join(_OUTPUT_DIR, "GenerationTests")
 if "TrailPrint3D" not in bpy.context.preferences.addons:
     bpy.ops.preferences.addon_enable(module="TrailPrint3D")
 
-from TrailPrint3D.props import set_road_active
 from TrailPrint3D.utils.generation import runGeneration
-from TrailPrint3D.utils.osm.roads import TIER_TAGS
 
 # ---------------------------------------------------------------------------
 # Minimal test runner (matches the pattern used by the other tests/*.py files)
@@ -118,7 +116,7 @@ def _reset_scene_defaults():
     tp3d.objSize = 100
     tp3d.num_subdivisions = 4
     tp3d.scaleElevation = 1.0
-    tp3d.elevationMode = "PROPORTIONAL"
+    tp3d.fixedElevationScale = False
     tp3d.singleColorMode = False
     tp3d.elementMode = "PAINT"
     tp3d.disableCache = False  # reuse the addon's real cache across runs
@@ -127,17 +125,18 @@ def _reset_scene_defaults():
     tp3d.trailName = ""
     tp3d.api = "MAPTERHORN"
     tp3d.col_fActive = False
-    tp3d.col_wBodiesActive = False
-    tp3d.col_wMinorActive = False
-    tp3d.col_wMajorActive = False
+    tp3d.col_wPondsActive = False
+    tp3d.col_wSmallRiversActive = False
+    tp3d.col_wBigRiversActive = False
     tp3d.col_cActive = False
     tp3d.col_scrActive = False
     tp3d.col_grActive = False
     tp3d.col_faActive = False
     tp3d.col_glActive = False
     tp3d.el_bActive = False
-    for _road_id in TIER_TAGS:
-        set_road_active(tp3d, _road_id, False)
+    tp3d.el_sBigActive = False
+    tp3d.el_sMedActive = False
+    tp3d.el_sSmallActive = False
     tp3d.el_oActive = False
     tp3d.ellipseRatio = 0.75
     tp3d.rectangleHeight = 100
@@ -285,7 +284,7 @@ def test_hexagon_paint_forest_water():
     stats = _run_generation_scenario(
         "hexagon_paint_forest_water",
         "3BergeTour.gpx",
-        {"col_fActive": True, "col_wBodiesActive": True},
+        {"col_fActive": True, "col_wPondsActive": True},
     )
     _print_stats("hexagon / paint / real forest+water (3BergeTour)", stats)
 
@@ -308,7 +307,7 @@ def test_separate_mode_forest_water_city():
         {
             "elementMode": "SEPARATE",
             "col_fActive": True,
-            "col_wBodiesActive": True,
+            "col_wPondsActive": True,
             "col_cActive": True,
         },
     )
@@ -345,7 +344,7 @@ def test_singlecolormode_remesh_forest_water():
             "elementMode": "SINGLECOLORMODE_REMESH",
             "singleColorMode": True,
             "col_fActive": True,
-            "col_wBodiesActive": True,
+            "col_wPondsActive": True,
         },
     )
     _print_stats("hexagon / singlecolormode_remesh / real forest+water (3BergeTour)", stats)
@@ -367,7 +366,7 @@ def test_long_route_exaggerated_singlecolor_forest_water():
             "scaleElevation": 3.0,
             "singleColorMode": True,
             "col_fActive": True,
-            "col_wBodiesActive": True,
+            "col_wPondsActive": True,
         },
     )
     _print_stats("hexagon / paint / scaleElevation=3 / singleColorMode / real forest+water (100KmTour)", stats)
@@ -384,7 +383,7 @@ def test_separate_forest_water_long_route():
     stats = _run_generation_scenario(
         "separate_forest_water_long_route",
         "100KmTour.gpx",
-        {"elementMode": "SEPARATE", "col_fActive": True, "col_wBodiesActive": True},
+        {"elementMode": "SEPARATE", "col_fActive": True, "col_wPondsActive": True},
     )
     _print_stats("hexagon / separate / real forest+water (100KmTour)", stats)
 

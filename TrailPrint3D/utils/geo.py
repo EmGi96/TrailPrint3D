@@ -2,7 +2,6 @@ import math
 
 import bpy  # type: ignore
 import numpy as np  # type: ignore
-from bpy.app.translations import pgettext_iface as _
 
 from .. import constants as const
 
@@ -12,9 +11,8 @@ def calculate_scale(mapSize, coordinates, gen_type, diagonal=False):
     scalemode = bpy.context.scene.tp3d.scalemode
     pathScale = bpy.context.scene.tp3d.pathScale
 
-    if bpy.app.debug:
-        print(f"Scalemode: {scalemode}")
-        print(f"Gen_type: {gen_type}")
+    print(f"Scalemode: {scalemode}")
+    print(f"Gen_type: {gen_type}")
 
     min_lat = min(point[0] for point in coordinates)
     max_lat = max(point[0] for point in coordinates)
@@ -54,9 +52,16 @@ def calculate_scale(mapSize, coordinates, gen_type, diagonal=False):
     maxer = max(width, height, distance) if diagonal else max(width, height)
     scale = 1
     if scalemode == "COORDINATES" or gen_type == 2 or gen_type == 3:
+        print("scalemode1")
         scale = mapSize / maxer
-    else:  # scalemode == "FACTOR"
+    elif scalemode == "FACTOR":
+        print("scalemode2")
         scale = (mapSize * pathScale) / maxer
+    elif scalemode == "SCALE":
+        print("scalemode3")
+        scale = pathScale * mf
+
+    print(f"Scale: {scale}")
 
     return scale
 
@@ -74,7 +79,7 @@ def convert_to_blender_coordinates(lat, lon, elevation,timestamp):
 
     return (x, y, z)
 
-def convert_to_blender_coordinates_batch(coords) -> list[tuple[float, float, float]]:
+def convert_to_blender_coordinates_batch(coords):
     """Vectorized batch version of convert_to_blender_coordinates.
 
     coords: iterable of (lat, lon, elevation, timestamp)
@@ -139,7 +144,7 @@ def haversine(lat1, lon1, lat2, lon2):
     return distance
 
 
-def calculate_total_length(points) -> float:
+def calculate_total_length(points):
     #Calculates the total path length in kilometers.
     if len(points) < 2:
         return 0.0
@@ -153,7 +158,7 @@ def calculate_total_length(points) -> float:
     c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1.0 - a))
     return float(np.sum(const.R * c))
 
-def calculate_total_elevation(points) -> float:
+def calculate_total_elevation(points):
     #Calculates the total elevation gain in meters.
     if len(points) < 2:
         return 0.0
@@ -161,7 +166,7 @@ def calculate_total_elevation(points) -> float:
     diffs = np.diff(elevs)
     return float(np.sum(diffs[diffs > 0]))
 
-def calculate_total_time(points) -> float:
+def calculate_total_time(points):
     hrs = 0
     #Calculates the total time taken between the first and last points.
     if len(points) < 2:
@@ -174,7 +179,7 @@ def calculate_total_time(points) -> float:
 
     return hrs
 
-def calculate_date(points) -> str:
+def calculate_date(points):
     #Calculates the total time taken between the first and last points.
     if len(points) < 2:
         return ""
@@ -265,7 +270,7 @@ def move_coordinates(lat, lon, distance_km, direction):
     elif direction == "w":
         lon_rad -= distance_km / (R * math.cos(lat_rad))
     else:
-        raise ValueError(_("Direction must be 'n', 's', 'e', or 'w'"))
+        raise ValueError("Direction must be 'n', 's', 'e', or 'w'")
 
     # Convert radians back to degrees
     new_lat = math.degrees(lat_rad)

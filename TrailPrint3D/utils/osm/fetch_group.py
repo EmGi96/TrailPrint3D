@@ -4,12 +4,10 @@ import os
 import time
 
 import bpy  # type: ignore
-from bpy.app.translations import pgettext_rpt as _rpt
 
 from ... import constants as const
 from ... import progress as _progress
-from .bbox_snap import snap as snap_bbox
-from .fetch_utils import _overpass_request, requested_highway_tags, resolve_road_tiers
+from .fetch_utils import _overpass_request
 
 
 def _make_cache_path(bbox, kind, settings=None):
@@ -19,21 +17,29 @@ def _make_cache_path(bbox, kind, settings=None):
     fetch_osm_combined writes to exactly the same files that fetch_osm_data
     would later read, giving a warm-cache hit.
     """
-    south, west, north, east = snap_bbox(bbox)
+    south, west, north, east = bbox
     if settings is not None:
         mapsize = settings.mapsize
+        road_big = settings.road_big
+        road_med = settings.road_med
+        road_small = settings.road_small
         water_ponds = settings.water_ponds
         water_small_rivers = settings.water_small_rivers
         water_big_rivers = settings.water_big_rivers
         exclude_alleys = settings.exclude_alleys
+        road_footways = settings.road_footways
+        road_service = settings.road_service
     else:
         mapsize = bpy.context.scene.tp3d.sMapInKm
-        _tp3d = bpy.context.scene.tp3d
-        water_ponds = bool(_tp3d.show_water and _tp3d.col_wBodiesActive)
-        water_small_rivers = bool(_tp3d.show_water and _tp3d.col_wMinorActive)
-        water_big_rivers = bool(_tp3d.show_water and _tp3d.col_wMajorActive)
-        exclude_alleys = True
-    road_tiers = resolve_road_tiers(settings)
+        road_big = bool(bpy.context.scene.tp3d.el_sBigActive)
+        road_med = bool(bpy.context.scene.tp3d.el_sMedActive)
+        road_small = bool(bpy.context.scene.tp3d.el_sSmallActive)
+        water_ponds = bool(bpy.context.scene.tp3d.col_wPondsActive)
+        water_small_rivers = bool(bpy.context.scene.tp3d.col_wSmallRiversActive)
+        water_big_rivers = bool(bpy.context.scene.tp3d.col_wBigRiversActive)
+        exclude_alleys = bool(bpy.context.scene.tp3d.el_sExcludeAlleys)
+        road_footways = bool(bpy.context.scene.tp3d.el_sFootwaysActive)
+        road_service = bool(bpy.context.scene.tp3d.el_sServiceActive)
 
     # Keep in sync with the same gate in fetch_osm_data / _build_union_query
     # so the cache key matches whatever was actually queried.
@@ -41,7 +47,15 @@ def _make_cache_path(bbox, kind, settings=None):
 
     cache_kind = kind
     if kind == "STREETS":
-        cache_kind = kind + str(sorted(road_tiers.items())) + str(exclude_alleys)
+        cache_kind = (
+            kind
+            + str(road_big)
+            + str(road_med)
+            + str(road_small)
+            + str(exclude_alleys)
+            + str(road_footways)
+            + str(road_service)
+        )
     elif kind == "WATER":
         cache_kind = (
             kind + str(water_ponds) + str(water_small_rivers) + str(water_big_rivers)
@@ -68,18 +82,26 @@ def _build_union_query(south, west, north, east, kinds, settings=None):
     """
     if settings is not None:
         mapsize = settings.mapsize
+        road_big = settings.road_big
+        road_med = settings.road_med
+        road_small = settings.road_small
         water_ponds = settings.water_ponds
         water_small_rivers = settings.water_small_rivers
         water_big_rivers = settings.water_big_rivers
         exclude_alleys = settings.exclude_alleys
+        road_footways = settings.road_footways
+        road_service = settings.road_service
     else:
-        _tp3d = bpy.context.scene.tp3d
-        mapsize = _tp3d.sMapInKm
-        water_ponds = bool(_tp3d.show_water and _tp3d.col_wBodiesActive)
-        water_small_rivers = bool(_tp3d.show_water and _tp3d.col_wMinorActive)
-        water_big_rivers = bool(_tp3d.show_water and _tp3d.col_wMajorActive)
-        exclude_alleys = True
-    road_tiers = resolve_road_tiers(settings)
+        mapsize = bpy.context.scene.tp3d.sMapInKm
+        road_big = bool(bpy.context.scene.tp3d.el_sBigActive)
+        road_med = bool(bpy.context.scene.tp3d.el_sMedActive)
+        road_small = bool(bpy.context.scene.tp3d.el_sSmallActive)
+        water_ponds = bool(bpy.context.scene.tp3d.col_wPondsActive)
+        water_small_rivers = bool(bpy.context.scene.tp3d.col_wSmallRiversActive)
+        water_big_rivers = bool(bpy.context.scene.tp3d.col_wBigRiversActive)
+        exclude_alleys = bool(bpy.context.scene.tp3d.el_sExcludeAlleys)
+        road_footways = bool(bpy.context.scene.tp3d.el_sFootwaysActive)
+        road_service = bool(bpy.context.scene.tp3d.el_sServiceActive)
 
     # Small/minor waterways are expensive on large maps -- drop them above
     # SMALL_RIVERS_MAXSIZE. Big (wikidata-tagged) rivers and ponds keep
@@ -98,21 +120,18 @@ def _build_union_query(south, west, north, east, kinds, settings=None):
 
     if "WATER" in kinds:
         if water_ponds:
-            # 2D Polygons: Lakes, ponds, reservoirs, wide rivers
             filters += [
                 'way["natural"="water"]',
                 'relation["natural"="water"]',
                 'way["water"~"river|lake|stream|canal"]',
                 'relation["water"~"river|lake|stream|canal"]',
             ]
-            
-        if water_big_rivers:
-            # 1D Lines: Major waterways only
-            filters.append('way["waterway"~"river|canal"]')
-            
         if water_small_rivers:
-            # 1D Lines: Minor waterways only
-            filters.append('way["waterway"~"stream|ditch|drain"]')
+            filters.append('way["waterway"~"stream|river|canal|ditch|drain"]')
+        elif water_big_rivers:
+            filters.append(
+                'way["waterway"~"stream|river|canal|ditch|drain"]["wikidata"]'
+            )
 
     if "SCREE" in kinds:
         filters += [
@@ -161,20 +180,45 @@ def _build_union_query(south, west, north, east, kinds, settings=None):
         filters.append('way["natural"="coastline"]')
 
     if "BUILDINGS" in kinds:
-        filters += [
-            'nwr["building"]', 
-            'nwr["building:part"]',
-        ]
+        filters.append('nwr["building"]')
 
     if "STREETS" in kinds:
-        # requested_highway_tags applies the mapsize-based performance gate
-        # (see fetch_utils.allowed_road_tiers) -- dense short-segment tiers
-        # are dropped above STREETS_PRIMARY_THRESHOLD, sparse long-segment
-        # tiers (including Tracks) survive up to ROADS_MAXSIZE.
-        highway_types = sorted(requested_highway_tags(road_tiers, mapsize)) or [
-            "motorway",
-            "primary",
-        ]
+        all_big = {"primary", "motorway", "primary_link", "motorway_link"}
+        all_med = {
+            "secondary",
+            "tertiary",
+            "secondary_link",
+            "tertiary_link",
+            "unclassified",
+            "trunk",
+            "trunk_link",
+        }
+        all_small = {"residential", "living_street"}
+        all_footway = {"footway"}
+        all_service = {"service"}
+
+        requested: set = set()
+        if road_big:
+            requested |= all_big
+        if road_med:
+            requested |= all_med
+        if road_small:
+            requested |= all_small
+        if road_footways:
+            requested |= all_footway
+        if road_service:
+            requested |= all_service
+
+        # Apply the same mapsize performance limits as _build_streets_query
+        allowed = all_big | all_med | all_small | all_footway | all_service
+        if mapsize > const.ROADS_MAXSIZE:
+            allowed = all_big
+        elif mapsize > const.STREETS_PRIMARY_THRESHOLD:
+            allowed = all_big | all_med
+        elif mapsize > const.STREETS_MAJOR_ONLY_THRESHOLD:
+            allowed = all_big | all_med | all_small | all_footway | all_service
+
+        highway_types = sorted(requested & allowed) or ["motorway", "primary"]
 
         # Same service=* sub-tag split as _build_streets_query -- see that
         # function's comment for why length-based filtering is the wrong
@@ -216,8 +260,35 @@ def _classify_element(element, active_kinds, settings=None):
         highway = tags.get("highway", "")
         if highway:
             if settings is not None:
-                # Mirrors _build_union_query's STREETS filter above.
-                allowed = requested_highway_tags(settings.road_tiers, settings.mapsize)
+                all_big = {"primary", "motorway", "primary_link", "motorway_link"}
+                all_med = {
+                    "secondary",
+                    "tertiary",
+                    "secondary_link",
+                    "tertiary_link",
+                    "unclassified",
+                    "trunk",
+                    "trunk_link",
+                }
+                all_small = {"residential", "living_street"}
+                all_footway = {"footway"}
+                all_service = {"service"}
+                allowed: set = set()
+                if settings.road_big:
+                    allowed |= all_big
+                if settings.road_med:
+                    allowed |= all_med
+                if settings.road_small:
+                    allowed |= all_small
+                if settings.road_footways:
+                    allowed |= all_footway
+                if settings.road_service:
+                    allowed |= all_service
+                # Clamp to mapsize-based performance limits (mirror _build_streets_query)
+                if settings.mapsize > const.ROADS_MAXSIZE:
+                    allowed &= all_big
+                elif settings.mapsize > const.STREETS_PRIMARY_THRESHOLD:
+                    allowed &= all_big | all_med
                 if highway in allowed and not (
                     highway == "service"
                     and settings.exclude_alleys
@@ -226,7 +297,7 @@ def _classify_element(element, active_kinds, settings=None):
                 ):
                     return "STREETS"
             else:
-                exclude_alleys = True
+                exclude_alleys = bool(bpy.context.scene.tp3d.el_sExcludeAlleys)
                 if not (
                     highway == "service"
                     and exclude_alleys
@@ -235,8 +306,8 @@ def _classify_element(element, active_kinds, settings=None):
                 ):
                     return "STREETS"
 
-    # BUILDINGS — anything with a building=* or building:part=* tag
-    if "BUILDINGS" in active_kinds and (tags.get("building") or tags.get("building:part")):
+    # BUILDINGS — anything with a building=* tag
+    if "BUILDINGS" in active_kinds and tags.get("building"):
         return "BUILDINGS"
 
     # WATER — natural water bodies and waterways
@@ -409,7 +480,7 @@ def fetch_osm_combined(
 
     if data is None:
         _progress.WarningsOverlay.add_warning(
-            _rpt("Failed to fetch elements from Overpass API"), "error"
+            f"failed to fetch {missing} elements from Overpass API", "error"
         )
         return result  # return whatever cache hits we already have
 
