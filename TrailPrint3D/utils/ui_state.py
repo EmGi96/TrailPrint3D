@@ -800,10 +800,14 @@ def apply_advanced_setting_update(tp3d, key, value):
 
 # A generator page's settings otherwise live only in the Scene property group,
 # so a new Blender session starts over from the defaults while the page's own
-# /save_state blob (the drawn map etc.) survives. Marks a scene that has had
-# restore_generator_settings run, so its later generator opens can't undo
-# changes made from the sidebar since.
-_GENERATOR_SETTINGS_RESTORED = "_generator_settings_restored"
+# /save_state blob (the drawn map etc.) survives. Each generator keeps its own
+# saved settings, but they all share the one scene: this custom property names
+# the generator whose settings the scene currently holds, so reopening that
+# generator doesn't undo changes made from the sidebar since.
+_GENERATOR_SETTINGS_LOADED = "_generator_settings_loaded"
+# Which generator's file edits are saved to, set when a generator opens. Not
+# read from the scene property above, which an undo can roll back.
+_active_generator = None
 _GENERATOR_ELEMENT_ATTRS = (
     *_ELEMENT_SINGLE_FLAGS.values(),
     *_LANDCOVER_SINGLE_FLAGS.values(),
@@ -875,11 +879,17 @@ def apply_generator_settings_snapshot(tp3d, data):
         assign("slicer_profile_name", data["slicerProfile"])
 
 
+def _generator_settings_path(generator):
+    return os.path.join(const.generator_settings_dir, f"{generator}.json")
+
+
 def save_generator_settings(tp3d):
-    """Write the scene's generator settings to const.generator_settings_path,
-    for restore_generator_settings in the next session. Written to a temp file
+    """Write the scene's generator settings to the open generator's file, for
+    restore_generator_settings in the next session. Written to a temp file
     first, so a crash mid-write can't leave a truncated JSON behind."""
-    path = const.generator_settings_path
+    if _active_generator is None:
+        return
+    path = _generator_settings_path(_active_generator)
     tmp_path = path + ".tmp"
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -890,21 +900,25 @@ def save_generator_settings(tp3d):
         print(f"[TP3D] Failed to write {path}: {e}")
 
 
-def restore_generator_settings(tp3d):
-    """Load the last-used generator settings into a new scene -- call from
-    each generator operator's invoke(), before its page-load snapshots are
-    built. Only runs once per scene, and never for a saved .blend, whose own
-    settings win."""
-    if bpy.data.filepath or tp3d.get(_GENERATOR_SETTINGS_RESTORED):
+def restore_generator_settings(tp3d, generator):
+    """Load *generator*'s last-used settings into the scene -- call from each
+    generator operator's invoke(), before its page-load snapshots are built.
+    *generator* names its settings file; a free/premium page pair shares one.
+    Skipped when the scene already holds this generator's settings, and for a
+    saved .blend, whose own settings win."""
+    global _active_generator
+    _active_generator = generator
+    if bpy.data.filepath or tp3d.get(_GENERATOR_SETTINGS_LOADED) == generator:
         return
-    tp3d[_GENERATOR_SETTINGS_RESTORED] = True
+    tp3d[_GENERATOR_SETTINGS_LOADED] = generator
+    path = _generator_settings_path(generator)
     try:
-        with open(const.generator_settings_path, encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             data = json.load(f)
     except FileNotFoundError:
         return
     except (OSError, ValueError) as e:
-        print(f"[TP3D] Could not read {const.generator_settings_path}: {e}")
+        print(f"[TP3D] Could not read {path}: {e}")
         return
     if isinstance(data, dict):
         apply_generator_settings_snapshot(tp3d, data)

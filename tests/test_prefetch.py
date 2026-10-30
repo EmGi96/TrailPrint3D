@@ -340,20 +340,14 @@ def test_cache_path_of_jittered_bbox_matches_after_register():
         bbox_snap.clear()
 
 
-def test_generator_bbox_resolves_to_prefetch_cache_file():
-    """The real thing: build the blank tile the way TP3D_OT_map_generator does
-    (octagon, rotated) and check its mesh-derived tile bounds hit the cache
-    file a prefetch of the same selection wrote."""
+def _build_blank_tile(b, rot, subdivisions):
+    """Build the blank tile the way TP3D_OT_map_generator does (octagon, rotated)."""
     import math
 
     from TrailPrint3D import utils
-    from TrailPrint3D.utils.osm.fetch_group import _make_cache_path
-    from TrailPrint3D.utils.osm.fetch_utils import OsmFetchSettings
 
     tp3d = bpy.context.scene.tp3d
-    tp3d.objSize, tp3d.num_subdivisions = 100, 2
-    b = {"south": 47.0, "north": 47.13, "west": 8.0, "east": 8.31}
-    rot = 30
+    tp3d.objSize, tp3d.num_subdivisions = 100, subdivisions
     nx1, ny1, _ = utils.convert_to_neutral_coordinates(b["south"], b["west"], 0, 0)
     nx2, ny2, _ = utils.convert_to_neutral_coordinates(b["north"], b["east"], 0, 0)
     tp3d["sScaleHor"] = tp3d.objSize / max(abs(nx2 - nx1), abs(ny2 - ny1))
@@ -362,10 +356,23 @@ def test_generator_bbox_resolves_to_prefetch_cache_file():
     diameter = max(abs(x2 - x1), abs(y2 - y1))
     r = math.radians(rot)
     gen_diameter = diameter * (abs(math.cos(r)) + abs(math.sin(r))) * 1.002
-    blank = utils.create_octagon(gen_diameter / 2, 2)
+    blank = utils.create_octagon(gen_diameter / 2, subdivisions)
     blank.location = ((x1 + x2) / 2, (y1 + y2) / 2, 0)
     bpy.context.view_layer.objects.active = blank
     bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
+    return blank
+
+
+def test_generator_bbox_resolves_to_prefetch_cache_file():
+    """The real thing: check a real blank tile's mesh-derived bounds hit the
+    cache file a prefetch of the same selection wrote."""
+    from TrailPrint3D import utils
+    from TrailPrint3D.utils.osm.fetch_group import _make_cache_path
+    from TrailPrint3D.utils.osm.fetch_utils import OsmFetchSettings
+
+    b = {"south": 47.0, "north": 47.13, "west": 8.0, "east": 8.31}
+    rot = 30
+    blank = _build_blank_tile(b, rot, 2)
     *_, min_lat, max_lat, min_lon, max_lon = utils.compute_and_store_tile_bounds(blank)
     generator_bbox = (min_lat, min_lon, max_lat, max_lon)
 
@@ -377,6 +384,234 @@ def test_generator_bbox_resolves_to_prefetch_cache_file():
         assert _make_cache_path(generator_bbox, "BUILDINGS", settings) == _make_cache_path(prefetch_bbox, "BUILDINGS", settings)
     finally:
         bbox_snap.clear()
+
+
+def test_elevation_plan_covers_every_tile_the_mesh_samples():
+    """A real blank tile at the page's resolution: the prefetch plan must hold
+    every tile the generation will open, or it would download them again."""
+    from TrailPrint3D import utils
+    from TrailPrint3D.utils import elevation
+
+    tp3d = bpy.context.scene.tp3d
+    tp3d.api, tp3d.disableCache = "MAPTERHORN", False
+    b = {"south": 47.0, "north": 47.13, "west": 8.0, "east": 8.31}
+    for shape_rotation, resolution in ((0, 4), (30, 5), (30, 7)):
+        tp3d.shapeRotation = shape_rotation
+        blank = _build_blank_tile(b, shape_rotation, resolution)
+        world_verts, _subs, _cache, *bounds = utils.compute_and_store_tile_bounds(blank)
+        zoom = elevation.terrain_tile_zoom(bounds, resolution)
+        sampled = set()
+        for v in world_verts:
+            lat, lon = utils.convert_to_geo(v.x, v.y)
+            sampled.add((zoom, *elevation.lonlat_to_tilexy(lon, lat, zoom)))
+
+        tp3d.num_subdivisions = 1  # the slider hasn't reached the scene yet
+        plan = prefetch.plan_elevation_prefetch(
+            tp3d, {"bounds": b, "type": "octagon", "resolution": resolution}
+        )
+        missing = sampled - set(plan["tiles"])
+        assert not missing, f"rot={shape_rotation} res={resolution}: not prefetched: {missing}"
+
+
+def test_elevation_plan_uses_each_tile_box_for_the_zoom():
+    from TrailPrint3D.utils.elevation import terrain_tile_zoom
+
+    tp3d = bpy.context.scene.tp3d
+    tp3d.api, tp3d.disableCache, tp3d.shapeRotation = "MAPTERHORN", False, 0
+    whole = {"south": 47.0, "north": 47.4, "west": 8.0, "east": 8.8}
+    boxes = [
+        {"south": 47.0, "north": 47.4, "west": 8.0 + i * 0.2, "east": 8.2 + i * 0.2}
+        for i in range(4)
+    ]
+    payload = {"bounds": whole, "type": "exact", "resolution": 5}
+    whole_zoom = prefetch.plan_elevation_prefetch(tp3d, payload)["tiles"][0][0]
+    plan = prefetch.plan_elevation_prefetch(tp3d, {**payload, "elevationBoxes": boxes})
+    assert plan["tiles"][0][0] > whole_zoom
+    assert plan["tiles"][0][0] == terrain_tile_zoom((47.0, 47.4, 8.0, 8.2), 5)
+    assert len(plan["tiles"]) == len(set(plan["tiles"]))  # boxes share edge tiles
+
+
+def test_elevation_plan_skips_what_prefetch_cannot_help():
+    tp3d = bpy.context.scene.tp3d
+    payload = {"bounds": _DRAWN, "type": "rectangle", "resolution": 5}
+    tp3d.api, tp3d.disableCache = "OPENTOPODATA", False
+    assert prefetch.plan_elevation_prefetch(tp3d, payload) is None
+    tp3d.api, tp3d.disableCache = "MAPTERHORN", True
+    assert prefetch.plan_elevation_prefetch(tp3d, payload) is None
+    tp3d.disableCache = False
+    assert prefetch.plan_elevation_prefetch(tp3d, payload)["api"] == "MAPTERHORN"
+
+
+def _with_temp_tile_cache(fn):
+    import tempfile
+    from unittest.mock import patch
+
+    from TrailPrint3D import constants
+
+    with tempfile.TemporaryDirectory() as folder:
+        with patch.object(constants, "terrarium_cache_dir", folder):
+            fn(folder)
+
+
+def _fake_session(handler):
+    from unittest.mock import MagicMock, patch
+
+    session = MagicMock()
+    session.__enter__.return_value = session
+    session.get.side_effect = handler
+    return session, patch("TrailPrint3D.utils.elevation.requests.Session", return_value=session)
+
+
+def _tile_response(url, timeout=None):
+    import requests
+
+    response = requests.Response()
+    response.status_code = 200
+    response._content = url.encode()
+    return response
+
+
+def test_elevation_prefetch_skips_cached_and_writes_atomically():
+    from TrailPrint3D.utils import elevation
+
+    def check(folder):
+        with open(os.path.join(folder, "mapterhorn_10_1_1.webp"), "wb") as f:
+            f.write(b"cached")
+        session, patched = _fake_session(_tile_response)
+        with patched:
+            seen = []
+            failed = elevation.prefetch_elevation_tiles(
+                "MAPTERHORN", [(10, 1, 1), (10, 2, 1)], seen.append
+            )
+        assert failed == 0 and seen == [1, 2]
+        assert session.get.call_count == 1
+        assert sorted(os.listdir(folder)) == ["mapterhorn_10_1_1.webp", "mapterhorn_10_2_1.webp"]
+
+    _with_temp_tile_cache(check)
+
+
+def test_elevation_prefetch_falls_back_like_the_generation():
+    import requests
+
+    from TrailPrint3D.utils import elevation
+
+    def handler(url, timeout=None):
+        if "/14/" in url:
+            response = requests.Response()
+            response.status_code = 404
+            return response
+        return _tile_response(url)
+
+    def check(folder):
+        _session, patched = _fake_session(handler)
+        with patched:
+            assert elevation.prefetch_elevation_tiles("MAPTERHORN", [(14, 8501, 5763)]) == 0
+        assert os.listdir(folder) == ["mapterhorn_13_4250_2881.webp"]
+
+    _with_temp_tile_cache(check)
+
+
+def test_elevation_prefetch_gives_up_after_three_failures_in_a_row():
+    import requests
+
+    from TrailPrint3D.utils import elevation
+
+    def handler(url, timeout=None):
+        raise requests.ConnectionError("offline")
+
+    def check(_folder):
+        session, patched = _fake_session(handler)
+        with patched:
+            tiles = [(10, x, 1) for x in range(50)]
+            assert elevation.prefetch_elevation_tiles("TERRAIN-TILES", tiles) == 3
+        assert session.get.call_count == 3
+
+    _with_temp_tile_cache(check)
+
+
+def test_run_prefetch_reports_done_only_after_elevation():
+    from unittest.mock import patch
+
+    from TrailPrint3D.utils import elevation
+
+    finished = []
+
+    def slow_tiles(api, tiles, progress_cb=None):
+        import time
+
+        time.sleep(0.4)
+        finished.append(api)
+
+    job = {}
+
+    def snapshot(**fields):
+        job.update(fields)
+        if fields.get("status") == "done":
+            job["elevation_was_finished"] = bool(finished)
+
+    class Job(dict):
+        def update(self, **fields):
+            snapshot(**fields)
+
+    plan = {
+        "kind_tasks": [], "settings": None, "skipped": {}, "bbox": [0, 0, 1, 1],
+        "elevation": {"api": "MAPTERHORN", "tiles": [(10, 1, 1)]},
+    }
+    with patch.object(elevation, "prefetch_elevation_tiles", slow_tiles):
+        prefetch.run_prefetch(plan, Job())
+    assert job["status"] == "done" and job["elevation_was_finished"]
+
+
+def test_tile_decode_and_sampling_match_the_pixels():
+    """parse_webp_rgb_data + the vectorized lookup against a tile with known
+    pixels, compared with the per-point formula they replaced."""
+    import math
+    import tempfile
+    from unittest.mock import patch
+
+    import numpy as np
+
+    from TrailPrint3D.utils import elevation
+
+    size = 512
+    rng = np.random.default_rng(1)
+    expected = rng.integers(0, 256, (size, size, 3), dtype=np.uint8)  # top-down
+    rgba = np.ones((size, size, 4), dtype=np.float32)
+    rgba[:, :, :3] = expected[::-1] / 255.0  # Blender stores bottom-up
+
+    with tempfile.TemporaryDirectory() as folder:
+        path = os.path.join(folder, "tile.png")
+        image = bpy.data.images.new("tile", size, size)
+        image.pixels.foreach_set(rgba.ravel())
+        image.filepath_raw = path
+        image.file_format = "PNG"
+        image.save()
+        bpy.data.images.remove(image)
+        decoded = elevation.parse_webp_rgb_data(path)
+    assert decoded.dtype == np.uint8 and decoded.shape == (size, size, 3)
+    assert np.array_equal(decoded, expected)
+
+    zoom = 11
+    bpy.context.scene.tp3d.num_subdivisions = 6
+    coords = [
+        (47.0 + float(a) * 0.1, 8.0 + float(b) * 0.1)
+        for a, b in rng.random((400, 2))
+    ]
+    with (
+        patch.object(elevation, "terrain_tile_zoom", return_value=zoom),
+        patch.object(elevation, "fetch_mapterhorn_tile_path", return_value="unused"),
+        patch.object(elevation, "parse_webp_rgb_data", return_value=decoded),
+    ):
+        result = elevation.get_elevation_Mapterhorn((47.0, 47.1, 8.0, 8.1), coords)
+
+    assert isinstance(result, list) and isinstance(result[0], float)
+    for (lat, lon), value in zip(coords, result):
+        lat_rad = math.radians(lat)
+        n = 2.0 ** zoom
+        px = int(((lon + 180.0) / 360.0 * n * size) % size)
+        py = int(((1.0 - math.log(math.tan(lat_rad) + 1.0 / math.cos(lat_rad)) / math.pi) / 2.0 * n * size) % size)
+        r, g, b = (int(c) for c in decoded[py, px])
+        assert value == elevation.terrarium_pixel_to_elevation(r, g, b)
 
 
 if __name__ == "__main__":
@@ -408,5 +643,14 @@ if __name__ == "__main__":
     _run("snap: within tolerance / outside", test_snap_within_tolerance_and_outside)
     _run("snap: jittered bbox -> same cache file", test_cache_path_of_jittered_bbox_matches_after_register)
     _run("snap: generator's mesh bbox -> prefetch cache file", test_generator_bbox_resolves_to_prefetch_cache_file)
+
+    _run("elevation: plan covers every tile the mesh samples", test_elevation_plan_covers_every_tile_the_mesh_samples)
+    _run("elevation: zoom comes from each tile box", test_elevation_plan_uses_each_tile_box_for_the_zoom)
+    _run("elevation: skipped for per-point APIs / Disable Cache", test_elevation_plan_skips_what_prefetch_cannot_help)
+    _run("elevation: skips cached, atomic write", test_elevation_prefetch_skips_cached_and_writes_atomically)
+    _run("elevation: 404 falls back to parent tile", test_elevation_prefetch_falls_back_like_the_generation)
+    _run("elevation: gives up after 3 failures", test_elevation_prefetch_gives_up_after_three_failures_in_a_row)
+    _run("elevation: done only after elevation", test_run_prefetch_reports_done_only_after_elevation)
+    _run("elevation: numpy decode + sampling match pixels", test_tile_decode_and_sampling_match_the_pixels)
 
     _assert_all_passed()

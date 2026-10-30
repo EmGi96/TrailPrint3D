@@ -1739,8 +1739,8 @@ function tp3dBuildOtherTab() {
 
 // "3MF Print Profile" card -- the sidebar's 3MF Export Profile dropdown
 // (props.slicer_profile_name) plus the 3MF add-on's own "Load Profile from
-// 3MF" (Preferences → Add-ons → 3MF Format → Advanced). Only shown while the
-// 3MF add-on is installed (SETTINGS_STATE.has3mf, which flips live after
+// 3MF" (Preferences → Add-ons → 3MF Format → Advanced). Locked, red, without
+// the 3MF add-on (SETTINGS_STATE.has3mf, which flips live after
 // threemf_promo.js's install). Profiles come from picker_server's
 // /slicer_profiles snapshot, kept out of SETTINGS_STATE like the export
 // folder so a history restore doesn't switch printers. Every request is
@@ -1776,6 +1776,7 @@ function tp3dBuildSlicerProfileSection() {
     controls.appendChild(fileInput);
     row.appendChild(controls);
     section.grid.appendChild(row);
+    MAP_TAB_ROWS.push({ field: { enabledWhen: tp3dHas3mf, lockedTitle: tp3dNo3mfTitle }, row: row });
 
     // Name row shown after a file was picked, like the color styles' one.
     var nameRow = document.createElement('div');
@@ -1879,16 +1880,16 @@ function tp3dBuildSlicerProfileSection() {
         }).then(function() { saveBtn.disabled = false; });
     });
 
-    // Hidden without the 3MF add-on; refreshed from Blender whenever it
-    // (re)appears, so the list also picks up profiles added elsewhere.
-    var wasShown = false;
+    // Refreshed from Blender on first build (the locked dropdown still shows
+    // the built-in default) and when the 3MF add-on (re)appears, so the list
+    // also picks up profiles added elsewhere.
+    var refreshedFor = null;
     MAP_TAB_ROWS.push({ field: { apply: function() {
-        var show = tp3dHas3mf();
-        card.style.display = show ? '' : 'none';
-        if (show && !wasShown) {
+        var has3mf = tp3dHas3mf();
+        if (has3mf !== refreshedFor) {
             post('/select_slicer_profile', JSON.stringify({ name: '' })).catch(function() {});
         }
-        wasShown = show;
+        refreshedFor = has3mf;
     } }, row: card });
     return card;
 }

@@ -3,6 +3,7 @@ import json
 import math
 import os
 import struct
+import threading
 import time
 import zipfile
 import zlib
@@ -10,6 +11,7 @@ from array import array
 from datetime import datetime, timezone
 
 import bpy  # type: ignore
+import numpy as np  # type: ignore
 import requests  # type: ignore
 from bpy.app.translations import pgettext_iface as _
 from bpy.app.translations import pgettext_rpt as _rpt
@@ -282,16 +284,40 @@ def lonlat_to_pixelxy(lon, lat, zoom):
     y = (1.0 - math.log(math.tan(lat_rad) + 1.0 / math.cos(lat_rad)) / math.pi) / 2.0 * n * 256
     return int(x % 256), int(y % 256)
 
+def _write_tile_atomic(tile_path, content):
+    """Write a downloaded tile in one step -- the picker's prefetch thread can
+    be downloading while a generation reads the same cache folder, and a
+    half-written file would decode as garbage instead of a cache miss."""
+    tmp_path = f"{tile_path}.{threading.get_ident()}.tmp"
+    with open(tmp_path, "wb") as f:
+        f.write(content)
+    try:
+        os.replace(tmp_path, tile_path)
+    except PermissionError:
+        # Windows: the same tile, finished by the other thread, is open.
+        os.remove(tmp_path)
+        if not os.path.exists(tile_path):
+            raise
+
+
+def _terrarium_tile_path(zoom, xtile, ytile):
+    return os.path.join(const.terrarium_cache_dir, f"{zoom}_{xtile}_{ytile}.png")
+
+
+def _download_terrarium_tile(zoom, xtile, ytile, get=requests.get):
+    """Worker-thread safe, no bpy access. *get*: requests.get or a Session's."""
+    url = f"https://elevation-tiles-prod.s3.amazonaws.com/terrarium/{zoom}/{xtile}/{ytile}.png"
+    response = get(url, timeout=20)
+    response.raise_for_status()
+    _write_tile_atomic(_terrarium_tile_path(zoom, xtile, ytile), response.content)
+
+
 def fetch_terrarium_tile_raw(zoom, xtile, ytile):
     """Fetch the raw PNG binary data for a tile, either from cache or online."""
     disableCache = bpy.context.scene.tp3d.disableCache
-    tile_path = os.path.join(const.terrarium_cache_dir, f"{zoom}_{xtile}_{ytile}.png")
+    tile_path = _terrarium_tile_path(zoom, xtile, ytile)
     if not os.path.exists(tile_path) or disableCache:
-        url = f"https://elevation-tiles-prod.s3.amazonaws.com/terrarium/{zoom}/{xtile}/{ytile}.png"
-        response = requests.get(url)
-        response.raise_for_status()
-        with open(tile_path, "wb") as f:
-            f.write(response.content)
+        _download_terrarium_tile(zoom, xtile, ytile)
     with open(tile_path, "rb") as f:
         return f.read()
 
@@ -378,30 +404,31 @@ def terrarium_pixel_to_elevation(r, g, b):
     """Convert Terrarium RGB pixel to elevation in meters."""
     return (r * 256 + g + b / 256) - 32768
 
-def get_elevation_TerrainTiles(bounds, coords, lenv=0, pointsDone=0, zoom=10, progress_cb=None):
-
-    num_subdivisions = bpy.context.scene.tp3d.num_subdivisions
-    minLat, maxLat, minLon, maxLon = bounds
-
+def terrain_tile_zoom(bounds, num_subdivisions):
+    """Tile zoom for a map's (minLat, maxLat, minLon, maxLon) *bounds*, so one
+    tile pixel is about one mesh vertex. Shared by the tile-based APIs and
+    the picker prefetch, which has to pick the same cache files."""
     from .geo import parallel_distance  # deferred to avoid circular import at load time
 
+    minLat, maxLat, minLon, maxLon = bounds
     realdist1 = parallel_distance(minLat, minLon, maxLon) * 1000
     realdist2 = parallel_distance(maxLat, minLon, maxLon) * 1000
-    #calculating zoom
-    zoom = 10
-    horVerts = 1 + 2**(num_subdivisions+1)
-    strt = 156543 #m/Pixel on Tile PNG
+    horVerts = 1 + 2 ** (num_subdivisions + 1)
+    strt = 156543  # m/Pixel on Tile PNG
     cntr = 2
-
-    vertdist = max(realdist1,realdist2)/horVerts #Distance between 2 vertices
+    vertdist = max(realdist1, realdist2) / horVerts  # Distance between 2 vertices
     while strt > vertdist:
         cntr += 1
         strt /= 2
-    #Max zoom level to 14
-    cntr = min(cntr,15)
+    return min(cntr, 15)
 
-    print(f"Zoom Level for API: {cntr}, Start fetching Data...")
-    zoom = cntr
+
+def get_elevation_TerrainTiles(bounds, coords, lenv=0, pointsDone=0, zoom=10, progress_cb=None):
+
+    num_subdivisions = bpy.context.scene.tp3d.num_subdivisions
+    zoom = terrain_tile_zoom(bounds, num_subdivisions)
+
+    print(f"Zoom Level for API: {zoom}, Start fetching Data...")
 
     tile_dict = {}
     for idx, (lat, lon) in enumerate(coords):
@@ -444,28 +471,37 @@ def get_elevation_TerrainTiles(bounds, coords, lenv=0, pointsDone=0, zoom=10, pr
 _MAPTERHORN_TILE_SIZE = 512
 
 
+def _mapterhorn_tile_path(zoom, xtile, ytile):
+    return os.path.join(const.terrarium_cache_dir, f"mapterhorn_{zoom}_{xtile}_{ytile}.webp")
+
+
+def _download_mapterhorn_tile(zoom, xtile, ytile, get=requests.get):
+    """Worker-thread safe, no bpy access. *get*: requests.get or a Session's."""
+    url = f"https://tiles.mapterhorn.com/{zoom}/{xtile}/{ytile}.webp"
+    # A single 512px tile should return almost instantly -- this timeout
+    # is just to stop a stalled connection (e.g. right after another
+    # tile's request got dropped mid-batch) from hanging the whole
+    # elevation fetch forever. requests.exceptions.Timeout is a
+    # RequestException subclass, so the existing per-tile except clause
+    # in get_elevation_Mapterhorn already catches it the same way it
+    # catches a hard connection failure.
+    response = get(url, timeout=20)
+    response.raise_for_status()
+    _write_tile_atomic(_mapterhorn_tile_path(zoom, xtile, ytile), response.content)
+
+
 def fetch_mapterhorn_tile_path(zoom, xtile, ytile):
     """Download a Mapterhorn WebP tile and return its local cache path."""
     disableCache = bpy.context.scene.tp3d.disableCache
-    tile_path = os.path.join(const.terrarium_cache_dir, f"mapterhorn_{zoom}_{xtile}_{ytile}.webp")
+    tile_path = _mapterhorn_tile_path(zoom, xtile, ytile)
     if not os.path.exists(tile_path) or disableCache:
-        url = f"https://tiles.mapterhorn.com/{zoom}/{xtile}/{ytile}.webp"
-        # A single 512px tile should return almost instantly -- this timeout
-        # is just to stop a stalled connection (e.g. right after another
-        # tile's request got dropped mid-batch) from hanging the whole
-        # elevation fetch forever. requests.exceptions.Timeout is a
-        # RequestException subclass, so the existing per-tile except clause
-        # in get_elevation_Mapterhorn already catches it the same way it
-        # catches a hard connection failure.
-        response = requests.get(url, timeout=20)
-        response.raise_for_status()
-        with open(tile_path, "wb") as f:
-            f.write(response.content)
+        _download_mapterhorn_tile(zoom, xtile, ytile)
     return tile_path
 
 
 def parse_webp_rgb_data(webp_path):
-    """Load a WebP tile via Blender's image API and return a top-down RGB array.
+    """Load a WebP tile via Blender's image API and return a top-down
+    height x width x 3 uint8 array.
 
     Blender stores pixels bottom-up (y=0 = bottom row), so the rows are
     reversed here to match the XYZ tile convention where y=0 is the top (north).
@@ -475,41 +511,16 @@ def parse_webp_rgb_data(webp_path):
     img = bpy.data.images.load(webp_path)
     img.colorspace_settings.name = 'Non-Color'
     width, height = img.size
-    pixels = list(img.pixels)  # flat RGBA floats 0-1, bottom row first
+    pixels = np.empty(width * height * 4, dtype=np.float32)  # flat RGBA floats 0-1, bottom row first
+    img.pixels.foreach_get(pixels)
     bpy.data.images.remove(img)
-
-    rgb_array = []
-    for y in range(height - 1, -1, -1):  # flip to top-down
-        row = []
-        for x in range(width):
-            i = (y * width + x) * 4
-            r = round(pixels[i]     * 255)
-            g = round(pixels[i + 1] * 255)
-            b = round(pixels[i + 2] * 255)
-            row.append((r, g, b))
-        rgb_array.append(row)
-    return rgb_array
+    return np.rint(pixels.reshape(height, width, 4)[::-1, :, :3] * 255).astype(np.uint8)
 
 
 def get_elevation_Mapterhorn(bounds, coords, lenv=0, pointsDone=0, zoom=10, progress_cb=None):
     """Fetch elevation from Mapterhorn terrain tiles (512px WebP, Terrarium encoding)."""
     num_subdivisions = bpy.context.scene.tp3d.num_subdivisions
-    minLat, maxLat, minLon, maxLon = bounds
-
-    from .geo import parallel_distance
-
-    realdist1 = parallel_distance(minLat, minLon, maxLon) * 1000
-    realdist2 = parallel_distance(maxLat, minLon, maxLon) * 1000
-
-    zoom = 10
-    horVerts = 1 + 2 ** (num_subdivisions + 1)
-    strt = 156543
-    cntr = 2
-    vertdist = max(realdist1, realdist2) / horVerts
-    while strt > vertdist:
-        cntr += 1
-        strt /= 2
-    zoom = min(cntr, 15)
+    zoom = terrain_tile_zoom(bounds, num_subdivisions)
 
     print(f"Zoom Level for Mapterhorn: {zoom}, Start fetching Data...")
 
@@ -522,7 +533,7 @@ def get_elevation_Mapterhorn(bounds, coords, lenv=0, pointsDone=0, zoom=10, prog
     total_tiles = len(tile_dict)
     invalidElevations = 0
     progress_intervals = set(range(10, 101, 10))
-    elevations = [0] * len(coords)
+    elevations = np.zeros(len(coords))
     report = _SegmentProgress(progress_cb, total_tiles)
 
     for i, ((xtile, ytile), idx_lat_lon_list) in enumerate(tile_dict.items(), 1):
@@ -568,19 +579,81 @@ def get_elevation_Mapterhorn(bounds, coords, lenv=0, pointsDone=0, zoom=10, prog
                 elevations[idx] = 0
             continue
 
-        for idx, lat, lon in idx_lat_lon_list:
-            lat_rad = math.radians(lat)
-            n = 2.0 ** actual_zoom
-            px = int(((lon + 180.0) / 360.0 * n * ts) % ts)
-            py = int(((1.0 - math.log(math.tan(lat_rad) + 1.0 / math.cos(lat_rad)) / math.pi) / 2.0 * n * ts) % ts)
-            px = min(max(px, 0), ts - 1)
-            py = min(max(py, 0), ts - 1)
-            r, g, b = rgb_array[py][px]
-            elevations[idx] = terrarium_pixel_to_elevation(r, g, b)
+        points = np.array(idx_lat_lon_list, dtype=np.float64)
+        lat_rad = np.radians(points[:, 1])
+        n = 2.0 ** actual_zoom
+        px = (((points[:, 2] + 180.0) / 360.0 * n * ts) % ts).astype(np.int64)
+        py = (((1.0 - np.log(np.tan(lat_rad) + 1.0 / np.cos(lat_rad)) / np.pi) / 2.0 * n * ts) % ts).astype(np.int64)
+        rgb = rgb_array[np.clip(py, 0, ts - 1), np.clip(px, 0, ts - 1)].astype(np.float64)
+        elevations[points[:, 0].astype(np.int64)] = terrarium_pixel_to_elevation(rgb[:, 0], rgb[:, 1], rgb[:, 2])
     report(total_tiles)
 
     print(f"Mapterhorn: finished. Invalid elevations: {invalidElevations}")
-    return elevations
+    return elevations.tolist()
+
+
+# The elevation APIs a prefetch can download ahead of time: both are plain
+# tile downloads, unlike the per-point APIs, whose results depend on the
+# generated mesh's own vertices.
+PREFETCHABLE_ELEVATION_APIS = ("MAPTERHORN", "TERRAIN-TILES")
+
+
+def terrain_tiles_for_bounds(bounds, num_subdivisions):
+    """(zoom, xtile, ytile) of every tile a map covering *bounds* samples."""
+    minLat, maxLat, minLon, maxLon = bounds
+    zoom = terrain_tile_zoom(bounds, num_subdivisions)
+    x_first, y_first = lonlat_to_tilexy(minLon, maxLat, zoom)  # y grows southward
+    x_last, y_last = lonlat_to_tilexy(maxLon, minLat, zoom)
+    n = 2 ** zoom
+    return [
+        (zoom, x % n, y)  # a map past the 180th meridian wraps around the tile grid
+        for x in range(x_first, x_last + 1)
+        for y in range(y_first, y_last + 1)
+    ]
+
+
+def _prefetch_mapterhorn_tile(zoom, xtile, ytile, get):
+    """Same zoom 13+ fallback as get_elevation_Mapterhorn: a missing tile's
+    parent is what the generation will sample instead."""
+    while not os.path.exists(_mapterhorn_tile_path(zoom, xtile, ytile)):
+        try:
+            _download_mapterhorn_tile(zoom, xtile, ytile, get=get)
+            return
+        except requests.HTTPError as e:
+            if e.response is None or e.response.status_code != 404 or zoom <= 12:
+                raise
+            zoom, xtile, ytile = zoom - 1, xtile // 2, ytile // 2
+
+
+def _prefetch_terrarium_tile(zoom, xtile, ytile, get):
+    if not os.path.exists(_terrarium_tile_path(zoom, xtile, ytile)):
+        _download_terrarium_tile(zoom, xtile, ytile, get=get)
+
+
+def prefetch_elevation_tiles(api, tiles, progress_cb=None):
+    """Download *tiles* ((zoom, xtile, ytile) list) into the disk cache the
+    generation reads, one at a time. Worker-thread safe, no bpy access. A
+    failed tile is simply fetched again by the generation; three failures in
+    a row means the API is down or we're offline, so give up instead of
+    waiting out every remaining timeout. Returns the number of failed tiles.
+    """
+    fetch_tile = _prefetch_mapterhorn_tile if api == "MAPTERHORN" else _prefetch_terrarium_tile
+    failed = failed_in_a_row = 0
+    with requests.Session() as session:
+        for done, (zoom, xtile, ytile) in enumerate(tiles, 1):
+            try:
+                fetch_tile(zoom, xtile, ytile, session.get)
+                failed_in_a_row = 0
+            except (requests.RequestException, OSError) as e:
+                print(f"Elevation prefetch failed for tile {zoom}/{xtile}/{ytile}: {e}")
+                failed += 1
+                failed_in_a_row += 1
+                if failed_in_a_row >= 3:
+                    print("Elevation prefetch stopped: too many failures in a row")
+                    return failed
+            if progress_cb:
+                progress_cb(done)
+    return failed
 
 
 def get_elevation_openTopography(coords, lenv=0, pointsDone=0, progress_cb=None):

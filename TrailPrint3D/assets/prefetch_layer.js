@@ -18,6 +18,8 @@
 // A page whose fetch area isn't simply its drawn shape defines
 // tp3dPrefetchArea() -> { bounds: {north,south,east,west}, type } | null, which
 // takes precedence (type 'exact' = use the bounds as-is, no shape/rotation padding).
+// Its optional elevationBoxes lists the tiles one Send builds separately, if any
+// (see prefetch.py's plan_elevation_prefetch).
 var PREFETCH_KIND_STYLE = {
     WATER:      { label: 'Water',      color: '#2f7fd1' },
     FOREST:     { label: 'Forest',     color: '#2e8b3d' },
@@ -95,12 +97,13 @@ function tp3dPrefetchExcludedIds() {
 // the generator builds its tile from the polygon's own bounding box -- so that
 // box is what gets prefetched, sent as type 'geojson' (no shape/rotation padding).
 function prefetchBounds() {
-    var eb, type = currentShape;
+    var eb, type = currentShape, elevationBoxes = null;
     if (typeof tp3dPrefetchArea === 'function') {
         var area = tp3dPrefetchArea();
         if (!area) return null;
         eb = area.bounds;
         type = area.type;
+        elevationBoxes = area.elevationBoxes || null;
     } else if (typeof geojsonPaths !== 'undefined' && geojsonPaths.length && geojsonLayer.getBounds().isValid()) {
         var gb = geojsonLayer.getBounds();
         eb = { north: gb.getNorth(), south: gb.getSouth(), east: gb.getEast(), west: gb.getWest() };
@@ -115,7 +118,8 @@ function prefetchBounds() {
     return {
         bounds: { north: eb.north, south: eb.south, east: eb.east + shift, west: eb.west + shift },
         shift: shift,
-        type: type
+        type: type,
+        elevationBoxes: elevationBoxes
     };
 }
 
@@ -475,7 +479,12 @@ function startPrefetch() {
         method: 'POST',
         mode: 'cors',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bounds: pb.bounds, type: pb.type })
+        body: JSON.stringify({
+            bounds: pb.bounds,
+            type: pb.type,
+            elevationBoxes: pb.elevationBoxes,
+            resolution: parseInt(document.getElementById('resolutionSlider').value, 10)
+        })
     })
     .then(function() { pollPrefetch(Date.now()); })
     .catch(function() {

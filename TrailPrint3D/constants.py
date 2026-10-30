@@ -195,10 +195,10 @@ generator_defaults_dir = os.path.join(preset_dir, "generator_defaults")
 # User-wide color styles, one JSON file per style. Created on first save.
 color_style_dir = os.path.join(bpy.utils.user_resource("CONFIG"), "TrailPrint3D", "color_styles")
 
-# Last-used generator settings, carried over into the next Blender session --
-# see utils.ui_state.save_generator_settings. Created on first save.
-generator_settings_path = os.path.join(
-    bpy.utils.user_resource("CONFIG"), "TrailPrint3D", "generator_settings.json"
+# Last-used settings per generator, carried over into the next Blender session --
+# one JSON file each, see utils.ui_state.save_generator_settings. Created on first save.
+generator_settings_dir = os.path.join(
+    bpy.utils.user_resource("CONFIG"), "TrailPrint3D", "generator_settings"
 )
 
 # Set up a folder for the picker pages' (puzzleGenerator.html etc.) per-

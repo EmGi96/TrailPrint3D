@@ -1,4 +1,4 @@
-"""Prefetch of the currently enabled OSM elements for the picker pages (map, puzzle, multi-tile).
+"""Prefetch of the elevation tiles and enabled OSM elements for the picker pages (map, puzzle, multi-tile).
 
 Split in two halves so the picker's HTTP server thread never touches bpy:
 
@@ -7,7 +7,8 @@ Split in two halves so the picker's HTTP server thread never touches bpy:
   use, so the fetches below land in the very same disk-cache files.
 * run_prefetch()   -- worker thread. Fetches (and disk-caches) the tiles via
   the same _fetch_all_kinds_parallel the generator itself uses, then turns
-  them into lightweight, clickable features for the 2D map.
+  them into lightweight, clickable features for the 2D map. The elevation
+  tiles download alongside on their own thread (plan_elevation_prefetch).
 """
 
 import math
@@ -169,6 +170,37 @@ def plan_prefetch(tp3d, payload):
     }
 
 
+def plan_elevation_prefetch(tp3d, payload):
+    """MAIN THREAD ONLY. The {"api", "tiles"} a generation of this area will
+    need, or None if there's nothing to download ahead of time: the API
+    isn't tile-based, or Disable Cache makes the generation download them
+    again anyway.
+
+    The page sends its Resolution slider, which only reaches the scene at
+    Send time, and -- when one Send builds several separately fetched tiles
+    (multi-tile) -- each tile's box as "elevationBoxes", since the zoom
+    depends on the width of the tile, not of the whole area.
+    """
+    from ..elevation import PREFETCHABLE_ELEVATION_APIS, terrain_tiles_for_bounds
+
+    bounds = payload.get("bounds")
+    if tp3d.api not in PREFETCHABLE_ELEVATION_APIS or tp3d.disableCache or not bounds:
+        return None
+    try:
+        resolution = max(1, min(10, int(payload["resolution"])))
+    except (KeyError, TypeError, ValueError):
+        resolution = tp3d.num_subdivisions
+
+    shape = payload.get("type") or "rectangle"
+    tiles = []
+    for box in payload.get("elevationBoxes") or [bounds]:
+        min_lat, min_lon, max_lat, max_lon = tile_bbox(box, shape, tp3d.shapeRotation)
+        if max_lat > min_lat and max_lon > min_lon:
+            tiles += terrain_tiles_for_bounds((min_lat, max_lat, min_lon, max_lon), resolution)
+    tiles = list(dict.fromkeys(tiles))
+    return {"api": tp3d.api, "tiles": tiles} if tiles else None
+
+
 # --------------------------------------------------------------------------
 # Worker thread
 # --------------------------------------------------------------------------
@@ -180,10 +212,15 @@ def start_prefetch_job(tp3d, request, job):
     responsive. Shared by every picker operator that serves a page with the
     Prefetch button; *job* is picker_server.prefetch_job().
     """
+    elevation = plan_elevation_prefetch(tp3d, request)
     plan = plan_prefetch(tp3d, request)
     if 'error' in plan:
+        # No elements to fetch doesn't stop the elevation from being useful.
+        if elevation:
+            _start_elevation_thread(elevation, [0])
         job.update(status='error', message=plan['error'], result=None)
         return
+    plan['elevation'] = elevation
     job.update(status='running', message='Fetching elements…', result=None)
     threading.Thread(
         target=run_prefetch, args=(plan, job),
@@ -191,10 +228,29 @@ def start_prefetch_job(tp3d, request, job):
     ).start()
 
 
+def _start_elevation_thread(elevation, progress):
+    """Download a plan_elevation_prefetch plan; progress[0] counts the tiles."""
+    from ..elevation import prefetch_elevation_tiles
+
+    def report(done):
+        progress[0] = done
+
+    thread = threading.Thread(
+        target=prefetch_elevation_tiles,
+        args=(elevation["api"], elevation["tiles"], report),
+        daemon=True,
+        name="tp3d-prefetch-elevation",
+    )
+    thread.start()
+    return thread
+
+
 def run_prefetch(plan, job):
     """Fetch every planned kind (through the shared disk cache) and store the
     clickable features in *job* ({"status", "message", "result"}) -- see
-    picker_server.set_prefetch_job for the reader side."""
+    picker_server.set_prefetch_job for the reader side. Only reports "done"
+    once plan["elevation"]'s tiles have finished too, so a done prefetch
+    means a generation won't need the network for them."""
     from ..terrain import _fetch_all_kinds_parallel
 
     def report(message):
@@ -202,6 +258,11 @@ def run_prefetch(plan, job):
 
     try:
         job.update(status="running", message="Fetching elements…")
+        elevation = plan.get("elevation")
+        elevation_progress = [0]
+        elevation_thread = (
+            _start_elevation_thread(elevation, elevation_progress) if elevation else None
+        )
         # Semaphore(1): one live Overpass request at a time, like the generator.
         fetched = _fetch_all_kinds_parallel(
             plan["kind_tasks"], threading.Semaphore(1), settings=plan["settings"],
@@ -209,6 +270,11 @@ def run_prefetch(plan, job):
         )
         job.update(message="Building preview…")
         features, truncated = features_from_tiles(fetched, progress_callback=report)
+        while elevation_thread and elevation_thread.is_alive():
+            job.update(
+                message=f"Fetching elevation {elevation_progress[0]}/{len(elevation['tiles'])}…"
+            )
+            elevation_thread.join(0.25)
         counts = {}
         for feature in features:
             counts[feature["kind"]] = counts.get(feature["kind"], 0) + 1
