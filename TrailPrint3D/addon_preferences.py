@@ -6,7 +6,7 @@
 import bpy
 from bpy.app.translations import pgettext_iface as _
 from bpy.app.translations import pgettext_tip as _tip
-from bpy.props import BoolProperty, IntProperty, StringProperty
+from bpy.props import BoolProperty, EnumProperty, IntProperty, StringProperty
 
 from . import constants as const
 
@@ -50,6 +50,47 @@ def _osm_limit_prop(const_name, name, description):
         soft_max=max(1000, default * 2),
         update=_on_osm_limit_update,
     )
+
+
+# Default 3MF export profile. The profile *name* is what's persisted (in
+# default_slicer_profile_id); the enum below is only a view onto it. A dynamic
+# enum stores a bare index, so adding/removing a profile in the 3MF add-on
+# would silently re-point a saved default at a different printer. "" =
+# "Remember last used", which leaves the generator pages' own remembered
+# profile (generator_settings.json) in charge; a named profile overrides it.
+_DEFAULT_SLICER_UNSET = "__UNSET__"
+
+# Blender only borrows the strings an items callback returns -- keep them
+# alive (same reason as props._SLICER_PROFILE_ITEMS_CACHE).
+_DEFAULT_SLICER_ITEMS_CACHE = {}
+
+
+def _default_slicer_items(self, context):
+    from .props import _slicer_profile_items_uncached
+
+    items = [
+        (
+            _DEFAULT_SLICER_UNSET,
+            "Remember last used",
+            "Don't force a profile: new scenes start on the profile the generator pages last saved, or the built-in default if none",
+        ),
+        *_slicer_profile_items_uncached(),
+    ]
+    return _DEFAULT_SLICER_ITEMS_CACHE.setdefault(tuple(items), items)
+
+
+def _get_default_slicer(self):
+    ids = [item[0] for item in _default_slicer_items(self, None)]
+    stored = self.default_slicer_profile_id
+    # Unset, or a profile that's currently unavailable (3MF add-on disabled,
+    # profile deleted): show "Remember last used" but leave the stored name alone so it
+    # comes back if the profile does.
+    return ids.index(stored) if stored in ids else 0
+
+
+def _set_default_slicer(self, value):
+    items = _default_slicer_items(self, None)
+    self.default_slicer_profile_id = "" if value <= 0 else items[value][0]
 
 
 class TP3D_AddonPreferences(bpy.types.AddonPreferences):
@@ -113,6 +154,22 @@ class TP3D_AddonPreferences(bpy.types.AddonPreferences):
         subtype='DIR_PATH',
     )  # type: ignore
 
+    default_slicer_profile_id: StringProperty(
+        name=_("Default 3MF Export Profile"),
+        default="",
+        options={'HIDDEN'},
+    )  # type: ignore
+
+    default_slicer_profile: EnumProperty(
+        name=_("Default 3MF Export Profile"),
+        description=_tip(
+            "Profile new scenes start with for 3MF export. Pick a profile to start every new scene on it, overriding the remembered one; the sidebar and generator pages can still change it per scene. \"Remember last used\" leaves it to the generator pages' saved profile"
+        ),
+        items=_default_slicer_items,
+        get=_get_default_slicer,
+        set=_set_default_slicer,
+    )  # type: ignore
+
     openTopographyApiKey: StringProperty(
         name=_("OpenTopography API Key"),
         description=_tip("API key from portal.opentopography.org — free registration required for most datasets"),
@@ -147,6 +204,8 @@ class TP3D_AddonPreferences(bpy.types.AddonPreferences):
         # Export
         layout.label(text=_("Export Settings:"), icon='EXPORT')
         layout.prop(self, "default_export_folder")
+        if temp.has3mf:
+            layout.prop(self, "default_slicer_profile")
 
         layout.separator()
 
@@ -236,3 +295,20 @@ def get_export_folder(tp3d):
     """The scene's export path, falling back to the Default Export Folder
     preference -- same fallback generation/export apply."""
     return tp3d.export_path or get_prefs().default_export_folder
+
+
+def get_default_slicer_profile():
+    """The 3MF export profile chosen in the preferences, or None when none is
+    set or the chosen one isn't available right now (3MF add-on not loaded
+    yet, profile deleted)."""
+    try:
+        name = get_prefs().default_slicer_profile_id
+    except (KeyError, AttributeError):
+        return None
+    if not name:
+        return None
+    from .props import _slicer_profile_items_uncached
+
+    if name not in {item[0] for item in _slicer_profile_items_uncached()}:
+        return None
+    return name

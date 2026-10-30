@@ -1608,6 +1608,7 @@ class TP3D_PG_properties(bpy.types.PropertyGroup):
     slicer_profile_name: EnumProperty(  # type: ignore
         name="",
         items=_slicer_profile_items,
+        update=lambda self, context: utils.slicer_profile_changed(self),
         description=_tip(
             "Printer/filament profile embedded in the 3MF export. Add profiles in Preferences \u2192 Add-ons \u2192 3MF Format \u2192 Advanced"
         ),

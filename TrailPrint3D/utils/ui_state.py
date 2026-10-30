@@ -6,6 +6,7 @@ kept separate from the generation pipeline modules since they don't run as
 part of runGeneration()'s phase sequence.
 """
 
+import contextlib
 import functools
 import json
 import os
@@ -875,7 +876,9 @@ def apply_generator_settings_snapshot(tp3d, data):
             color_styles.set_scene_colors(tp3d, color_styles.normalize_colors(data["colors"]))
         except (TypeError, ValueError) as e:
             print(f"[TP3D] Could not restore generator colors: {e}")
-    if data.get("slicerProfile"):
+    # An explicit Default 3MF Export Profile preference wins over the
+    # remembered one; with none set this is the last-used behaviour.
+    if data.get("slicerProfile") and _preferred_slicer_profile() is None:
         assign("slicer_profile_name", data["slicerProfile"])
 
 
@@ -900,6 +903,96 @@ def save_generator_settings(tp3d):
         print(f"[TP3D] Failed to write {path}: {e}")
 
 
+# Marks a scene that has had its starting 3MF export profile applied (or has
+# none to apply), so later opens can't undo a sidebar change.
+_DEFAULT_SLICER_PROFILE_APPLIED = "_default_slicer_profile_applied"
+
+# Set while the add-on itself writes slicer_profile_name (restoring settings,
+# applying the preference), so those writes aren't mistaken for the user's
+# pick and saved as the new remembered profile.
+_slicer_profile_save_suppressed = False
+
+
+@contextlib.contextmanager
+def _suppress_slicer_profile_save():
+    global _slicer_profile_save_suppressed
+    previous = _slicer_profile_save_suppressed
+    _slicer_profile_save_suppressed = True
+    try:
+        yield
+    finally:
+        _slicer_profile_save_suppressed = previous
+
+
+def slicer_profile_changed(tp3d):
+    """Update callback of the sidebar's 3MF Export Profile dropdown: remember
+    the pick like a generator page edit does, so the next session starts on it
+    (restore_generator_settings / apply_default_slicer_profile)."""
+    if not _slicer_profile_save_suppressed:
+        save_generator_settings(tp3d)
+
+
+def _preferred_slicer_profile():
+    from .. import addon_preferences
+
+    return addon_preferences.get_default_slicer_profile()
+
+
+def _remembered_slicer_profile():
+    """The profile in the most recently saved generator settings file, or
+    None. A new scene has no generator open yet, so the newest file stands in
+    for "last used" across the per-generator files."""
+    folder = const.generator_settings_dir
+    try:
+        paths = [
+            os.path.join(folder, name)
+            for name in os.listdir(folder)
+            if name.endswith(".json")
+        ]
+        paths.sort(key=os.path.getmtime, reverse=True)
+    except OSError:
+        return None
+    for path in paths:
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, ValueError):
+            continue
+        name = data.get("slicerProfile") if isinstance(data, dict) else None
+        if isinstance(name, str) and name:
+            return name
+    return None
+
+
+def apply_default_slicer_profile(tp3d):
+    """Start a new, unsaved scene on its 3MF export profile: the one chosen in
+    the Add-on Preferences, or with "Remember last used" the one last picked
+    (sidebar or generator page). Runs once per scene and never for a saved
+    .blend, whose own profile wins. Left unmarked while the profile isn't
+    available yet (the 3MF add-on can load after this first runs) so a later
+    call can still apply it."""
+    if bpy.data.filepath or tp3d.get(_DEFAULT_SLICER_PROFILE_APPLIED):
+        return
+    from .. import addon_preferences
+
+    try:
+        stored = addon_preferences.get_prefs().default_slicer_profile_id
+    except (KeyError, AttributeError):
+        return
+    name = addon_preferences.get_default_slicer_profile() if stored else _remembered_slicer_profile()
+    if name is None:
+        if stored:
+            return  # chosen profile not available yet
+        tp3d[_DEFAULT_SLICER_PROFILE_APPLIED] = True  # nothing remembered
+        return
+    try:
+        with _suppress_slicer_profile_save():
+            tp3d.slicer_profile_name = name
+    except (TypeError, ValueError):
+        return  # remembered profile not available (yet)
+    tp3d[_DEFAULT_SLICER_PROFILE_APPLIED] = True
+
+
 def restore_generator_settings(tp3d, generator):
     """Load *generator*'s last-used settings into the scene -- call from each
     generator operator's invoke(), before its page-load snapshots are built.
@@ -908,6 +1001,7 @@ def restore_generator_settings(tp3d, generator):
     saved .blend, whose own settings win."""
     global _active_generator
     _active_generator = generator
+    apply_default_slicer_profile(tp3d)
     if bpy.data.filepath or tp3d.get(_GENERATOR_SETTINGS_LOADED) == generator:
         return
     tp3d[_GENERATOR_SETTINGS_LOADED] = generator
@@ -921,5 +1015,6 @@ def restore_generator_settings(tp3d, generator):
         print(f"[TP3D] Could not read {path}: {e}")
         return
     if isinstance(data, dict):
-        apply_generator_settings_snapshot(tp3d, data)
+        with _suppress_slicer_profile_save():
+            apply_generator_settings_snapshot(tp3d, data)
         _redraw_all_areas()
