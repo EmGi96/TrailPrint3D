@@ -557,13 +557,14 @@ def _prism_object(name, geom, bottom_z, top_z, collection):
     return obj
 
 
-def _ensure_material(name, rgba):
-    mat = bpy.data.materials.get(name)
-    if mat is None:
-        from ..primitives import _setup_material
-        _setup_material(name, rgba)
-        mat = bpy.data.materials.get(name)
-    return mat
+def _ensure_material(name):
+    if name not in bpy.data.materials:
+        # Scene with no map yet -- setupColors is the one place that defines
+        # these, and creating BLACK and WHITE together means a Backplate
+        # built later (which only checks for BLACK) still finds its WHITE.
+        from ..primitives import setupColors
+        setupColors()
+    return bpy.data.materials.get(name)
 
 
 def _subtract(target, cutter_geom, bottom_z, top_z, collection, label):
@@ -649,10 +650,10 @@ def remove_object(obj):
 
 def assign_scene_materials(plate, texts):
     plate.data.materials.clear()
-    plate.data.materials.append(_ensure_material("BLACK", (0.0, 0.0, 0.0, 1.0)))
+    plate.data.materials.append(_ensure_material("BLACK"))
     for _slot, obj in texts:
         obj.data.materials.clear()
-        obj.data.materials.append(_ensure_material("WHITE", (1.0, 1.0, 1.0, 1.0)))
+        obj.data.materials.append(_ensure_material("WHITE"))
 
 
 def write_glb(parts, path):

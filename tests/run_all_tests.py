@@ -76,6 +76,7 @@ _RUN_OVERPASS = "--overpass" in _script_args
 _RUN_INTEGRATION = "--integration" in _script_args
 
 _TEST_FILES = [
+    "test_accessory_materials.py",
     "test_color_by_height.py",
     "test_element_colors.py",
     "test_export_folder.py",

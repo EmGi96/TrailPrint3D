@@ -5123,6 +5123,12 @@ class TP3D_OT_medal_holder_generator(bpy.types.Operator):
             obj["Version"] = const.ADDON_VERSION
             obj.select_set(True)
         context.view_layer.objects.active = plate
+        # The holder is already built: a zoom that can't run (no 3D viewport
+        # on screen, not in Object Mode) mustn't report as a failed generation.
+        try:
+            utils.zoom_camera_to_objects([plate] + [obj for _slot, obj in texts])
+        except (ReferenceError, AttributeError, StopIteration, RuntimeError):
+            pass
         self.report(
             {"INFO"}, _rpt('Created medal holder "{name}"').format(name=plate.name)
         )
@@ -5285,6 +5291,11 @@ class TP3D_OT_backplate_generator(bpy.types.Operator):
             obj["Version"] = const.ADDON_VERSION
             obj.select_set(True)
         context.view_layer.objects.active = plate
+        # See TP3D_OT_medal_holder_generator._apply_result.
+        try:
+            utils.zoom_camera_to_objects(objs)
+        except (ReferenceError, AttributeError, StopIteration, RuntimeError):
+            pass
         self.report(
             {"INFO"}, _rpt('Created backplate "{name}"').format(name=plate.name)
         )
