@@ -77,7 +77,16 @@ var baseLayers = {
 };
 var activeBaseLayerName = 'OpenStreetMap';
 baseLayers[activeBaseLayerName].addTo(map);
-L.control.layers(baseLayers, null, { position: 'bottomleft' }).addTo(map);
+// Overridden before addTo(): Leaflet binds this.collapse to mouseleave and map
+// clicks there. While held (map_tutorials.js's tp3dHoldLayersOpen), the list
+// stays open instead of closing on those.
+var tp3dLayersHeldOpen = false;
+var tp3dLayersControl = L.control.layers(baseLayers, null, { position: 'bottomleft' });
+tp3dLayersControl.collapse = function () {
+    if (tp3dLayersHeldOpen) return this;
+    return L.Control.Layers.prototype.collapse.call(this);
+};
+tp3dLayersControl.addTo(map);
 map.on('baselayerchange', function (e) {
     activeBaseLayerName = e.name;
     saveState();

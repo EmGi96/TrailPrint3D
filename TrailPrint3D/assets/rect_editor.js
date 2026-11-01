@@ -840,6 +840,7 @@ function bindMoveHandle() {
         rectLayer.setBounds([[coords.south, coords.west], [coords.north, coords.east]]);
         if (syncCenterHandles) syncCenterHandles();
         tp3dOnShapeChanged();
+        map.fire('tp3d:shapemove'); // map_tutorials.js's tp3dWaitForMove
     });
     marker.on('dragend', function() {
         if (wasCornerEditing) bindLiveEdit(rectLayer);

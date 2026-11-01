@@ -667,7 +667,10 @@
             if (!rectLayer) return;
             rectLayer.setBounds([[coords.south, coords.west], [coords.north, coords.east]]);
             // leaflet-draw's markers don't follow external setBounds calls.
-            if (rectLayer.editing && rectLayer.editing.enabled()) {
+            // Not mid-drag though: moving a box to another latitude unsquares
+            // it, rebinding would remove the marker being dragged, and that
+            // marker's own dragend repositions the others anyway.
+            if (rectLayer.editing && rectLayer.editing.enabled() && !L.Draggable._dragging) {
                 rectLayer.editing.disable();
                 bindLiveEdit(rectLayer);
             }

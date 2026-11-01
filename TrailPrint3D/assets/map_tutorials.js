@@ -75,22 +75,15 @@ function tp3dDemoMoveGhost(start, current) {
 
 // Leaflet's layers control (map_init.js, bottom-left) only lists its layers
 // while hovered and collapses again on mouseout. The tutorial's layer step
-// keeps it open so the list itself can be highlighted -- re-applying the
-// expanded class on a short timer undoes Leaflet's own collapse.
-var tp3dLayersOpenTimer = null;
+// keeps it open so the list itself can be highlighted -- map_init.js's
+// tp3dLayersHeldOpen blocks Leaflet's own collapse meanwhile.
 function tp3dHoldLayersOpen() {
-    tp3dReleaseLayersOpen();
-    function open() {
-        var el = document.querySelector('.leaflet-control-layers');
-        if (el) el.classList.add('leaflet-control-layers-expanded');
-    }
-    open();
-    tp3dLayersOpenTimer = setInterval(open, 150);
+    tp3dLayersHeldOpen = true;
+    tp3dLayersControl.expand();
 }
 function tp3dReleaseLayersOpen() {
-    if (tp3dLayersOpenTimer) { clearInterval(tp3dLayersOpenTimer); tp3dLayersOpenTimer = null; }
-    var el = document.querySelector('.leaflet-control-layers');
-    if (el) el.classList.remove('leaflet-control-layers-expanded');
+    tp3dLayersHeldOpen = false;
+    tp3dLayersControl.collapse();
 }
 
 // Puts the page back to what a first launch of the generator shows, so a
@@ -143,14 +136,12 @@ function tp3dResetMapGenerator() {
     });
 }
 
-// waitFor for the "adjust" / "move" steps: snapshots the drawn area's
-// bounds when the step opens, then re-checks after every mouse release
-// (deferred a moment, so the page's own drag-end handlers have updated
-// coords first). kind 'resize' advances once the area's size changed;
-// 'move' once its center moved while its size stayed the same, so a resize
-// during the move step doesn't count. Copies the values, since the move
+// waitFor for the "adjust" steps: snapshots the drawn area's bounds when the
+// step opens, then re-checks after every mouse release (deferred a moment,
+// so the page's own drag-end handlers have updated coords first) and
+// advances once the area's size changed. Copies the values, since the move
 // handle mutates coords in place.
-function tp3dWaitForAreaChange(kind) {
+function tp3dWaitForResize() {
     return function(done) {
         function snap() {
             if (!tp3dHasDrawnArea()) return null;
@@ -165,14 +156,34 @@ function tp3dWaitForAreaChange(kind) {
                 var tol = 1e-9;
                 var sizeChanged = Math.abs((now.n - now.s) - (start.n - start.s)) > tol ||
                     Math.abs((now.e - now.w) - (start.e - start.w)) > tol;
-                var moved = Math.abs((now.n + now.s) - (start.n + start.s)) > tol ||
-                    Math.abs((now.e + now.w) - (start.e + start.w)) > tol;
-                if (kind === 'move' ? (moved && !sizeChanged) : sizeChanged) done();
+                if (sizeChanged) done();
                 else start = now;
             }, 60);
         }
         document.addEventListener('pointerup', onUp, true);
         return function() { document.removeEventListener('pointerup', onUp, true); };
+    };
+}
+
+// waitFor for the "move" steps: advances on the release after the shape was
+// actually dragged by a move handle -- rect_editor.js's own, or leaflet-draw's
+// (on top of it while its corner editing is active). Watches the gesture
+// rather than comparing bounds: tp3dSquareCoords re-squares every shape but
+// Rectangle as it changes latitude, so a real move changes the size too.
+function tp3dWaitForMove() {
+    return function(done) {
+        var dragged = false;
+        function onDrag() { dragged = true; }
+        function onUp() {
+            if (dragged) setTimeout(done, 60);
+        }
+        var events = 'tp3d:shapemove ' + L.Draw.Event.EDITMOVE;
+        map.on(events, onDrag);
+        document.addEventListener('pointerup', onUp, true);
+        return function() {
+            map.off(events, onDrag);
+            document.removeEventListener('pointerup', onUp, true);
+        };
     };
 }
 
@@ -292,7 +303,7 @@ function tp3dMapGenerateSteps(withGpx) {
             title: 'Adjust your shape',
             text: 'Drag a corner of the orange box to adjust your shape.',
             demo: tp3dDemoDragCorner,
-            waitFor: tp3dWaitForAreaChange('resize'),
+            waitFor: tp3dWaitForResize(),
             waitText: 'Drag a corner',
             skippable: true
         },
@@ -301,7 +312,7 @@ function tp3dMapGenerateSteps(withGpx) {
             title: 'Move your shape',
             text: 'Drag the handle in the middle of the box to move the whole shape without changing its size.',
             demo: tp3dDemoMoveShape,
-            waitFor: tp3dWaitForAreaChange('move'),
+            waitFor: tp3dWaitForMove(),
             waitText: 'Drag the middle handle',
             skippable: true,
             demoGhost: tp3dDemoMoveGhost,
@@ -324,7 +335,7 @@ function tp3dMapGenerateSteps(withGpx) {
             text: 'Drag a corner. The opposite side moves with it, so the shape grows or shrinks ' +
                   'around its center and your trail stays in the middle.',
             demo: tp3dDemoDragCorner,
-            waitFor: tp3dWaitForAreaChange('resize'),
+            waitFor: tp3dWaitForResize(),
             waitText: 'Drag a corner',
             skippable: true
         } : null,
@@ -598,7 +609,7 @@ function tp3dMapTutorialShapes() {
             demo: tp3dDemoMoveShape,
             demoGhost: tp3dDemoMoveGhost,
             demoGhostColor: TP3D_DRAWN_ORANGE,
-            waitFor: tp3dWaitForAreaChange('move'),
+            waitFor: tp3dWaitForMove(),
             waitText: 'Move the shape',
             skippable: true
         },
