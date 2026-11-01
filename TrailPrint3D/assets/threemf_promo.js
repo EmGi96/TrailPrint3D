@@ -110,8 +110,10 @@
         '  min-height: 16px;',
         '  text-align: center;',
         '}',
-        /* cancel the flex margin-top:auto on the send button so it sits 4px below the install button */
-        '.tp3d-3mf-install-btn + #send, .tp3d-3mf-install-btn + .btn-send { margin-top: 4px !important; }',
+        /* the install button takes over the flex margin-top:auto that keeps these at the
+           bottom of the sidebar, so whichever of Send / Select Export Folder is showing
+           sits 4px below it instead of splitting the free space with it */
+        '.tp3d-3mf-install-btn ~ #send, .tp3d-3mf-install-btn ~ #exportFolderSlot { margin-top: 4px !important; }',
         '.tp3d-3mf-install-btn { margin-top: auto; }'
     ].join('\n');
     document.head.appendChild(style);
@@ -127,7 +129,10 @@
         btn.title = 'The free 3MF Addon adds 3MF Export and Map Texturing';
         btn.textContent = 'Install free 3MF Addon';
         btn.addEventListener('click', function () { showDialog(); });
-        sendBtn.parentNode.insertBefore(btn, sendBtn);
+        // Before the export folder slot, not between it and Send --
+        // export_folder.js shows one or the other in the same spot.
+        var anchor = document.getElementById('exportFolderSlot') || sendBtn;
+        anchor.parentNode.insertBefore(btn, anchor);
     }
 
     function removeInstallButton() {
