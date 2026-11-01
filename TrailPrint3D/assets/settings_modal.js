@@ -2026,12 +2026,18 @@ function tp3dBuildDemPathRow() {
     row.appendChild(tp3dWithPreview(label, null, [
         'DEM File',
         'A GeoTIFF (.tif/.tiff) elevation file you downloaded, or a folder of tiled GeoTIFFs covering a larger area — only the tiles covering the map are read.',
-        'WGS84 lat/lon, or UTM in WGS84, ETRS89 or NAD83.'
+        'WGS84 lat/lon, UTM in WGS84, ETRS89 or NAD83, or Swiss LV95. Must hold heights, not a colored map image.'
     ], 'DEM File', row));
 
+    var pathCell = document.createElement('div');
+    pathCell.className = 'dem-path-cell';
     var pathEl = document.createElement('div');
     pathEl.className = 'dem-path';
-    row.appendChild(pathEl);
+    pathCell.appendChild(pathEl);
+    var statusEl = document.createElement('div');
+    statusEl.className = 'dem-status';
+    pathCell.appendChild(statusEl);
+    row.appendChild(pathCell);
 
     var controls = document.createElement('div');
     controls.className = 'adv-field-controls';
@@ -2059,7 +2065,27 @@ function tp3dBuildDemPathRow() {
             buttons[kind].textContent = state.picking === kind ? 'Choosing…'
                 : kind === 'file' ? 'File…' : 'Folder…';
         });
+        renderStatus();
     }
+    // Format check of the chosen file, from the coverage map_init.js keeps
+    // current. Blank until that coverage belongs to the path shown here.
+    function renderStatus() {
+        var coverage = window.tp3dDemCoverage;
+        var current = coverage && state.valid && !state.picking && coverage.path === state.path;
+        var message = !current ? ''
+            : coverage.error ? 'Not supported: ' + coverage.error
+            : coverage.problem ? 'Not usable for terrain: ' + coverage.problem
+            : 'Supported format';
+        statusEl.textContent = message;
+        statusEl.title = message;
+        statusEl.classList.toggle('warning-text', !!(current && (coverage.error || coverage.problem)));
+    }
+    document.addEventListener('tp3d-dem-coverage', function() {
+        // The path can also change from Blender's sidebar, without a dialog here.
+        var coverage = window.tp3dDemCoverage;
+        if (coverage && coverage.path !== state.path && !state.picking) poll();
+        else renderStatus();
+    });
     function poll() {
         fetch('/dem_path_status', { cache: 'no-store' })
             .then(function(r) { return r.json(); })
@@ -2070,6 +2096,7 @@ function tp3dBuildDemPathRow() {
                 SETTINGS_STATE.demFilePath = state.path;
                 render();
                 if (s.status === 'picking') setTimeout(poll, 400);
+                else if (window.tp3dCheckDemCoverage) tp3dCheckDemCoverage();
             })
             .catch(function() { state.picking = null; render(); });
     }

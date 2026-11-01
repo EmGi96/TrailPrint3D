@@ -3448,33 +3448,9 @@ def _dem_coverage_overlay():
     if tp3d.api != "LOCAL_DEM" or not tp3d.demFilePath:
         return None
 
-    import struct
-    import zlib
+    from .utils.geotiff import dem_coverage
 
-    from .utils.geotiff import GeoTiffError, build_tile_index, get_geotiff_footprint
-
-    if os.path.isdir(tp3d.demFilePath):
-        index = build_tile_index(tp3d.demFilePath)
-        if not index:
-            print(
-                f"[TP3D] No readable DEM tiles found in {tp3d.demFilePath} for picker overlay"
-            )
-            return None
-        tiles = [
-            {"footprint": e["footprint"], "name": os.path.basename(e["path"])}
-            for e in index
-        ]
-        return {
-            "tiles": tiles,
-            "name": f"{len(tiles)} tiles in {os.path.basename(tp3d.demFilePath.rstrip(os.sep))}",
-        }
-
-    try:
-        footprint = get_geotiff_footprint(tp3d.demFilePath)
-    except (GeoTiffError, OSError, struct.error, zlib.error) as e:
-        print(f"[TP3D] Could not read DEM coverage bounds for picker overlay: {e}")
-        return None
-    return {"footprint": footprint, "name": os.path.basename(tp3d.demFilePath)}
+    return dem_coverage(bpy.path.abspath(tp3d.demFilePath))
 
 
 def _collect_existing_trails():

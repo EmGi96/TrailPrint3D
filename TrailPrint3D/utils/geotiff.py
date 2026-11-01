@@ -5,12 +5,13 @@ Blender does not bundle GDAL/rasterio, so this module hand-parses just enough
 of the TIFF 6.0 + GeoTIFF 1.0 spec to read the DEM rasters that providers like
 OpenTopography, Copernicus and USGS 3DEP hand out: uncompressed or
 Deflate/LZW-compressed, strip- or tile-based, 8/16/32-bit integer or 32-bit
-float samples, with an optional horizontal predictor. BigTIFF is explicitly
-rejected rather than silently mis-sampled. Geographic (lat/lon) rasters are
-read as-is; projected rasters are only supported when they use a recognized
-WGS84/ETRS89/NAD83 UTM zone, in which case query coordinates are converted to
-that zone's easting/northing with a hand-rolled Transverse Mercator forward
-projection — any other projected CRS is rejected with a reprojection hint.
+float samples, with an optional horizontal predictor, in classic TIFF or BigTIFF.
+RGB/palette images are explicitly rejected rather than silently mis-sampled, since
+they hold colors rather than elevations. Geographic (lat/lon) rasters are read as-is;
+projected rasters are only supported when they use a recognized WGS84/ETRS89/NAD83
+UTM zone or Swiss LV95, in which case query coordinates are converted to that CRS's
+easting/northing with a hand-rolled forward projection — any other projected CRS is
+rejected with a reprojection hint.
 
 The actual pixel decode (per-strip/tile decompression, undoing the horizontal
 predictor, and assembling band 0 into the output grid) is vectorized with numpy --
@@ -20,23 +21,27 @@ build_tile_index/sample_tile_index).
 """
 
 import math
+import mmap
+import os
 import pathlib
 import struct
 import zlib
 
 import numpy as np
 
-_TAG_TYPE_SIZES = {1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 6: 1, 7: 1, 8: 2, 9: 4, 10: 8, 11: 4, 12: 8}
-_TAG_TYPE_FORMATS = {1: 'B', 3: 'H', 4: 'I', 6: 'b', 8: 'h', 9: 'i', 11: 'f', 12: 'd'}
+_TAG_TYPE_SIZES = {1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 6: 1, 7: 1, 8: 2, 9: 4, 10: 8, 11: 4, 12: 8, 16: 8, 17: 8, 18: 8}
+_TAG_TYPE_FORMATS = {1: 'B', 3: 'H', 4: 'I', 6: 'b', 8: 'h', 9: 'i', 11: 'f', 12: 'd', 16: 'Q', 17: 'q', 18: 'Q'}
 
 TAG_IMAGE_WIDTH = 256
 TAG_IMAGE_LENGTH = 257
 TAG_BITS_PER_SAMPLE = 258
 TAG_COMPRESSION = 259
+TAG_PHOTOMETRIC = 262
 TAG_SAMPLES_PER_PIXEL = 277
 TAG_ROWS_PER_STRIP = 278
 TAG_STRIP_OFFSETS = 273
 TAG_STRIP_BYTE_COUNTS = 279
+TAG_PLANAR_CONFIGURATION = 284
 TAG_PREDICTOR = 317
 TAG_TILE_WIDTH = 322
 TAG_TILE_LENGTH = 323
@@ -50,6 +55,18 @@ TAG_GDAL_NODATA = 42113
 
 GEOKEY_MODEL_TYPE = 1024
 GEOKEY_PROJECTED_CS_TYPE = 3072
+
+_COLOR_PHOTOMETRICS = {2: "RGB", 3: "palette-color"}
+_SUPPORTED_COMPRESSIONS = (1, 5, 8, 32946)  # none, LZW, Deflate, "old style" Deflate
+_SUPPORTED_PREDICTORS = (1, 2)  # none, horizontal differencing
+
+EPSG_LV95 = 2056  # CH1903+ / LV95, used by swisstopo's products
+
+# Padding (degrees, ~10 m) around a tile's "bounds" box. Those bounds are computed by
+# the inverse projection while dem_contains_point uses the forward one, and the two
+# don't round-trip perfectly (under 5 m for LV95, see _latlon_to_lv95) -- unpadded, a
+# point right on a shared tile edge could miss the box of the one tile containing it.
+_BOUNDS_PADDING_DEG = 1e-4
 
 # a, f (flattening) for the ellipsoids behind the UTM EPSG families we recognize.
 _ELLIPSOIDS = {
@@ -165,6 +182,37 @@ def _utm_to_latlon(easting, northing, zone, hemisphere, ellipsoid):
     return math.degrees(lat_rad), math.degrees(lon_rad)
 
 
+def _latlon_to_lv95(lat, lon):
+    """WGS84 lat/lon to Swiss LV95 easting/northing, using swisstopo's published
+    approximate polynomial (about 1 m accurate within Switzerland)."""
+    phi = (lat * 3600 - 169028.66) / 10000
+    lam = (lon * 3600 - 26782.5) / 10000
+
+    easting = (
+        2600072.37 + 211455.93 * lam - 10938.51 * lam * phi
+        - 0.36 * lam * phi ** 2 - 44.54 * lam ** 3
+    )
+    northing = (
+        1200147.07 + 308807.95 * phi + 3745.25 * lam ** 2 + 76.63 * phi ** 2
+        - 194.56 * lam ** 2 * phi + 119.79 * phi ** 3
+    )
+    return easting, northing
+
+
+def _lv95_to_latlon(easting, northing):
+    """Swiss LV95 easting/northing to WGS84 lat/lon, using swisstopo's published
+    approximate polynomial (about 1 m accurate within Switzerland)."""
+    y = (easting - 2600000) / 1000000
+    x = (northing - 1200000) / 1000000
+
+    lam = 2.6779094 + 4.728982 * y + 0.791484 * y * x + 0.1306 * y * x ** 2 - 0.0436 * y ** 3
+    phi = (
+        16.9023892 + 3.238272 * x - 0.270978 * y ** 2 - 0.002528 * x ** 2
+        - 0.0447 * y ** 2 * x - 0.0140 * x ** 3
+    )
+    return phi * 100 / 36, lam * 100 / 36
+
+
 def _decode_values(raw, typ, cnt, endian):
     if typ == 2:  # ASCII
         return raw.split(b'\x00', 1)[0].decode('ascii', errors='replace')
@@ -179,25 +227,32 @@ def _decode_values(raw, typ, cnt, endian):
     return struct.unpack(endian + fmt * cnt, raw[:size])
 
 
-def _read_ifd(data, offset, endian):
-    (count,) = struct.unpack_from(endian + 'H', data, offset)
+def _read_ifd(data, offset, endian, bigtiff=False):
+    # BigTIFF widens the entry count, each entry's count and value field, and every
+    # offset to 64 bits; the layout is otherwise the same as classic TIFF.
+    if bigtiff:
+        count_fmt, entry_fmt, offset_fmt, entry_size, value_size = 'Q', 'HHQ', 'Q', 20, 8
+    else:
+        count_fmt, entry_fmt, offset_fmt, entry_size, value_size = 'H', 'HHI', 'I', 12, 4
+
+    (count,) = struct.unpack_from(endian + count_fmt, data, offset)
     tags = {}
-    p = offset + 2
+    p = offset + struct.calcsize(endian + count_fmt)
     for _i in range(count):
-        tag, typ, cnt = struct.unpack_from(endian + 'HHI', data, p)
+        tag, typ, cnt = struct.unpack_from(endian + entry_fmt, data, p)
         size = _TAG_TYPE_SIZES.get(typ, 1) * cnt
-        value_field_offset = p + 8
-        if size <= 4:
+        value_field_offset = p + entry_size - value_size
+        if size <= value_size:
             raw = data[value_field_offset:value_field_offset + size]
         else:
-            (off,) = struct.unpack_from(endian + 'I', data, value_field_offset)
+            (off,) = struct.unpack_from(endian + offset_fmt, data, value_field_offset)
             raw = data[off:off + size]
         try:
             tags[tag] = _decode_values(raw, typ, cnt, endian)
         except struct.error:
             pass  # unrecognised/truncated tag — ignore, it's likely not one we need
-        p += 12
-    (next_ifd,) = struct.unpack_from(endian + 'I', data, p)
+        p += entry_size
+    (next_ifd,) = struct.unpack_from(endian + offset_fmt, data, p)
     return tags, next_ifd
 
 
@@ -366,13 +421,15 @@ def _parse_geo_reference(tags):
                 proj_cs_code = value
 
     projection = None
-    if model_type == 1:  # GTModelTypeGeoKey == Projected
+    if model_type == 1 and proj_cs_code == EPSG_LV95:
+        projection = {"crs": "LV95"}
+    elif model_type == 1:  # GTModelTypeGeoKey == Projected
         utm = _utm_zone_from_epsg(proj_cs_code) if proj_cs_code else None
         if utm is None:
             code_desc = f"EPSG:{proj_cs_code}" if proj_cs_code else "an unspecified projected CRS"
             raise GeoTiffError(
-                f"this GeoTIFF uses {code_desc}, which isn't a supported UTM zone "
-                "(WGS84, ETRS89 or NAD83). Reproject it to EPSG:4326 first (e.g. gdalwarp -t_srs EPSG:4326)."
+                f"this GeoTIFF uses {code_desc}, which isn't a supported projection (a WGS84, ETRS89 or "
+                "NAD83 UTM zone, or Swiss LV95). Reproject it to EPSG:4326 first (e.g. gdalwarp -t_srs EPSG:4326)."
             )
         zone, hemisphere, ellipsoid = utm
         projection = {"zone": zone, "hemisphere": hemisphere, "ellipsoid": ellipsoid}
@@ -380,23 +437,65 @@ def _parse_geo_reference(tags):
     return pixel_scale_x, pixel_scale_y, origin_x, origin_y, projection
 
 
+def _pixel_format_problem(tags):
+    """Why this raster's pixels can't be read as elevations, or None if they can.
+
+    Answered from the tags alone, so a file can be checked without decoding anything.
+    """
+    color_kind = _COLOR_PHOTOMETRICS.get(_first(tags, TAG_PHOTOMETRIC))
+    if color_kind:
+        return (
+            f"this {color_kind} image isn't an elevation raster -- its pixels hold colors, "
+            "not heights. Use a single-band DEM instead."
+        )
+
+    reexport_hint = "re-export it (e.g. with gdal_translate -co COMPRESS=DEFLATE)"
+    compression = _first(tags, TAG_COMPRESSION, 1)
+    if compression not in _SUPPORTED_COMPRESSIONS:
+        return f"unsupported TIFF compression method {compression} -- {reexport_hint}"
+    predictor = _first(tags, TAG_PREDICTOR, 1)
+    if predictor not in _SUPPORTED_PREDICTORS:
+        return f"unsupported TIFF predictor {predictor} -- {reexport_hint}"
+    if _first(tags, TAG_PLANAR_CONFIGURATION, 1) != 1:
+        return f"bands stored in separate planes aren't supported -- {reexport_hint}"
+    try:
+        _numpy_dtype(_first(tags, TAG_BITS_PER_SAMPLE, 32), _first(tags, TAG_SAMPLE_FORMAT, 1), '<')
+    except GeoTiffError as e:
+        return f"{e} -- {reexport_hint} as 32-bit float"
+    return None
+
+
 def read_geotiff(filepath, header_only=False):
     """Read a single-band GeoTIFF DEM and return a dict describing its raster + geo-transform.
 
     Returned dict keys: width, height, grid ((height, width) float32 numpy array,
     band 0 only; None if header_only), origin_x, origin_y (of pixel [0,0]'s top-left
-    corner, in degrees or, for a UTM raster, meters), pixel_scale_x, pixel_scale_y
-    (units per pixel, matching origin_x/origin_y), projection (None for geographic/
-    lat-lon rasters, else {"zone", "hemisphere", "ellipsoid"} for a recognized UTM
-    zone), nodata (float or None).
+    corner, in degrees or, for a projected raster, meters), pixel_scale_x,
+    pixel_scale_y (units per pixel, matching origin_x/origin_y), projection (None for
+    geographic/lat-lon rasters, {"crs": "LV95"} for Swiss LV95, else {"zone",
+    "hemisphere", "ellipsoid"} for a recognized UTM zone), nodata (float or None).
 
     With header_only=True, the (potentially slow, decompression-heavy) pixel data is
     never decoded -- only the IFD tags needed for dimensions/georeferencing are read.
     Used to preview a DEM's coverage extent without paying the cost of a full read.
+    The file is memory-mapped in that case rather than read, so only the pages holding
+    those tags are touched, however large the raster is.
+
+    A raster whose pixels can't be used (a color image, an unsupported compression, ...)
+    raises GeoTiffError on a full read but not with header_only=True: its georeferencing
+    is valid, so its coverage can still be previewed. The reason is in the header's
+    "problem" key instead (None if the pixels are usable).
     """
     with open(filepath, 'rb') as f:
-        data = f.read()
+        if not header_only:
+            return _parse_geotiff(f.read(), False)
+        if os.fstat(f.fileno()).st_size == 0:  # mmap refuses an empty file
+            raise GeoTiffError("file too small to be a TIFF")
+        with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as data:
+            return _parse_geotiff(data, True)
 
+
+def _parse_geotiff(data, header_only):
     if len(data) < 8:
         raise GeoTiffError("file too small to be a TIFF")
 
@@ -410,12 +509,13 @@ def read_geotiff(filepath, header_only=False):
 
     (magic,) = struct.unpack_from(endian + 'H', data, 2)
     if magic == 43:
-        raise GeoTiffError("BigTIFF is not supported")
-    if magic != 42:
+        (ifd_offset,) = struct.unpack_from(endian + 'Q', data, 8)
+    elif magic == 42:
+        (ifd_offset,) = struct.unpack_from(endian + 'I', data, 4)
+    else:
         raise GeoTiffError("not a TIFF file (bad magic number)")
 
-    (ifd_offset,) = struct.unpack_from(endian + 'I', data, 4)
-    tags, _next_ifd = _read_ifd(data, ifd_offset, endian)
+    tags, _next_ifd = _read_ifd(data, ifd_offset, endian, bigtiff=magic == 43)
 
     width = _first(tags, TAG_IMAGE_WIDTH)
     height = _first(tags, TAG_IMAGE_LENGTH)
@@ -434,7 +534,12 @@ def read_geotiff(filepath, header_only=False):
             "pixel_scale_y": pixel_scale_y,
             "projection": projection,
             "nodata": None,
+            "problem": _pixel_format_problem(tags),
         }
+
+    problem = _pixel_format_problem(tags)
+    if problem:
+        raise GeoTiffError(problem)
 
     bits_per_sample = _first(tags, TAG_BITS_PER_SAMPLE, 32)
     compression = _first(tags, TAG_COMPRESSION, 1)
@@ -505,13 +610,15 @@ def read_geotiff(filepath, header_only=False):
 def _project_query_point(dem, lat, lon):
     """Convert a query (lat, lon) into dem's native coordinate space -- the same units
     as its origin_x/origin_y/pixel_scale_x/pixel_scale_y: degrees for a plain
-    geographic raster, or UTM easting/northing (via the tile's own zone/hemisphere/
-    ellipsoid) for a projected one.
+    geographic raster, or easting/northing for a projected one (LV95, or UTM via the
+    tile's own zone/hemisphere/ellipsoid).
     """
     projection = dem["projection"]
-    if projection is not None:
-        return _latlon_to_utm(lat, lon, projection["zone"], projection["hemisphere"], projection["ellipsoid"])
-    return lon, lat
+    if projection is None:
+        return lon, lat
+    if projection.get("crs") == "LV95":
+        return _latlon_to_lv95(lat, lon)
+    return _latlon_to_utm(lat, lon, projection["zone"], projection["hemisphere"], projection["ellipsoid"])
 
 
 def dem_contains_point(dem, lat, lon):
@@ -572,12 +679,14 @@ def _footprint_from_header(dem):
 
     projection = dem["projection"]
     corners = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]  # TL, TR, BR, BL
-    if projection is not None:
-        return [
-            list(_utm_to_latlon(x, y, projection["zone"], projection["hemisphere"], projection["ellipsoid"]))
-            for x, y in corners
-        ]
-    return [[y, x] for x, y in corners]  # header stores (lon, lat) as (origin_x, origin_y)
+    if projection is None:
+        return [[y, x] for x, y in corners]  # header stores (lon, lat) as (origin_x, origin_y)
+    if projection.get("crs") == "LV95":
+        return [list(_lv95_to_latlon(x, y)) for x, y in corners]
+    return [
+        list(_utm_to_latlon(x, y, projection["zone"], projection["hemisphere"], projection["ellipsoid"]))
+        for x, y in corners
+    ]
 
 
 def get_geotiff_footprint(filepath):
@@ -629,9 +738,47 @@ def build_tile_index(folder):
         footprint = _footprint_from_header(header)
         lats = [lat for lat, _lon in footprint]
         lons = [lon for _lat, lon in footprint]
-        bounds = {"north": max(lats), "south": min(lats), "east": max(lons), "west": min(lons)}
+        bounds = {
+            "north": max(lats) + _BOUNDS_PADDING_DEG,
+            "south": min(lats) - _BOUNDS_PADDING_DEG,
+            "east": max(lons) + _BOUNDS_PADDING_DEG,
+            "west": min(lons) - _BOUNDS_PADDING_DEG,
+        }
         index.append({"path": str(path), "bounds": bounds, "footprint": footprint, "header": header})
     return index
+
+
+def dem_coverage(path):
+    """Describe a Local DEM file or tile folder for the generators' map overlay and
+    format check, from headers alone, as a JSON-friendly dict with these keys:
+
+    "path" (*path* itself) and "name" (for display), always. "footprint" for a single
+    file, or "tiles" ([{"footprint", "name"}, ...]) for a folder, if its location could
+    be read. "error" if it couldn't, so there's nothing to draw. "problem" if the area
+    can be drawn but its pixels can't generate terrain (see _pixel_format_problem).
+    """
+    name = os.path.basename(path.rstrip('/\\'))
+    if os.path.isdir(path):
+        index = build_tile_index(path)
+        if not index:
+            print(f"[TP3D geotiff] No readable DEM tiles found in {path}")
+            return {"path": path, "name": name, "error": "no readable GeoTIFF tiles in this folder"}
+        tiles = [{"footprint": e["footprint"], "name": os.path.basename(e["path"])} for e in index]
+        coverage = {"path": path, "name": f"{len(tiles)} tiles in {name}", "tiles": tiles}
+        problems = [e["header"]["problem"] for e in index if e["header"]["problem"]]
+        if problems:
+            coverage["problem"] = f"{len(problems)} of {len(tiles)} tiles can't be used: {problems[0]}"
+        return coverage
+
+    try:
+        header = read_geotiff(path, header_only=True)
+    except (GeoTiffError, OSError, struct.error, zlib.error) as e:
+        print(f"[TP3D geotiff] Could not read DEM {path}: {e}")
+        return {"path": path, "name": name, "error": str(e)}
+    coverage = {"path": path, "name": name, "footprint": _footprint_from_header(header)}
+    if header["problem"]:
+        coverage["problem"] = header["problem"]
+    return coverage
 
 
 def sample_tile_index(index, lat, lon, cache):

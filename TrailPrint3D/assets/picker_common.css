@@ -417,7 +417,11 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 0.875rem; line
 .api-cache-group { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 /* Settings popup's Local DEM File path (tp3dBuildDemPathRow) -- a long path
    is cut off with an ellipsis; the full one is its tooltip. */
+.dem-path-cell { flex: 1; min-width: 0; }
 .dem-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); }
+/* Format check of the chosen file, below its path. */
+.dem-status { font-size: 0.85em; color: var(--success); overflow-wrap: anywhere; }
+.dem-status.warning-text { color: var(--warning); }
 /* Cards wrap inside their section rather than forcing horizontal scrolling. */
 .map-tab-fields.elements-grid { display: flex; flex-direction: column; gap: 10px; }
 /* Cards grow to fill each row instead of leaving one orphan on its own. */

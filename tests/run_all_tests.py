@@ -83,6 +83,7 @@ _TEST_FILES = [
     "test_geo_elevation.py",
     "test_geojson_import.py",
     "test_geometry2d.py",
+    "test_geotiff.py",
     "test_generator_settings.py",
     "test_gpx.py",
     "test_magnet_layout.py",

@@ -93,6 +93,12 @@ def _set_default_slicer(self, value):
     self.default_slicer_profile_id = "" if value <= 0 else items[value][0]
 
 
+def _on_default_slicer_update(self, context):
+    from .utils.ui_state import default_slicer_profile_changed
+
+    default_slicer_profile_changed(context.scene.tp3d)
+
+
 class TP3D_AddonPreferences(bpy.types.AddonPreferences):
     bl_idname = __package__
 
@@ -163,11 +169,12 @@ class TP3D_AddonPreferences(bpy.types.AddonPreferences):
     default_slicer_profile: EnumProperty(
         name=_("Default 3MF Export Profile"),
         description=_tip(
-            "Profile new scenes start with for 3MF export. Pick a profile to start every new scene on it, overriding the remembered one; the sidebar and generator pages can still change it per scene. \"Remember last used\" leaves it to the generator pages' saved profile"
+            "Profile new scenes start with for 3MF export. Pick a profile to switch the current scene to it and start every new scene on it, overriding the remembered one; the sidebar and generator pages can still change it per scene. \"Remember last used\" leaves it to the generator pages' saved profile"
         ),
         items=_default_slicer_items,
         get=_get_default_slicer,
         set=_set_default_slicer,
+        update=_on_default_slicer_update,
     )  # type: ignore
 
     openTopographyApiKey: StringProperty(

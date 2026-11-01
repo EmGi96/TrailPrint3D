@@ -938,6 +938,28 @@ def _preferred_slicer_profile():
     return addon_preferences.get_default_slicer_profile()
 
 
+def _assign_starting_slicer_profile(tp3d, name):
+    """Put the scene on *name* as the add-on's own write, and mark its starting
+    profile as applied so a later generator open can't undo a sidebar change.
+    Returns False if the profile isn't available."""
+    try:
+        with _suppress_slicer_profile_save():
+            tp3d.slicer_profile_name = name
+    except (TypeError, ValueError):
+        return False
+    tp3d[_DEFAULT_SLICER_PROFILE_APPLIED] = True
+    return True
+
+
+def default_slicer_profile_changed(tp3d):
+    """Update callback of the Default 3MF Export Profile preference: a picked
+    profile also switches the current scene's sidebar dropdown, saved .blend or
+    not. "Remember last used" leaves the scene alone."""
+    name = _preferred_slicer_profile()
+    if name is not None and _assign_starting_slicer_profile(tp3d, name):
+        _redraw_all_areas()
+
+
 def _remembered_slicer_profile():
     """The profile in the most recently saved generator settings file, or
     None. A new scene has no generator open yet, so the newest file stands in
@@ -985,12 +1007,7 @@ def apply_default_slicer_profile(tp3d):
             return  # chosen profile not available yet
         tp3d[_DEFAULT_SLICER_PROFILE_APPLIED] = True  # nothing remembered
         return
-    try:
-        with _suppress_slicer_profile_save():
-            tp3d.slicer_profile_name = name
-    except (TypeError, ValueError):
-        return  # remembered profile not available (yet)
-    tp3d[_DEFAULT_SLICER_PROFILE_APPLIED] = True
+    _assign_starting_slicer_profile(tp3d, name)  # False: not available (yet)
 
 
 def restore_generator_settings(tp3d, generator):

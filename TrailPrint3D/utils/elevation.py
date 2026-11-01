@@ -835,12 +835,17 @@ def get_elevation_localDem(coords, lenv=0, pointsDone=0, progress_cb=None):
         cache = {}
         elevations = []
         missing = 0
-        for lat, lon in coords:
-            value = sample_tile_index(index, lat, lon, cache)
-            if value is None:
-                missing += 1
-                value = 0.0
-            elevations.append(value)
+        try:
+            for lat, lon in coords:
+                value = sample_tile_index(index, lat, lon, cache)
+                if value is None:
+                    missing += 1
+                    value = 0.0
+                elevations.append(value)
+        except (GeoTiffError, OSError, struct.error, zlib.error) as e:
+            _progress.WarningsOverlay.add_warning(_rpt("There was an error, see console for details."), "error")
+            print(f"Local DEM: {e}")
+            return [0.0] * len(coords)
 
         if missing:
             print(f"Local DEM: {missing} of {len(coords)} points fell outside every tile in the folder (sampled as 0.0)")

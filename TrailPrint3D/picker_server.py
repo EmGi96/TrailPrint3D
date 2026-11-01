@@ -108,8 +108,11 @@ _export_folder_job: dict = {'status': 'idle', 'scene': '', 'default': ''}
 # _pending_settings; GET /dem_path_status reports it back. 'path' is seeded
 # from the scene's demFilePath in start_picker and kept in sync with it by
 # _sync_dem_path ('scene' is the raw, possibly '//'-relative, value last
-# seen). Same key-wise-update-only rule as _prefetch_job.
-_dem_path_job: dict = {'status': 'idle', 'path': '', 'scene': ''}
+# seen). 'api' mirrors the scene's elevation API and 'revision' counts dialog
+# choices, so assets/map_init.js can tell when to re-fetch GET /dem_coverage
+# (re-picking the same folder after adding tiles to it changes only 'revision').
+# Same key-wise-update-only rule as _prefetch_job.
+_dem_path_job: dict = {'status': 'idle', 'path': '', 'scene': '', 'api': None, 'revision': 0}
 
 
 def _effective_export_folder() -> str:
@@ -272,7 +275,19 @@ def _run_dem_path_pick(kind: str) -> None:
         _dem_path_job.update(status='cancelled')
         return
     _pending_settings.put(('demFilePath', chosen))
-    _dem_path_job.update(status='done', path=chosen)
+    _dem_path_job.update(status='done', path=chosen, revision=_dem_path_job.get('revision', 0) + 1)
+
+
+def _current_dem_coverage() -> dict | None:
+    """utils.geotiff.dem_coverage() for the selected Local DEM path, or None when
+    another elevation API is active or nothing is selected. Reads only headers, and
+    only _dem_path_job rather than bpy, so it's safe on the server thread."""
+    path = _dem_path_job.get('path') or ''
+    if _dem_path_job.get('api') != 'LOCAL_DEM' or not path:
+        return None
+    from .utils.geotiff import dem_coverage
+
+    return dem_coverage(path)
 
 
 def _open_folder(path: str) -> bool:
@@ -599,6 +614,8 @@ def refresh_state_snapshots(element_states: dict | None = None, settings_state: 
     if settings_state is not None:
         _Handler.settings_state_json = json.dumps(settings_state).encode('utf-8')
         _sync_dem_path(settings_state.get('demFilePath'))
+        if 'api' in settings_state:
+            _dem_path_job.update(api=settings_state['api'])
     if advanced_settings is not None:
         _Handler.advanced_settings_json = json.dumps(advanced_settings).encode('utf-8')
     if element_source is not None:
@@ -1262,7 +1279,17 @@ class _Handler(BaseHTTPRequestHandler):
                 'status': _dem_path_job.get('status'),
                 'path': path,
                 'valid': _dem_path_valid(path),
+                'api': _dem_path_job.get('api'),
+                'revision': _dem_path_job.get('revision'),
             }).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if self.path == '/dem_coverage':
+            body = json.dumps(_current_dem_coverage()).encode('utf-8')
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self.send_header('Content-Length', str(len(body)))
@@ -2005,14 +2032,13 @@ def start_picker(result_path: str, existing_maps: list | None = None, existing_t
     history_path below. Free/premium page pairs share one history key (see
     _history_key), so generations from either show up in both.
 
-    *dem_bounds*, if given, is a {"footprint", "name"} dict for a single DEM file, or
-    {"tiles": [{"footprint", "name"}, ...], "name"} for a folder of tiles (see
-    operators._dem_coverage_overlay()) describing the lat/lon footprint(s) of the
-    currently selected Local DEM File/folder. Inlined into the page as DEM_BOUNDS and
-    drawn as dashed reference polygon(s) by assets/map_init.js, so the user can see
-    which area the file has data for while drawing their own selection. None (the
-    default) draws nothing -- either a different elevation API is active, or nothing
-    could be read.
+    *dem_bounds*, if given, is a utils.geotiff.dem_coverage() dict (see
+    operators._dem_coverage_overlay()) describing the currently selected Local DEM
+    File/folder. Inlined into the page as DEM_BOUNDS and drawn as dashed reference
+    polygon(s) by assets/map_init.js, so the user can see which area the file has data
+    for while drawing their own selection; the page then follows later changes through
+    GET /dem_coverage. None (the default) draws nothing -- a different elevation API is
+    active, or nothing is selected.
 
     *element_source*, if given, is the scene's tp3d.elementSource ("OSM" or
     "WORLDCOVER") -- inlined into the page as ELEMENT_SOURCE. Every picker
@@ -2061,7 +2087,8 @@ def start_picker(result_path: str, existing_maps: list | None = None, existing_t
         print(f"[TP3D picker] could not read the export folder: {e}")
         scene_folder = default_folder = dem_scene = dem_path = ''
     _export_folder_job.update(status='idle', scene=scene_folder, default=default_folder, pid=None)
-    _dem_path_job.update(status='idle', scene=dem_scene, path=dem_path, pid=None)
+    _dem_path_job.update(status='idle', scene=dem_scene, path=dem_path, pid=None,
+                         api=(settings_state or {}).get('api'))
 
     html_path = pathlib.Path(html_path) if html_path else _HTML_PATH
     # Keep the original state filename for multitile_generator.html itself (exact

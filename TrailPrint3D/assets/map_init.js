@@ -84,13 +84,14 @@ map.on('baselayerchange', function (e) {
 });
 
 // Reference overlay for the currently selected Local DEM File's coverage extent
-// (see operators._dem_coverage_overlay() / picker_server.py's __DEM_BOUNDS_JS__).
-// DEM_BOUNDS is null unless the Local DEM File API is active and something could
-// be read -- drawn as plain dashed polygons, not click-editable, so they can't be
+// (see utils.geotiff.dem_coverage() / picker_server.py's __DEM_BOUNDS_JS__).
+// DEM_BOUNDS is null unless the Local DEM File API is active and something is
+// selected -- drawn as plain dashed polygons, not click-editable, so they can't be
 // confused with the trail-area selection itself. A single file gives one footprint
 // ({footprint, name}); a tile folder gives one per tile ({tiles: [...], name})
 // rather than a single bounding box, so gaps between tiles (a non-rectangular
-// bulk-download area) don't silently look covered.
+// bulk-download area) don't silently look covered. Neither key is there for an
+// unreadable file ({error, name}), which only the Settings popup's DEM row reports.
 //
 // "footprint" is each tile's actual 4 corners, not an axis-aligned box: a UTM
 // raster's grid north only matches true north exactly at its zone's central
@@ -100,27 +101,68 @@ map.on('baselayerchange', function (e) {
 // share that edge's lat/lon corners and line up exactly; squaring each tile off
 // into its own axis-aligned box independently would leave a visible brick-like
 // stagger between neighbors instead.
+var tp3dDemLayer = L.featureGroup().addTo(map);
+var tp3dDemLegendRow = null;
+var tp3dDemCoverage = null;  // also read by the Settings popup's DEM row
+var tp3dDemStatusKey = null;
+
 function drawDemFootprint(footprint, tooltip) {
     L.polygon(footprint, {
         color: '#2ecc71', weight: 2, opacity: 0.9, dashArray: '4 4', fill: false, interactive: false
-    }).addTo(map).bindTooltip(tooltip, { sticky: true });
+    }).addTo(tp3dDemLayer).bindTooltip(tooltip, { sticky: true });
 }
-if (typeof DEM_BOUNDS !== 'undefined' && DEM_BOUNDS) {
-    if (DEM_BOUNDS.tiles) {
-        DEM_BOUNDS.tiles.forEach(function (tile) {
+
+function tp3dShowDemCoverage(coverage, focus) {
+    tp3dDemCoverage = coverage;
+    tp3dDemLayer.clearLayers();
+    if (coverage && coverage.tiles) {
+        coverage.tiles.forEach(function (tile) {
             drawDemFootprint(tile.footprint, 'DEM tile: ' + tile.name);
         });
-    } else {
-        drawDemFootprint(DEM_BOUNDS.footprint, 'DEM coverage: ' + DEM_BOUNDS.name);
+    } else if (coverage && coverage.footprint) {
+        drawDemFootprint(coverage.footprint, 'DEM coverage: ' + coverage.name);
     }
+    var drawn = tp3dDemLayer.getLayers().length > 0;
 
-    // Only added when a Local DEM File is actually active -- the legend stays
+    // Only shown when a Local DEM File is actually active -- the legend stays
     // uncluttered for the vast majority of sessions that never touch it.
     var legend = document.getElementById('legend');
-    if (legend) {
-        var row = document.createElement('div');
-        row.className = 'legend-row';
-        row.innerHTML = '<span class="legend-swatch line" style="border-color:#2ecc71;"></span>DEM coverage';
-        legend.appendChild(row);
+    if (legend && drawn && !tp3dDemLegendRow) {
+        tp3dDemLegendRow = document.createElement('div');
+        tp3dDemLegendRow.className = 'legend-row';
+        tp3dDemLegendRow.innerHTML = '<span class="legend-swatch line" style="border-color:#2ecc71;"></span>DEM coverage';
+        legend.appendChild(tp3dDemLegendRow);
     }
+    if (tp3dDemLegendRow) tp3dDemLegendRow.style.display = drawn ? '' : 'none';
+
+    // A newly chosen file may be nowhere near the current view.
+    if (drawn && focus && !map.getBounds().intersects(tp3dDemLayer.getBounds())) {
+        map.fitBounds(tp3dDemLayer.getBounds(), { padding: [40, 40] });
+    }
+    document.dispatchEvent(new Event('tp3d-dem-coverage'));
 }
+
+// DEM_BOUNDS is only what was selected when the page was served. The path can
+// change later from the Settings popup or Blender's sidebar, and the elevation API
+// too, so this keeps watching the cheap /dem_path_status and only fetches the
+// (possibly large) /dem_coverage when something actually changed.
+function tp3dCheckDemCoverage() {
+    return fetch('/dem_path_status', { cache: 'no-store' })
+        .then(function (r) { return r.json(); })
+        .then(function (s) {
+            var key = [s.api, s.path, s.revision].join('|');
+            if (key === tp3dDemStatusKey) return;
+            return fetch('/dem_coverage', { cache: 'no-store' })
+                .then(function (r) { return r.json(); })
+                .then(function (coverage) {
+                    tp3dShowDemCoverage(coverage, tp3dDemStatusKey !== null);
+                    tp3dDemStatusKey = key;
+                });
+        })
+        .catch(function () {});
+}
+
+if (typeof DEM_BOUNDS !== 'undefined') tp3dShowDemCoverage(DEM_BOUNDS, false);
+(function tp3dWatchDemCoverage() {
+    tp3dCheckDemCoverage().then(function () { setTimeout(tp3dWatchDemCoverage, 1500); });
+})();
