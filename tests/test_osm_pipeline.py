@@ -98,9 +98,10 @@ def test_combined_osm_fetch_snapshots_before_background_work():
     osm_started = threading.Event()
     elevation_work = threading.Event()
 
-    def _snapshot(actual_tp3d):
+    def _snapshot(actual_tp3d, map_km):
         assert threading.get_ident() == main_thread
         assert actual_tp3d is tp3d
+        assert map_km == 10.0
         return snapshot_settings
 
     def _fetch(actual_tasks, semaphore, settings=None):

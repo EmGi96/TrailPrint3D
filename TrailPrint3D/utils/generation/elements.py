@@ -361,7 +361,7 @@ def _rg_build_terrain_elements(
         _fetch_settings = OsmFetchSettings(
             disable_cache=tp3d.disableCache,
             api_retries=tp3d.apiRetries,
-            mapsize=tp3d.sMapInKm,
+            mapsize=map_km,
             road_tiers={tier: get_road_active(tp3d, tier) for tier in TIER_TAGS},
             water_ponds=bool(tp3d.show_water and tp3d.col_wBodiesActive),
             water_small_rivers=bool(tp3d.show_water and tp3d.col_wMinorActive),

@@ -2980,17 +2980,23 @@ class TP3D_OT_install_three_mf(bpy.types.Operator):
     def execute(self, context):
         pkg_idd = "ThreeMF_io"
 
+        # WARNING, not ERROR: the generator modals run this through bpy.ops,
+        # which raises on an ERROR report and would abort the modal.
+        if not bpy.app.online_access:
+            self.report(
+                {"WARNING"},
+                _("Online access is off. Enable Allow Online Access in Preferences > System > Network."),
+            )
+            return {"CANCELLED"}
+
         try:
             bpy.ops.extensions.repo_sync_all()
             bpy.ops.extensions.package_install(repo_index=0, pkg_id=pkg_idd)
 
         except RuntimeError as e:
             print({"ERROR"}, f"Install failed: {e}")
-            utils.show_message_box(
-                "Install failed: Online access may be disabled. Please enable it in Blender Preferences > System > Network.",
-                "ERROR",
-                "3MF Install Failed",
-            )
+            self.report({"WARNING"}, _("3MF install failed. Check Blender's System Console."))
+            return {"CANCELLED"}
 
         inst = utils.is_3mf_extension_installed()
         print(f"Inst {inst}")
@@ -5007,6 +5013,7 @@ class TP3D_OT_medal_holder_generator(bpy.types.Operator):
 
             bpy.ops.tp3d.install_three_mf()
             mp.merge_settings_snapshot({"has3mf": temp.has3mf})
+        mp.merge_settings_snapshot(utils.build_online_access_state())
         request = mp.drain_latest_model_preview()
         if request is not None:
             self._build_preview(context, request)
@@ -5084,11 +5091,12 @@ class TP3D_OT_medal_holder_generator(bpy.types.Operator):
             html_path=html_path,
             # The page's magnet-hole fields start from the scene's own
             # Magnet Diameter/Height, same as the map tiles' Magnet Holes.
-            # has3mf: read by threemf_promo.js.
+            # has3mf and the online access keys: read by threemf_promo.js.
             settings_state={
                 "magnetDiameter": tp3d.magnetDiameter,
                 "magnetHeight": tp3d.magnetHeight,
                 "has3mf": temp.has3mf,
+                **utils.build_online_access_state(),
             },
         )
 
@@ -5175,6 +5183,7 @@ class TP3D_OT_backplate_generator(bpy.types.Operator):
 
             bpy.ops.tp3d.install_three_mf()
             mp.merge_settings_snapshot({"has3mf": temp.has3mf})
+        mp.merge_settings_snapshot(utils.build_online_access_state())
         request = mp.drain_latest_model_preview()
         if request is not None:
             self._build_preview(context, request)
@@ -5259,6 +5268,7 @@ class TP3D_OT_backplate_generator(bpy.types.Operator):
             settings_state["textLayout"] = tp3d.textLayout
         settings_state["premium"] = bool(temp.PREMIUMVERSION)
         settings_state["has3mf"] = temp.has3mf  # read by threemf_promo.js
+        settings_state.update(utils.build_online_access_state())
         self._server = mp.start_picker(
             self._result_path, html_path=html_path, settings_state=settings_state
         )

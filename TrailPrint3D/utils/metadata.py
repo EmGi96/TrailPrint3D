@@ -87,8 +87,9 @@ def writeMetadata(obj, type="MAP"):
         obj["mapScale"] = bpy.context.scene.tp3d.o_mapScale
         obj["centerx"] = bpy.context.scene.tp3d.o_centerx
         obj["centery"] = bpy.context.scene.tp3d.o_centery
-        from .geo import (
-            convert_to_geo,  # deferred to avoid circular import at load time
+        from .geo import (  # deferred to avoid circular import at load time
+            convert_to_geo,
+            map_scale_ratio,
         )
         _latitude, obj["longitude"] = convert_to_geo(bpy.context.scene.tp3d.o_centerx,bpy.context.scene.tp3d.o_centery)
         obj["latitude"] = _latitude
@@ -104,16 +105,7 @@ def writeMetadata(obj, type="MAP"):
             obj["Elevation Range (m)"] = round((bpy.context.scene.tp3d.highestZ - bpy.context.scene.tp3d.lowestZ) * 1000 / _scale_elev / _auto_scale / _merc, 1)
         else:
             obj["Elevation Range (m)"] = 0
-        obj["sMapInKm"] = bpy.context.scene.tp3d.sMapInKm
-
-        # Real-world map scale as a "1:X" ratio -- sMapInKm is the real-world
-        # distance (km) the model's footprint (objSize, mm) represents, so
-        # converting both to mm and dividing gives the scale denominator.
-        _obj_size_mm = bpy.context.scene.tp3d.objSize
-        if _obj_size_mm != 0:
-            obj["Map Scale Ratio"] = f"1:{round(bpy.context.scene.tp3d.sMapInKm * 1_000_000 / _obj_size_mm)}"
-        else:
-            obj["Map Scale Ratio"] = ""
+        obj["Map Scale Ratio"] = map_scale_ratio()
 
         obj["col_wBodiesActive"] = bpy.context.scene.tp3d.col_wBodiesActive
         obj["col_wMinorActive"] = bpy.context.scene.tp3d.col_wMinorActive

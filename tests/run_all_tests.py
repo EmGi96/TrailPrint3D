@@ -79,6 +79,8 @@ _TEST_FILES = [
     "test_accessory_materials.py",
     "test_color_by_height.py",
     "test_element_colors.py",
+    "test_online_access.py",
+    "test_map_scale_ratio.py",
     "test_export_folder.py",
     "test_generation_snapshot.py",
     "test_geo_elevation.py",

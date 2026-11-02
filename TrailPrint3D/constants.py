@@ -222,13 +222,6 @@ tutorial_progress_path = os.path.join(
     generation_history_dir, "tutorials_completed.json"
 )
 
-# Whether the user has permanently dismissed the in-generator 3MF addon promo
-# popup -- shared across all generators (any one generator's "No thanks" sets
-# this, so it never appears again on the others either).
-threemf_promo_declined_path = os.path.join(
-    generation_history_dir, "threemf_promo_declined.json"
-)
-
 
 def _ensure_dirs():
     """Create addon cache/preset directories. Call from register() only."""

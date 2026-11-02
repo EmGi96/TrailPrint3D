@@ -36,6 +36,18 @@ def calculate_scale(mapSize, coordinates, gen_type, diagonal=False):
 
     return scale
 
+def map_scale_ratio():
+    """The current map's real-world scale as a "1:X" string, the same value as the
+    generator pages' Scale readout (rect_editor.js's tp3dScaleDenominator and
+    tp3dSetSizeReadout): sScaleHor is mm per Mercator km, and Mercator is only
+    true-scale along one parallel, so this is the scale at the map's center
+    latitude, to 3 significant figures."""
+    tp3d = bpy.context.scene.tp3d
+    latitude, _lon = convert_to_geo(tp3d.o_centerx, tp3d.o_centery)
+    denominator = 1_000_000 * math.cos(math.radians(latitude)) / tp3d.sScaleHor
+    magnitude = 10 ** max(0, math.floor(math.log10(denominator)) - 2)
+    return f"1:{round(denominator / magnitude) * magnitude}"
+
 def convert_to_blender_coordinates(lat, lon, elevation,timestamp):
 
     scaleHor = bpy.context.scene.tp3d.sScaleHor

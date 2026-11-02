@@ -238,7 +238,7 @@ def _rg_build_osm_kind_tasks(
     return _active_kind_tasks
 
 
-def _rg_osm_fetch_settings(tp3d):
+def _rg_osm_fetch_settings(tp3d, map_km):
     """OsmFetchSettings snapshot shared by _rg_start_osm_prefetch and
     fetch_combined_osm_data -- must run on the main thread (reads
     bpy.context.scene.tp3d)."""
@@ -251,7 +251,7 @@ def _rg_osm_fetch_settings(tp3d):
     return OsmFetchSettings(
         disable_cache=tp3d.disableCache,
         api_retries=tp3d.apiRetries,
-        mapsize=tp3d.sMapInKm,
+        mapsize=map_km,
         road_tiers={tier: get_road_active(tp3d, tier) for tier in TIER_TAGS},
         water_ponds=bool(tp3d.show_water and tp3d.col_wBodiesActive),
         water_small_rivers=bool(tp3d.show_water and tp3d.col_wMinorActive),
@@ -278,7 +278,7 @@ def _rg_start_osm_prefetch(gen: GenerationContext):
     if not active_kind_tasks:
         return None, {}
 
-    fetch_settings = _rg_osm_fetch_settings(tp3d)
+    fetch_settings = _rg_osm_fetch_settings(tp3d, map_km)
     result = {}
 
     def _run():
@@ -313,7 +313,7 @@ def prepare_combined_osm_fetch(min_lat, max_lat, min_lon, max_lon, map_km):
         tp3d.elementSource,
         tp3d,
     )
-    fetch_settings = _rg_osm_fetch_settings(tp3d) if active_kind_tasks else None
+    fetch_settings = _rg_osm_fetch_settings(tp3d, map_km) if active_kind_tasks else None
 
     def _fetch():
         if not active_kind_tasks:

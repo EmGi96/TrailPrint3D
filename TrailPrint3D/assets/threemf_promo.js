@@ -1,5 +1,5 @@
-// 3MF Addon promo — shown on every generator page when the addon is absent.
-// Runs after SETTINGS_STATE is defined (same script block) and after the DOM
+// 3MF Addon promo — an install button on every generator page when the addon is
+// absent; its dialog only opens from that button. Runs after SETTINGS_STATE is defined (same script block) and after the DOM
 // is ready (this script runs at the bottom of the page). SETTINGS_STATE.has3mf
 // is set by Blender via build_settings_row_state(); if true, this whole block
 // is skipped immediately.
@@ -152,17 +152,17 @@
         dialog.className = 'tp3d-3mf-dialog';
 
         dialog.innerHTML = [
-            '<h3>Before we start: Install 3MF Addon?</h3>',
+            '<h3>Install 3MF Addon?</h3>',
             '<p>The <strong>3MF Import/Export addon</strong> by Clonephaze is <strong>free</strong> and unlocks:</p>',
             '<ul>',
             '  <li><strong>3MF Export</strong> — export your maps with filament colors</li>',
             '  <li><strong>Map Texturing</strong> — bake element colors into a paint texture</li>',
             '</ul>',
-            '<p>It installs directly from the Blender Extensions repository in one click.</p>',
+            '<p id="tp3d3mfInstallNote"></p>',
             '<a class="tp3d-3mf-github-link" href="' + GITHUB_URL + '" target="_blank">View on GitHub ↗</a>',
             '<div class="tp3d-3mf-status" id="tp3d3mfStatus"></div>',
             '<div class="tp3d-3mf-dialog-actions">',
-            '  <button class="tp3d-3mf-btn-decline" id="tp3d3mfDeclineBtn">No thanks</button>',
+            '  <button class="tp3d-3mf-btn-decline" id="tp3d3mfDeclineBtn">Cancel</button>',
             '  <button class="tp3d-3mf-btn-install" id="tp3d3mfConfirmBtn">Install</button>',
             '</div>'
         ].join('');
@@ -175,13 +175,62 @@
         });
 
         document.getElementById('tp3d3mfDeclineBtn').addEventListener('click', function () {
-            decline();
+            closeDialog();
         });
 
         // Clicking the backdrop closes without action
         overlay.addEventListener('click', function (e) {
-            if (e.target === overlay) decline();
+            if (e.target === overlay) closeDialog();
         });
+
+        applyOnlineAccess(SETTINGS_STATE);
+        watchOnlineAccess();
+    }
+
+    // Without online access Blender can't download the addon, so the dialog says
+    // what to change instead of offering an install that can only fail.
+    function applyOnlineAccess(settings) {
+        var note = document.getElementById('tp3d3mfInstallNote');
+        var confirmBtn = document.getElementById('tp3d3mfConfirmBtn');
+        if (!note || !confirmBtn) return;
+        var offline = settings.onlineAccess === false;
+        if (!offline) {
+            note.textContent = 'It installs directly from the Blender Extensions repository in one click.';
+        } else if (settings.onlineAccessLocked) {
+            note.innerHTML = '<strong>Blender was started in offline mode</strong>, so it can\'t download ' +
+                'the addon. Restart Blender without <strong>--offline-mode</strong> to install it here, ' +
+                'or get it from GitHub instead.';
+        } else {
+            note.innerHTML = '<strong>Online access is turned off</strong>, so Blender can\'t download the ' +
+                'addon. Enable <strong>Allow Online Access</strong> in Blender under Edit &gt; Preferences ' +
+                '&gt; System &gt; Network, or get it from GitHub instead.';
+        }
+        confirmBtn.style.display = offline ? 'none' : '';
+    }
+
+    // The preference can change while the dialog is open, and SETTINGS_STATE only
+    // holds its value from when the page loaded.
+    var watchingOnlineAccess = false;
+    function watchOnlineAccess() {
+        if (watchingOnlineAccess) return;
+        watchingOnlineAccess = true;
+        (function tick() {
+            if (!document.getElementById('tp3d3mfOverlay')) {
+                watchingOnlineAccess = false;
+                return;
+            }
+            fetch('http://127.0.0.1:' + PORT + '/get_source_state')
+                .then(function (r) { return r.json(); })
+                .then(function (state) {
+                    var confirmBtn = document.getElementById('tp3d3mfConfirmBtn');
+                    // While installing, pollForInstallComplete owns the dialog.
+                    if (state && state.settingsState && confirmBtn && !confirmBtn.disabled) {
+                        applyOnlineAccess(state.settingsState);
+                    }
+                })
+                .catch(function () {})
+                .then(function () { setTimeout(tick, 2000); });
+        }());
     }
 
     function closeDialog() {
@@ -224,6 +273,12 @@
                 .then(function (state) {
                     if (state && state.settingsState && state.settingsState.has3mf) {
                         onInstallComplete();
+                    } else if (state && state.settingsState && state.settingsState.onlineAccess === false) {
+                        // Turned off after the dialog last checked -- the
+                        // operator refused, so there's nothing to wait for.
+                        setDialogStatus('');
+                        setInstallButtonsDisabled(false);
+                        applyOnlineAccess(state.settingsState);
                     } else {
                         pollForInstallComplete(attempts + 1);
                     }
@@ -246,26 +301,6 @@
         if (typeof tp3dRefreshMapTabVisibility === 'function') tp3dRefreshMapTabVisibility();
     }
 
-    // ── Decline flow ──────────────────────────────────────────────────────────
-    function decline() {
-        closeDialog();
-        fetch('http://127.0.0.1:' + PORT + '/set_threemf_promo_declined', { method: 'POST', body: '' })
-            .catch(function () {});
-        insertInstallButton();
-    }
-
     // ── Entry point ───────────────────────────────────────────────────────────
-    fetch('http://127.0.0.1:' + PORT + '/get_threemf_promo_state')
-        .then(function (r) { return r.json(); })
-        .then(function (state) {
-            if (state && state.declined) {
-                insertInstallButton();
-            } else {
-                showDialog();
-            }
-        })
-        .catch(function () {
-            // Server not yet ready or an error — show the button as a safe fallback
-            insertInstallButton();
-        });
+    insertInstallButton();
 }());

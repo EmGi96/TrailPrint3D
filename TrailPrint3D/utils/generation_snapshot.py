@@ -25,7 +25,6 @@ _SNAPSHOT_SECTIONS = (
             "ellipseRatio",
             "shapeRotation",
             "Map Size in Km",
-            "sMapInKm",
             "Map Scale Ratio",
             "latitude",
             "longitude",

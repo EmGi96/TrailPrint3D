@@ -17,7 +17,7 @@ import tempfile
 import threading
 import time
 import uuid
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 from typing import cast
 
 from . import constants as const
@@ -762,7 +762,6 @@ def _write_history(path: pathlib.Path, entries: list) -> None:
 
 
 _TUTORIAL_PROGRESS_PATH = pathlib.Path(const.tutorial_progress_path)
-_THREEMF_PROMO_DECLINED_PATH = pathlib.Path(const.threemf_promo_declined_path)
 
 # Sample files bundled with the addon (e.g. sample GPX tracks for tutorials),
 # served read-only by GET /get_sample_file?name=<file name>.
@@ -801,23 +800,6 @@ def _mark_tutorial_complete(tutorial_id: str) -> dict:
     except OSError as e:
         print(f"[TP3D picker] Failed to write tutorial progress {_TUTORIAL_PROGRESS_PATH}: {e}")
     return progress
-
-
-def _read_threemf_promo_declined() -> bool:
-    """True once the user has clicked 'No thanks' on any generator page."""
-    try:
-        data = json.loads(_THREEMF_PROMO_DECLINED_PATH.read_text(encoding='utf-8'))
-        return bool(data.get('declined'))
-    except (OSError, json.JSONDecodeError):
-        return False
-
-
-def _mark_threemf_promo_declined() -> None:
-    try:
-        _THREEMF_PROMO_DECLINED_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _THREEMF_PROMO_DECLINED_PATH.write_text(json.dumps({'declined': True}), encoding='utf-8')
-    except OSError as e:
-        print(f"[TP3D picker] Failed to write threemf promo state: {e}")
 
 
 # Saved "Defaults" per page (e.g. the Backplate Generator's): a list of
@@ -1169,7 +1151,24 @@ class _Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
+    # Every connection gets its own thread (ThreadingHTTPServer in
+    # start_picker), but requests are still handled one at a time under the
+    # server's request_lock -- the handlers below (history/state read-modify-write,
+    # the class-level snapshots) were written for a single-threaded server.
+    # What the threads buy is that a connection which never sends a request
+    # only blocks itself, while waiting for its request line, outside the lock.
+    # Chromium opens such speculative preconnect sockets; on the old
+    # single-threaded server one accepted ahead of the page's GET / stalled
+    # the whole server, leaving the window blank until it was reopened.
     def do_GET(self):
+        with self.server.request_lock:
+            self._do_get()
+
+    def do_POST(self):
+        with self.server.request_lock:
+            self._do_post()
+
+    def _do_get(self):
         if self.path == '/get_source_state':
             # Every picker page's OSM/ESA WorldCover switch
             # (settings_modal.js) polls this after posting the switch to
@@ -1394,14 +1393,6 @@ class _Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
-        if self.path == '/get_threemf_promo_state':
-            body = json.dumps({'declined': _read_threemf_promo_declined()}).encode('utf-8')
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Content-Length', str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-            return
         if self.path.startswith('/get_history_render?'):
             from urllib.parse import parse_qs, urlparse
             query = parse_qs(urlparse(self.path).query)
@@ -1497,7 +1488,7 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         self.end_headers()
 
-    def do_POST(self):
+    def _do_post(self):
         if self.path in ('/pick_export_folder', '/open_export_folder'):
             length = int(self.headers.get('Content-Length', 0))
             self.rfile.read(length)
@@ -1679,7 +1670,7 @@ class _Handler(BaseHTTPRequestHandler):
                 source_file = os.path.basename(unquote(self.headers.get('X-File-Name', '')))
                 name = unquote(self.headers.get('X-Profile-Name', '')).strip()
                 name = name or os.path.splitext(source_file)[0] or 'Print Profile'
-                # mkstemp imported by name: do_POST imports tempfile locally
+                # mkstemp imported by name: _do_post imports tempfile locally
                 # further down, which makes `tempfile` local to all of it.
                 from tempfile import mkstemp
 
@@ -1754,16 +1745,6 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_header('Content-Length', str(len(resp)))
             self.end_headers()
             self.wfile.write(resp)
-            return
-        if self.path == '/set_threemf_promo_declined':
-            length = int(self.headers.get('Content-Length', 0))
-            self.rfile.read(length)
-            _mark_threemf_promo_declined()
-            self.send_response(200)
-            self.send_header('Content-Type', 'text/plain')
-            self.send_header('Content-Length', '2')
-            self.end_headers()
-            self.wfile.write(b'ok')
             return
         if self.path == '/install_3mf_addon':
             length = int(self.headers.get('Content-Length', 0))
@@ -1919,7 +1900,7 @@ class _Handler(BaseHTTPRequestHandler):
                 out_path.write_bytes(body)
             except OSError as e:
                 # Without this, an OSError here (locked file, permissions,
-                # disk full, ...) propagates out of do_POST uncaught --
+                # disk full, ...) propagates out of _do_post uncaught --
                 # socketserver logs it to the console but the connection is
                 # dropped mid-response, so the browser's fetch() rejects with
                 # a generic network error instead of a clean HTTP failure.
@@ -2138,7 +2119,8 @@ def start_picker(result_path: str, existing_maps: list | None = None, existing_t
     _Handler.history_path = history_path
     _Handler.defaults_path = _DEFAULTS_DIR / f'{_history_key(html_path)}.json'
 
-    server = HTTPServer(('127.0.0.1', port), _Handler)
+    server = ThreadingHTTPServer(('127.0.0.1', port), _Handler)
+    server.request_lock = threading.Lock()  # see _Handler.do_GET
     threading.Thread(target=server.serve_forever, daemon=True).start()
     _active_server = server
 

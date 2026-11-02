@@ -408,7 +408,19 @@ def build_settings_row_state(tp3d=None):
         key: getattr(tp3d, attr) for key, (attr, _) in _SETTINGS_ROW_FIELDS.items()
     }
     state["has3mf"] = temp.has3mf
+    state.update(build_online_access_state())
     return state
+
+
+def build_online_access_state():
+    """SETTINGS_STATE keys for threemf_promo.js. onlineAccessLocked means Blender
+    was started with --offline-mode: Allow Online Access is read-only then, so
+    the page shouldn't point the user at that preference."""
+    online = bpy.app.online_access
+    return {
+        "onlineAccess": online,
+        "onlineAccessLocked": not online and bpy.app.online_access_override,
+    }
 
 
 def _apply_export_folder(value):

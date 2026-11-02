@@ -984,6 +984,7 @@ def compute_and_store_tile_bounds(gen_or_obj):
     realdist1 = haversine(minLat, minLon, maxLat, maxLon)
     realdist2 = haversine(minLat, minLon, maxLat, maxLon)
 
+    bpy.context.scene.tp3d["sMapInKm"] = max(realdist1, realdist2)
     if gen is not None:
         gen.runtime.mapKm = max(realdist1, realdist2)
         gen.runtime.tbMinLat = minLat
