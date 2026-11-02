@@ -1435,6 +1435,13 @@ class TP3D_PG_properties(bpy.types.PropertyGroup):
         soft_max=100.0,
         description=_tip("To make Roads thicker or thinner"),
     )  # type: ignore
+    el_sEnforceMinWidth: BoolProperty(
+        name=_("Widen Thin Roads"),
+        default=False,
+        description=_tip(
+            "Widen roads that would come out too thin to print up to a minimum printable width. Off keeps every road at its true scaled width."
+        ),
+    )  # type: ignore
     el_sHeight: FloatProperty(
         name=_("Height"),
         default=0.4,

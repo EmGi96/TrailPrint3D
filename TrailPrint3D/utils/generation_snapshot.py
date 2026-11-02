@@ -102,6 +102,7 @@ _SNAPSHOT_SECTIONS = (
             "el_bActive",
             "el_sActive",
             "el_sMultiplier",
+            "el_sEnforceMinWidth",
             "el_Smoothing",
             "el_sHeight",
             "el_sCutTolerance",

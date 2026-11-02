@@ -681,6 +681,12 @@ _ADVANCED_SETTINGS_FIELDS = [
     {"key": "elSPathActive", "road_id": "path", "type": bool, "group": "Roads"},
     {"key": "elSRacewayActive", "road_id": "raceway", "type": bool, "group": "Roads"},
     {"key": "elSMultiplier", "attr": "el_sMultiplier", "type": float, "group": "Roads"},
+    {
+        "key": "elSEnforceMinWidth",
+        "attr": "el_sEnforceMinWidth",
+        "type": bool,
+        "group": "Roads",
+    },
     {"key": "elSHeight", "attr": "el_sHeight", "type": float, "group": "Roads"},
     {
         "key": "elSCutTolerance",

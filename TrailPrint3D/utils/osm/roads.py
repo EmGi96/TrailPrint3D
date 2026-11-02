@@ -68,6 +68,7 @@ class RoadConfig:
     max_lat: float
     max_lon: float
     street_width_multiplier: float
+    enforce_min_width: bool
     # Always True (see from_scene) -- alley/driveway/drive-through filtering
     # isn't user-configurable, just always-on cleanup of Service Roads.
     exclude_alleys: bool
@@ -97,6 +98,7 @@ class RoadConfig:
             max_lat=tp3d.maxLat,
             max_lon=tp3d.maxLon,
             street_width_multiplier=tp3d.el_sMultiplier,
+            enforce_min_width=tp3d.el_sEnforceMinWidth,
             exclude_alleys=True,
             tier_active=tier_active,
         )
@@ -125,11 +127,13 @@ def highway_default_width(highway: str) -> float:
     return mapping.get(highway, 6.0)
 
 
-def _compute_half_width(scale_hor: float, multiplier: float) -> tuple[float, bool]:
+def _compute_half_width(
+    scale_hor: float, multiplier: float, enforce_min: bool = True
+) -> tuple[float, bool]:
     """Return ``(half_width, was_clamped)``.  The caller owns the warning side-effect."""
     width_m = highway_default_width("residential")
     half_width = (width_m * 0.5) * 0.2 * scale_hor * 0.02 * multiplier
-    if half_width < 0.2:
+    if enforce_min and half_width < 0.2:
         return 0.2, True
     return half_width, False
 
@@ -805,7 +809,7 @@ def create_roads(
 
     # --- Width computation ------------------------------------------------
     half_width, width_was_adjusted = _compute_half_width(
-        scaleHor, config.street_width_multiplier
+        scaleHor, config.street_width_multiplier, config.enforce_min_width
     )
 
     # --- Z bounds from terrain --------------------------------------------

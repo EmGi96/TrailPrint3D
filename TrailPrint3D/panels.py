@@ -1068,6 +1068,9 @@ def _draw_advanced_generation_box(layout, props):
         row.label(icon="BLANK1")
         row.enabled = props.el_oActive
         row.prop(props, "el_oRdpEpsilon")
+        row = box.row(align=True)
+        row.label(icon="BLANK1")
+        row.prop(props, "el_sEnforceMinWidth")
 
 
 def _draw_color_settings(layout, props):

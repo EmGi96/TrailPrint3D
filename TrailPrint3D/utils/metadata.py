@@ -139,6 +139,7 @@ def writeMetadata(obj, type="MAP"):
         obj["el_bActive"] = bpy.context.scene.tp3d.el_bActive
         obj["el_sActive"] = any_road_active(bpy.context.scene.tp3d)
         obj["el_sMultiplier"] = bpy.context.scene.tp3d.el_sMultiplier
+        obj["el_sEnforceMinWidth"] = bpy.context.scene.tp3d.el_sEnforceMinWidth
         obj["el_Smoothing"] = bpy.context.scene.tp3d.col_osmSmoothing
         obj["el_sHeight"] = bpy.context.scene.tp3d.el_sHeight
         obj["el_sCutTolerance"] = bpy.context.scene.tp3d.el_sCutTolerance

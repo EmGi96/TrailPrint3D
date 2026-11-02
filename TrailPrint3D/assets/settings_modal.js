@@ -422,6 +422,13 @@ var COASTLINE_SIMPLIFY_FIELD = {
     enabledWhen: function() { return !tp3dIsWorldCover(); },
     title: 'Check to enter a manual Douglas-Peucker coastline tolerance (map units). Unchecked uses 0: automatic simplification scaled with Element Smoothing, not disabled simplification. Positive values are used as-is, followed by Element Smoothing as usual. Higher values remove detail, may delete thin features, and can introduce self-intersections. Use 0.001 to effectively disable simplification.'
 };
+var ROAD_MIN_WIDTH_FIELD = {
+    key: 'elSEnforceMinWidth', source: 'ADVANCED_SETTINGS_STATE', endpoint: 'update_advanced_setting',
+    label: 'Widen Thin Roads', type: 'checkbox',
+    // Roads come from OSM -- WorldCover has none.
+    enabledWhen: function() { return !tp3dIsWorldCover(); },
+    title: 'Widen roads that would come out too thin to print up to a minimum printable width. Off keeps every road at its true scaled width.'
+};
 var WORLDCOVER_MIN_AREA_FIELD = {
     key: 'elWcMinFeatureArea', source: 'ADVANCED_SETTINGS_STATE', endpoint: 'update_advanced_setting',
     label: 'Min Feature Area', type: 'number', step: 0.5, min: 0,
@@ -1729,6 +1736,7 @@ function tp3dBuildOtherTab() {
 
     var advancedSection = tp3dBuildSection('Advanced Element Settings', 'settings-grid-2');
     advancedSection.grid.appendChild(tp3dBuildFieldRow(COASTLINE_SIMPLIFY_FIELD));
+    advancedSection.grid.appendChild(tp3dBuildFieldRow(ROAD_MIN_WIDTH_FIELD));
     wrap.appendChild(advancedSection.card);
 
     wrap.appendChild(tp3dBuildSlicerProfileSection());
