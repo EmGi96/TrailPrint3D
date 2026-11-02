@@ -258,22 +258,82 @@ class TP3D_OT_export_three_mf(bpy.types.Operator, TP3D_ExportBase):
     bl_options = {"REGISTER"}
 
     filename: StringProperty(name=_("File Name"), default="")  # type: ignore
+    # Filled by the folder browser invoke() opens when no export folder is set.
+    directory: StringProperty(
+        subtype="DIR_PATH", options={"HIDDEN", "SKIP_SAVE"}
+    )  # type: ignore
+    picking_folder: bpy.props.BoolProperty(
+        default=False, options={"HIDDEN", "SKIP_SAVE"}
+    )  # type: ignore
 
     def draw(self, context):
         layout = self.layout
         layout.prop(self, "filename")
 
     def invoke(self, context, event):
+        if not addon_preferences.get_export_folder(context.scene.tp3d):
+            # No folder to export into yet: let the user pick one first and
+            # keep it as the Default Export Folder preference.
+            self.picking_folder = True
+            context.window_manager.fileselect_add(self)
+            return {"RUNNING_MODAL"}
         self.filename = context.scene.tp3d.modelname
         return context.window_manager.invoke_props_dialog(self)
 
+    def _save_default_export_folder(self, context):
+        path = bpy.path.abspath(self.directory)
+        if not path or not os.path.isdir(path):
+            raise ExportError(
+                _("Invalid export directory: {path}").format(path=path)
+            )
+        # export.py appends file names directly, so keep the trailing slash.
+        addon_preferences.get_prefs().default_export_folder = os.path.join(path, "")
+        context.preferences.is_dirty = True
+        if not context.preferences.use_preferences_save:
+            # Auto-save is off, so the preference would be lost on quit.
+            def _save_prefs():
+                bpy.ops.wm.save_userpref()
+                return None
+
+            bpy.app.timers.register(_save_prefs, first_interval=0.0)
+
+        # Continue with the usual file-name dialog. Deferred: a dialog can't
+        # be opened from inside execute().
+        window = context.window
+
+        def _reinvoke():
+            if window is None:
+                return None
+            with bpy.context.temp_override(window=window):
+                bpy.ops.tp3d.export_three_mf("INVOKE_DEFAULT")
+            return None
+
+        bpy.app.timers.register(_reinvoke, first_interval=0.0)
+
     def execute(self, context):
         self._handler = getattr(self, "_handler", None)
+
+        if self.picking_folder:
+            try:
+                self._save_default_export_folder(context)
+            except ExportError as e:
+                _progress.WarningsOverlay.clear()
+                _warn(str(e))
+                _progress.WarningsOverlay.get().show()
+                self.report({"ERROR"}, str(e))
+                return {"CANCELLED"}
+            return {"FINISHED"}
+
         _progress.WarningsOverlay.clear()
 
         try:
             if not utils.is_3mf_extension_installed():
                 raise ExportError(_("3MF extension is not installed."))
+
+            if not addon_preferences.get_export_folder(context.scene.tp3d):
+                raise ExportError(
+                    _("Export path is empty! Please select a valid directory.")
+                )
 
             if not self.filename:
                 raise ExportError(_("Please enter a filename."))
