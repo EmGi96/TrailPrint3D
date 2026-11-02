@@ -21,6 +21,10 @@ from .fetch_solo import fetch_osm_data
 # a single standalone object never cut along the puzzle's own seams).
 _puzzle_buildings_data: tuple | None = None
 
+# create_buildings() result when every request succeeded but no building was
+# left in the map area (None means a fetch failed).
+BUILDINGS_EMPTY = object()
+
 
 def _build_terrain_height_sampler(
     bvh, x_min, x_max, y_min, y_max, z_cast, z_floor, resolution=160
@@ -724,6 +728,7 @@ def create_buildings(gen: GenerationContext, default_height=10, scaleHor=1.0, pr
     _seen_element_ids = set()
 
     _maxcntr = len(_tile_sources)
+    _fetch_failed = not _tile_sources  # area too big to fetch at all
     for _idx, (bbox, data) in enumerate(_tile_sources, start=1):
         _cntr = _idx
         print(f"Buildings loop: {_cntr}/{_maxcntr}")
@@ -740,6 +745,7 @@ def create_buildings(gen: GenerationContext, default_height=10, scaleHor=1.0, pr
 
         if not data or "elements" not in data:
             print("No Building data returned")
+            _fetch_failed = True
             continue
 
         assert isinstance(data, dict)
@@ -1033,7 +1039,7 @@ def create_buildings(gen: GenerationContext, default_height=10, scaleHor=1.0, pr
     _puzzle_buildings_data = (_puzzle_footprints, _sample_z)
 
     if not b_verts:
-        return None
+        return None if _fetch_failed else BUILDINGS_EMPTY
 
     # Build one mesh containing every building across all tiles.
     mesh = bpy.data.meshes.new("building_mesh")

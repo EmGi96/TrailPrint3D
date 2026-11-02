@@ -728,7 +728,8 @@ def create_roads(
             the terrain surface's lowest point instead of the model's own bounding box.
 
     Returns:
-        tuple: (roads_mesh_object, road_union_polygon) on success.
+        tuple: (roads_mesh_object, road_union_polygon) on success, or None
+        when no road lies inside the map footprint.
 
     Raises:
         GenerationError: On any critical failure (missing data, fetch error, mesh creation failure).
@@ -848,9 +849,10 @@ def create_roads(
         raise GenerationError(_rpt("Failed to buffer road polylines into polygons: {error}").format(error=e))
 
     if not verts_2d or not tris:
-        raise GenerationError(
-            _("No road data returned after buffering (empty vertices or triangles).")
-        )
+        # No road inside the map footprint (e.g. a remote area) -- not an
+        # error; the caller skips roads with a warning, same as no OSM data.
+        print("INFO: No road data returned after buffering (empty vertices or triangles).")
+        return None
 
     # --- Build extruded mesh ---------------------------------------------
     try:

@@ -554,7 +554,8 @@ def _rg_build_terrain_elements(
             else:
                 _ov.set_fetch_done("water", success=_water_result is not None)
         else:
-            _ov.set_fetch_done("water", success=False)
+            # No coastline in this area -- see the combined branch above.
+            _ov.set_fetch_empty("water")
 
     print("Base elements Created")
 
@@ -574,14 +575,17 @@ def _rg_build_terrain_elements(
                 prefetched_tiles=_all_prefetched.get("BUILDINGS"),
             )
 
-            if buildings is not None:
-                # Buildings are already clipped to the map shape in 2D inside
-                # create_buildings, so no 3D boolean clip is needed here.
-                set_origin_to_3d_cursor(buildings)
-                buildings.name = obj.name + "_" + "BUILDINGS"
-                terrain["buildings"] = buildings
-                writeMetadata(buildings, type="BUILDINGS")
-            _ov.set_fetch_done("buildings", success=buildings is not None)
+            if buildings is _bld_mod.BUILDINGS_EMPTY:
+                _ov.set_fetch_empty("buildings")
+            else:
+                if buildings is not None:
+                    # Buildings are already clipped to the map shape in 2D inside
+                    # create_buildings, so no 3D boolean clip is needed here.
+                    set_origin_to_3d_cursor(buildings)
+                    buildings.name = obj.name + "_" + "BUILDINGS"
+                    terrain["buildings"] = buildings
+                    writeMetadata(buildings, type="BUILDINGS")
+                _ov.set_fetch_done("buildings", success=buildings is not None)
         else:
             print("INFO: MAP IS TOO BIG FOR BUILDINGS (< 10Km Map size Required)")
             _progress.WarningsOverlay.add_warning(
@@ -667,11 +671,11 @@ def _rg_build_terrain_elements(
                     gen.runtime.roadUnion = roads_polygon
                 _ov.set_fetch_done("roads", success=True)
             else:
+                # No road in this area -- normal, not a failure (create_roads
+                # raises on a real fetch/build error). Gray "0" like the other
+                # elements' empty result.
                 print("INFO: No road data returned, skipping road processing.")
-                _progress.WarningsOverlay.add_warning(
-                    _rpt("No road data returned."), "warn"
-                )
-                _ov.set_fetch_done("roads", success=False)
+                _ov.set_fetch_empty("roads")
         else:
             print("INFO: MAP IS TOO BIG FOR STREETS (< 100Km Map size Required)")
             _progress.WarningsOverlay.add_warning(

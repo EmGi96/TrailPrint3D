@@ -411,6 +411,7 @@ def fetch_tier_polylines(
         ]
 
     _maxcntr = len(_tile_sources)
+    _any_answered = False
     for _idx, (bbox, data) in enumerate(_tile_sources, start=1):
         _cntr = _idx
         print(f"Roads loop: {_cntr}/{_maxcntr}")
@@ -431,6 +432,7 @@ def fetch_tier_polylines(
             continue
 
         assert isinstance(data, dict)
+        _any_answered = True
         n_roads = len([e for e in data["elements"] if e["type"] == "way"])
         if progress_overlay and progress_overlay.active:
             progress_overlay.update(
@@ -475,4 +477,8 @@ def fetch_tier_polylines(
             if len(pts) >= 2:
                 tier_polylines[tier].append(pts)
 
+    if _tile_sources and not _any_answered:
+        # Every prefetch cell failed -- that's a fetch failure, not an area
+        # without roads.
+        return None
     return tier_polylines

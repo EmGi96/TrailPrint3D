@@ -4892,16 +4892,36 @@ class TP3D_OT_map_generator(bpy.types.Operator):
             if early_trails and not bpy.app.debug:
                 utils.remove_objects(early_trails)
         blank["shapeRotation"] = requested_shape_rotation
+        # runTileGeneration only warns about a failed tile and still returns
+        # its gen -- don't merge the trail into / export a half-built map
+        # (no MAP metadata, so it doesn't even group with its trail).
+        if tile_gen is not None and blank.get("Object type") != "MAP":
+            raise GenerationError
 
         if gpx_paths and not early_trails:
             from .utils.osm import gen as _osm_gen
 
             trails = _generate_trails(context, gpx_paths, overlay, 0.92, 0.96)
+            objs_before_merge = set(bpy.data.objects)
             for trail_obj in trails:
                 if _osm_gen.is_bbox_overlapping(trail_obj, blank):
                     utils.merge_active_with_map(blank, trail_obj)
             if not bpy.app.debug:
                 utils.remove_objects(trails)
+            # These trail pieces were merged after runTileGeneration returned,
+            # so tile_gen doesn't know about them yet -- without this
+            # _rg_export only selects the map and the trail is left out of
+            # the 3MF (and its thumbnail).
+            if tile_gen is not None:
+                merged_trails = [
+                    o
+                    for o in bpy.data.objects
+                    if o not in objs_before_merge and o.get("Object type") == "TRAIL"
+                ]
+                if merged_trails:
+                    if tile_gen.runtime.curveObjs is None:
+                        tile_gen.runtime.curveObjs = []
+                    tile_gen.runtime.curveObjs.extend(merged_trails)
 
         # Terrain and elements were generated with shapeRotation temporarily
         # disabled so they keep their geographic orientation. The data mesh

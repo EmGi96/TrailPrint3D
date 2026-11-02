@@ -421,6 +421,7 @@ def coloring_main(
     waterCreated = 0
     total_fetched = 0
     _api_empty = False  # set True when OSM responded with 0 usable features
+    _fetch_failed = False  # a tile request failed (vs. answered with nothing)
 
     lat_step = min(lat_step, maxLat - minLat)
     lon_step = min(lon_step, maxLon - minLon)
@@ -500,19 +501,23 @@ def coloring_main(
                     or not isinstance(tile_result, tuple)
                     or len(tile_result) != 2
                 ):
+                    _fetch_failed = True
                     continue
                 resp = tile_result[0]
                 from_cache = tile_result[1]
                 if not resp:
+                    _fetch_failed = True
                     continue
                 src = "cache" if from_cache else "Overpass"
                 print(f"OSM tile ({kind}): loaded from {src} (prefetched)")
             else:
                 result = fetch_osm_data(bbox, kind, return_cache_status=True)
                 if not result:
+                    _fetch_failed = True
                     continue
                 resp, from_cache = result
                 if not resp:
+                    _fetch_failed = True
                     continue
                 src = "cache" if from_cache else "Overpass"
                 print(f"OSM tile ({kind}): loaded from {src} (on-demand)")
@@ -522,6 +527,7 @@ def coloring_main(
             _progress.WarningsOverlay.add_warning(
                 _rpt("There was an error, see console for details."), "error"
             )
+            _fetch_failed = True
             continue
 
         data = resp
@@ -644,9 +650,12 @@ def coloring_main(
         print("Timed out. Cached already Fetched Data. Try Regenerating Again")
     else:
         if total_fetched == 0:
-            _progress.WarningsOverlay.add_warning(
-                _rpt("Failed to fetch any elements from the API."), "warn"
-            )
+            if _fetch_failed:
+                _progress.WarningsOverlay.add_warning(
+                    _rpt("Failed to fetch any elements from the API."), "warn"
+                )
+                return None
+            # The API answered, there's just nothing of this kind here.
             _api_empty = True
         elif waterCreated == 0:
             _progress.WarningsOverlay.add_warning(
