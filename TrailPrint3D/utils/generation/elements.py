@@ -1158,8 +1158,10 @@ def _rg_apply_single_color_mode(
                         _mc = [obj.matrix_world @ Vector(c) for c in obj.bound_box]
                         _bz = _roads_bz - gen.elevation.el_sCutDepth
                         _tz = max(v.z for v in _mc) + 20.0
+                        _loc = obj.matrix_world.translation
                         _cutter_tmp = _build_extruded_mesh(
-                            _all_v2d, _all_tris, _bz, _tz
+                            _all_v2d, _all_tris, _bz, _tz,
+                            origin=(float(_loc.x), float(_loc.y)),
                         )
                         recalculateNormals(_cutter_tmp)
                         roads_cutter = _cutter_tmp
@@ -1269,6 +1271,13 @@ def _rg_apply_single_color_mode(
                     gen.runtime.mapOutline,
                     xoff=gen.runtime.mapObject.location.x,
                     yoff=gen.runtime.mapObject.location.y,
+                )
+                # Inset slightly so a road cut along the edge isn't coplanar
+                # with the map's side wall (z-fighting that makes it look like
+                # it pokes outside). Only the final road mesh -- the groove
+                # cutter keeps the full outline so no sliver wall is left.
+                _map_outline_world = _map_outline_world.buffer(
+                    -0.05, join_style="mitre"
                 )
             finalize_roads(
                 roads_obj,

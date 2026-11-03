@@ -599,12 +599,23 @@ def map_footprint_polygon(obj):
     bm.from_mesh(obj.data)
     bm.normal_update()
     mw = obj.matrix_world
+    # mathutils math is float32: at real-world object locations (hundreds of
+    # km from the origin) `mw @ co` snaps to a ~0.06 mm grid, which turns a
+    # straight map edge into a zigzag. Transform XY in float64 instead.
+    mw64 = np.array(mw, dtype=np.float64)
+
+    def _xy(co):
+        x, y, z = float(co.x), float(co.y), float(co.z)
+        return (
+            mw64[0, 0] * x + mw64[0, 1] * y + mw64[0, 2] * z + mw64[0, 3],
+            mw64[1, 0] * x + mw64[1, 1] * y + mw64[1, 2] * z + mw64[1, 3],
+        )
 
     def _seg(e):
-        v0 = mw @ e.verts[0].co
-        v1 = mw @ e.verts[1].co
-        if (v0.x, v0.y) != (v1.x, v1.y):
-            return LineString([(v0.x, v0.y), (v1.x, v1.y)])
+        p0 = _xy(e.verts[0].co)
+        p1 = _xy(e.verts[1].co)
+        if p0 != p1:
+            return LineString([p0, p1])
         return None
 
     # First try genuine boundary edges -- correct for a flat / open map surface.

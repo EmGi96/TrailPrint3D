@@ -26,6 +26,34 @@ _puzzle_buildings_data: tuple | None = None
 BUILDINGS_EMPTY = object()
 
 
+def _fill_missed_cells(grid, z_floor):
+    """Fill NaN cells of *grid* in place by growing the hit cells outward one
+    ring per pass, each missed cell taking the mean of its already-filled
+    4-neighbours. Falls back to z_floor if nothing was hit."""
+    missing = np.isnan(grid)
+    if not missing.any():
+        return
+    if missing.all():
+        grid[:] = z_floor
+        return
+    while missing.any():
+        vals = np.where(missing, 0.0, grid)
+        known = (~missing).astype(np.float64)
+        total = np.zeros_like(grid)
+        count = np.zeros_like(grid)
+        total[1:, :] += vals[:-1, :]
+        count[1:, :] += known[:-1, :]
+        total[:-1, :] += vals[1:, :]
+        count[:-1, :] += known[1:, :]
+        total[:, 1:] += vals[:, :-1]
+        count[:, 1:] += known[:, :-1]
+        total[:, :-1] += vals[:, 1:]
+        count[:, :-1] += known[:, 1:]
+        grow = missing & (count > 0)
+        grid[grow] = total[grow] / count[grow]
+        missing &= ~grow
+
+
 def _build_terrain_height_sampler(
     bvh, x_min, x_max, y_min, y_max, z_cast, z_floor, resolution=160
 ):
@@ -38,7 +66,10 @@ def _build_terrain_height_sampler(
     vectorized bilinear sampler. Every subsequent height lookup is pure numpy.
 
     Returns sample(px, py) -> np.ndarray of z, accepting array-likes of equal
-    length. Grid cells that miss the terrain fall back to z_floor.
+    length. Grid cells that miss the terrain (outside a non-rectangular map,
+    or exactly on its edge) take the height of the nearest cell that hit, so
+    footprints clipped to the map border don't interpolate toward a low
+    fallback and sink in. Only a grid with no hits at all falls back to z_floor.
 
     The grid is a smoothed approximation of the surface (cell spacing ~ map
     width / resolution). For the small, relatively flat maps roads/buildings
@@ -55,8 +86,9 @@ def _build_terrain_height_sampler(
         gy = float(gys[j])
         for i in range(nx):
             hit, _, _, _ = bvh.ray_cast(Vector((float(gxs[i]), gy, z_cast)), ray_down)
-            grid[j, i] = hit.z if hit is not None else z_floor
-    dx = (x_max - x_min) / (nx - 1) if nx > 1 else 1.0
+            grid[j, i] = hit.z if hit is not None else np.nan
+    _fill_missed_cells(grid, z_floor)
+    dx =(x_max - x_min) / (nx - 1) if nx > 1 else 1.0
     dy = (y_max - y_min) / (ny - 1) if ny > 1 else 1.0
 
     def sample(px, py):
@@ -597,7 +629,7 @@ def create_buildings(gen: GenerationContext, default_height=10, scaleHor=1.0, pr
     )
     bpy.ops.object.mode_set(mode="OBJECT")
 
-    # Build BVH once from wall_obj, then bake a terrain heightmap grid so the
+    # Build BVH once from the terrain, then bake a terrain heightmap grid so the
     # per-vertex drape is a vectorized numpy lookup instead of ~200k one-by-one
     # BVH raycasts (which were the ~30s cost).
     depsgraph = bpy.context.evaluated_depsgraph_get()
@@ -661,7 +693,11 @@ def create_buildings(gen: GenerationContext, default_height=10, scaleHor=1.0, pr
 
     # Clip footprints to the map outline in 2D so buildings never spill past the
     # map edge -- robust, unlike a 3D boolean against a non-manifold building mesh.
+    # Inset slightly so a building wall cut along the edge isn't coplanar with
+    # the map's side wall (z-fighting that makes it look like it pokes outside).
     map_fp = g2d.map_footprint_polygon(map)
+    if map_fp is not None:
+        map_fp = g2d.validate(map_fp.buffer(-0.05, join_style="mitre"))
     print(
         f"[TP3D buildings] setup (wall extrude + BVH + map outline) took {time.time() - _t_setup:.1f}s"
     )
@@ -1041,12 +1077,18 @@ def create_buildings(gen: GenerationContext, default_height=10, scaleHor=1.0, pr
     if not b_verts:
         return None if _fetch_failed else BUILDINGS_EMPTY
 
-    # Build one mesh containing every building across all tiles.
+    # Build one mesh containing every building across all tiles. b_verts are
+    # float64 world coordinates, but mesh vertices are float32 -- at real-world
+    # map locations that snaps them to a ~0.06 mm grid and makes edges clipped
+    # along the map outline zigzag. Store them relative to the map instead.
+    _off = map.matrix_world.translation
+    _ox, _oy = float(_off.x), float(_off.y)
     mesh = bpy.data.meshes.new("building_mesh")
-    mesh.from_pydata(b_verts, [], b_faces)
+    mesh.from_pydata([(x - _ox, y - _oy, z) for x, y, z in b_verts], [], b_faces)
     mesh.update(calc_edges=True)
 
     obj = bpy.data.objects.new("Buildings", mesh)
+    obj.location = (_ox, _oy, 0.0)
     bpy.context.collection.objects.link(obj)
 
     mesh.validate(verbose=False)

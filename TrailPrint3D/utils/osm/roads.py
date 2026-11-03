@@ -319,15 +319,22 @@ def _build_extruded_mesh(
     tris: list[tuple[int, int, int]],
     bottom_z: float,
     top_z: float,
+    origin: tuple[float, float] = (0.0, 0.0),
 ) -> bpy.types.Object:
-    """Build a watertight extruded slab from a pre-triangulated 2D road mesh."""
+    """Build a watertight extruded slab from a pre-triangulated 2D road mesh.
+
+    verts_2d are world XY. Mesh vertices are float32, which at real-world map
+    locations snaps them to a ~0.06 mm grid, so they're stored relative to
+    *origin* (pass the map's location) and the object is placed there.
+    """
     from collections import defaultdict
 
     n = len(verts_2d)
+    ox, oy = origin
 
     # Bottom verts then top verts
-    all_verts = [(x, y, bottom_z) for x, y in verts_2d]
-    all_verts += [(x, y, top_z) for x, y in verts_2d]
+    all_verts = [(x - ox, y - oy, bottom_z) for x, y in verts_2d]
+    all_verts += [(x - ox, y - oy, top_z) for x, y in verts_2d]
 
     faces = []
 
@@ -357,6 +364,7 @@ def _build_extruded_mesh(
     mesh.validate(verbose=False)
 
     roads = bpy.data.objects.new("Roads", mesh)
+    roads.location = (ox, oy, 0.0)
     bpy.context.collection.objects.link(roads)
     return roads
 
@@ -382,6 +390,17 @@ def _triangulated_terrain_faces(map_obj: bpy.types.Object) -> list:
     bm.normal_update()
     mw = map_obj.matrix_world
     mw_rot = mw.to_3x3().normalized()
+    # mathutils math is float32: at real-world map locations `mw @ co` snaps
+    # to a ~0.06 mm grid, so transform in float64 instead.
+    mw64 = np.array(mw, dtype=np.float64)
+
+    def _world(co):
+        x, y, z = float(co.x), float(co.y), float(co.z)
+        return tuple(
+            mw64[r, 0] * x + mw64[r, 1] * y + mw64[r, 2] * z + mw64[r, 3]
+            for r in range(3)
+        )
+
     tris = []
     for f in bm.faces:
         if len(f.verts) != 3:
@@ -389,8 +408,7 @@ def _triangulated_terrain_faces(map_obj: bpy.types.Object) -> list:
         world_normal = mw_rot @ f.normal
         if world_normal.z < 0.5:  # skip walls and bottom — only top surface
             continue
-        p0, p1, p2 = (mw @ v.co for v in f.verts)
-        tris.append(((p0.x, p0.y, p0.z), (p1.x, p1.y, p1.z), (p2.x, p2.y, p2.z)))
+        tris.append(tuple(_world(v.co) for v in f.verts))
     bm.free()
     return tris
 
@@ -856,7 +874,11 @@ def create_roads(
 
     # --- Build extruded mesh ---------------------------------------------
     try:
-        roads = _build_extruded_mesh(verts_2d, tris, bottom_z, top_z)
+        _map_loc = gen.runtime.mapObject.matrix_world.translation
+        roads = _build_extruded_mesh(
+            verts_2d, tris, bottom_z, top_z,
+            origin=(float(_map_loc.x), float(_map_loc.y)),
+        )
         if roads is None:
             raise GenerationError(_rpt(" _build_extruded_mesh returned None."))
     except Exception as e:
@@ -871,7 +893,7 @@ def create_roads(
             debug_roads = roads.copy()
             debug_roads.data = roads.data.copy()
             debug_roads.name = "roads_stage3_extruded"
-            debug_roads.location = (0, 0, -30.0)
+            debug_roads.location.z = -30.0
             bpy.context.collection.objects.link(debug_roads)
             print("[DEBUG] Stage 3: Created extruded mesh copy at z=-30.0")
         except Exception as e:
@@ -888,7 +910,7 @@ def create_roads(
             debug_roads_final = roads.copy()
             debug_roads_final.data = roads.data.copy()
             debug_roads_final.name = "roads_stage5_final"
-            debug_roads_final.location = (0, 0, -60.0)
+            debug_roads_final.location.z = -60.0
             bpy.context.collection.objects.link(debug_roads_final)
             print("[DEBUG] Stage 5: Created final mesh copy at z=-60.0")
         except Exception as e:
