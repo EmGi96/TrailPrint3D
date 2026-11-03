@@ -903,8 +903,14 @@ def _draw_appearance_box(layout, props):
     if color_styles.style_is_modified(props):
         col.label(text=_("Modified from selected style"), icon="INFO")
     box.separator(type="LINE")
+    # Texture painting is only exported through the 3MF addon: keep its
+    # rows visible but greyed out without it, so Color Styles stay reachable.
+    if not temp.has3mf:
+        box.label(text=_("3MF Addon not installed"), icon="INFO")
     if "PAINT" in props.elementMode:
-        box.prop(props, "tex_use_texture")
+        tex_row = box.row()
+        tex_row.enabled = temp.has3mf
+        tex_row.prop(props, "tex_use_texture")
     trail_tex_row = box.row()
     trail_tex_row.enabled = (
         not _elem_scm and not props.singleColorMode and props.tex_use_texture
@@ -988,9 +994,10 @@ class TP3D_PT_generate(bpy.types.Panel):
             # 5. Map Elements -- what geographic data gets included.
             _draw_element_box(layout, props)
 
-            if temp.has3mf and props.elementMode == "PAINT":
+            if props.elementMode == "PAINT":
                 # 6. Appearance -- how included elements render. Shown even
                 # with Map Elements off: "Trail in texture" still applies.
+                # Shown without the 3MF addon too, texture rows greyed out.
                 _draw_appearance_box(layout, props)
         # --- Status ---
         if props.o_time != "":

@@ -776,6 +776,11 @@ button.element-chip:active { background: rgba(255,255,255,0.16); }
     padding: 6px 18px; background: rgba(26,26,26,0.88); border: 1px solid var(--accent); color: var(--text-primary);
     font-size: 13px; font-weight: 600; box-shadow: 0 2px 8px rgba(0,0,0,0.35); }
 #map .map-tutorial-btn:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+/* Free pages: Tutorials and Upgrade share the top-center spot as one
+   centred row (still a direct #map child, see above). */
+#map .map-top-actions { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: var(--z-map-control);
+    display: flex; gap: 8px; }
+#map .map-top-actions .map-tutorial-btn { position: static; transform: none; }
 .tp3d-tut-menu .tp3d-modal-box { width: 360px; }
 .tp3d-tut-menu-intro { font-size: 12px; color: var(--text-secondary); }.tp3d-tut-menu-item { display: flex; flex-direction: column; gap: 3px; text-align: left; width: 100%;
     background: var(--surface-field); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; color: var(--text-primary);
@@ -980,6 +985,29 @@ input[type=range] { min-width: 0; min-height: var(--control-height); }
 .brand-link { color: inherit; text-decoration: none; }
 .sidebar-heading { font-size: 1rem; font-weight: 600; margin-bottom: var(--space-2); }
 .sidebar-subtitle { font-size: 0.8125rem; font-weight: 400; color: var(--text-secondary); }
+/* Free pages only: "Upgrade" button beside the map's Tutorials button, and
+   the Free-vs-Premium panel it opens (picker_ui.js tp3dShowUpgradePanel). */
+.upgrade-btn { padding: 6px 14px; border: 1px solid #e0a526; border-radius: 4px; background: rgba(26,26,26,0.88);
+    color: #f2c14e; font-size: 13px; font-weight: 600; font-family: inherit; white-space: nowrap; cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.35); }
+.upgrade-btn:hover, .upgrade-btn:focus-visible { background: #e0a526; color: #1a1a1a; }
+.upgrade-box { width: 30rem; }
+.upgrade-thanks { margin: 0; padding: 10px 12px; border: 1px solid #e0a526; border-radius: 6px;
+    background: rgba(224,165,38,0.1); font-size: 0.8125rem; line-height: 1.5; color: var(--text-primary); }
+.upgrade-thanks[hidden] { display: none; }
+.upgrade-intro { margin: 0; font-size: 0.8125rem; color: var(--text-secondary); line-height: 1.5; }
+.upgrade-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
+.upgrade-table th, .upgrade-table td { padding: 6px 8px; border-bottom: 1px solid var(--border); text-align: center; }
+.upgrade-table th[scope="row"], .upgrade-table thead th:first-child { text-align: left; font-weight: 400; color: var(--text-primary); }
+.upgrade-table thead th { font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); }
+.upgrade-table .upgrade-premium-col { color: var(--accent); }
+.upgrade-table td { color: var(--text-secondary); }
+.upgrade-table .upgrade-yes { color: var(--accent); font-weight: 700; }
+.upgrade-table .upgrade-no { color: var(--text-muted); }
+.upgrade-icons { display: inline-flex; gap: 6px; vertical-align: middle; }
+.upgrade-icons svg { display: block; }
+.upgrade-links { display: flex; gap: 8px; }
+.upgrade-link { display: block; flex: 1 1 0; margin-top: 0; padding: 10px 12px; text-align: center; text-decoration: none; }
 .import-list { font-size: 0.8125rem; color: var(--text-secondary); line-height: 1.8; }
 .btn-import, .btn-clear { padding: 0.625rem 0.75rem; border: 1px solid var(--border);
     border-radius: var(--radius-control); background: var(--surface-raised);

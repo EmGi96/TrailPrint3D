@@ -82,7 +82,10 @@
     <div id="mapColumn" role="main" tabindex="-1" aria-label="Generator workspace">
     <div id="elementStatus"></div>
     <div id="map">
-        <button id="tutorialBtn" class="tutorial-btn map-tutorial-btn" type="button" title="Interactive step-by-step tutorials">Tutorials</button>
+        <div class="map-top-actions">
+            <button id="tutorialBtn" class="tutorial-btn map-tutorial-btn" type="button" title="Interactive step-by-step tutorials">Tutorials</button>
+            <button type="button" class="upgrade-btn" data-upgrade-panel title="Compare Free and Premium">★ Upgrade</button>
+        </div>
         <div id="coordSearch">
             <button id="coordSearchToggle" title="Go to location">
                 <svg viewBox="0 0 20 20" width="16" height="16" fill="currentColor"><path d="M10 1a6 6 0 00-6 6c0 4.5 6 12 6 12s6-7.5 6-12a6 6 0 00-6-6zm0 8.5A2.5 2.5 0 1110 4.5a2.5 2.5 0 010 5z"/></svg>
@@ -556,13 +559,17 @@
         }
 
         function makeShapeLayer(bounds, shape, style, polygon, rotation) {
-            // CUSTOM (e.g. GeoJSON-boundary) tiles have no regular shape to
-            // reconstruct from just their bounding box -- draw the actual
-            // outline the backend stored instead. `polygon` is one entry per
-            // disjoint part (mainland + islands), each a single-ring [[lat,
-            // lng], ...] array, so Leaflet renders every part as its own
-            // shape rather than treating extra rings as holes.
-            if (shape === 'custom' && polygon && polygon.length) {
+            // Draw the actual outline the backend stored whenever there is
+            // one: CUSTOM (GeoJSON-boundary) tiles, and Multi Tile Generator
+            // tiles (TilePolygon). Rebuilding a hexagon from its bounding box
+            // below treats half the box height as the vertex radius, but
+            // multitile tiles store the tight box of a Mercator-regular hex,
+            // so the rebuilt one came out squashed and stopped meeting its
+            // neighbours. `polygon` is one entry per disjoint part (mainland
+            // + islands), each a single-ring [[lat, lng], ...] array, so
+            // Leaflet renders every part as its own shape rather than
+            // treating extra rings as holes.
+            if (polygon && polygon.length) {
                 return L.polygon(polygon, style);
             }
             if (rotation && shape !== 'circle' && shape !== 'custom') {

@@ -96,7 +96,7 @@
             </div>
             <div class="field-row">
                 <label for="puzzleSeedInput">Seed</label>
-                <input type="number" id="puzzleSeedInput" step="1" placeholder="random">
+                <input type="number" id="puzzleSeedInput" step="1" value="1" placeholder="random">
             </div>
             <div class="field-row" id="puzzleCornerRadiusRow">
                 <label for="puzzleCornerRadiusInput">Corner Radius</label>
@@ -110,7 +110,7 @@
         <div class="control-stack">
             <div class="field-row">
                 <span class="preview-wrap"><label for="holderEnabled">Generate Holder</label><button type="button" class="preview-btn" data-preview-img="https://trailprint3d.com/images/howto/JigsawGenerateHolder.webp" aria-label="Show an example of the holder">?</button></span>
-                <input type="checkbox" id="holderEnabled">
+                <input type="checkbox" id="holderEnabled" checked>
             </div>
         </div>
         <div id="prefetchInfo"></div>
@@ -124,7 +124,10 @@
     <div id="mapColumn" role="main" tabindex="-1" aria-label="Generator workspace">
     <div id="elementStatus"></div>
     <div id="map">
-        <button id="tutorialBtn" class="tutorial-btn map-tutorial-btn" type="button" title="Interactive step-by-step tutorials">Tutorials</button>
+        <div class="map-top-actions">
+            <button id="tutorialBtn" class="tutorial-btn map-tutorial-btn" type="button" title="Interactive step-by-step tutorials">Tutorials</button>
+            <button type="button" class="upgrade-btn" data-upgrade-panel title="Compare Free and Premium">★ Upgrade</button>
+        </div>
         <div id="coordSearch">
             <button id="coordSearchToggle" title="Go to location">
                 <svg viewBox="0 0 20 20" width="16" height="16" fill="currentColor"><path d="M10 1a6 6 0 00-6 6c0 4.5 6 12 6 12s6-7.5 6-12a6 6 0 00-6-6zm0 8.5A2.5 2.5 0 1110 4.5a2.5 2.5 0 010 5z"/></svg>
@@ -170,7 +173,7 @@
     <!-- Moved into the Settings popup's "Puzzle" tab at page load, below a
          divider under its other fields (see settings_modal.js's tp3dBuildPuzzleTab)
          -- same ids, so the listeners below keep working. -->
-    <div id="plateTabFieldsSource" class="plate-tab-fields tab-fields-inactive" style="display:none;">
+    <div id="plateTabFieldsSource" class="plate-tab-fields" style="display:none;">
             <div class="tab-fields-note" id="plateTabNote">Tick <b>Generate Holder</b> in the sidebar to use these settings.</div>
             <div class="field-row">
                 <label for="holderWallWidthInput">Frame Thickness</label>

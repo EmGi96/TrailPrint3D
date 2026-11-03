@@ -21,6 +21,114 @@ function tp3dAlert(message, title) {
     modal.classList.add('open');
 }
 
+// Free-vs-Premium comparison, opened by the "Upgrade" button next to the
+// generator name on the free pages (any button with data-upgrade-panel --
+// the premium pages simply don't have one). Links are the same Patreon /
+// Thangs pair as the Blender sidebar's "Upgrade to Premium" box
+// (operators.TP3D_OT_open_website / TP3D_OT_open_thangs).
+var TP3D_UPGRADE_LINKS = [
+    { label: 'Get it on Patreon', url: 'https://patreon.com/EmGi3D?utm_source=Generator' },
+    { label: 'Get it on Thangs', url: 'https://thangs.com/designer/EmGi/3d-model/TrailPrint3D%20Premium%20Version%20%7C%20Blender%20Addon-1587024' }
+];
+// The Jigsaw Puzzle Generator's piece-shape icons (same SVGs as its
+// shapeSquareBtn / shapeHexBtn / shapeRadialBtn).
+var TP3D_PIECE_ICONS = {
+    square: ['Square pieces', '<rect x="3" y="3" width="14" height="14"/>', 2],
+    hex: ['Hexagonal pieces', '<polygon points="10,2.5 16.5,6.25 16.5,13.75 10,17.5 3.5,13.75 3.5,6.25"/>', 2],
+    radial: ['Concentric-ring pieces', '<circle cx="10" cy="10" r="7.5"/><circle cx="10" cy="10" r="4"/>'
+        + '<line x1="10" y1="2.5" x2="10" y2="17.5"/><line x1="2.5" y1="10" x2="17.5" y2="10"/>', 1.5]
+};
+function tp3dPieceIcons(names) {
+    return '<span class="upgrade-icons">' + names.map(function(name) {
+        var icon = TP3D_PIECE_ICONS[name];
+        return '<svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="' + icon[2]
+            + '" role="img" aria-label="' + icon[0] + '"><title>' + icon[0] + '</title>' + icon[1] + '</svg>';
+    }).join('') + '</span>';
+}
+// [feature, free, premium] -- true/false render as a check/dash; strings
+// are HTML.
+var TP3D_UPGRADE_ROWS = [
+    ['GPX trails per map', '1', 'Multiple'],
+    ['GeoJSON boundary files', '1', 'Multiple (merged)'],
+    ['Shell, text icons & medal handles', false, true],
+    ['Jigsaw Puzzle Generator', tp3dPieceIcons(['square']), tp3dPieceIcons(['square', 'hex', 'radial'])],
+    ['Multi Tile Generator', false, true],
+    ['Sliding Puzzle Generator', false, true]
+];
+// *mapsGenerated*: set when opened for the every-100-generations support
+// prompt (see below) -- adds a thank-you note above the comparison.
+function tp3dShowUpgradePanel(mapsGenerated) {
+    var modal = document.getElementById('tp3dUpgrade');
+    if (!modal) {
+        function cell(value) {
+            if (value === true) return '<td class="upgrade-yes" aria-label="Included">✓</td>';
+            if (value === false) return '<td class="upgrade-no" aria-label="Not included">–</td>';
+            return '<td>' + value + '</td>';
+        }
+        modal = document.createElement('div');
+        modal.id = 'tp3dUpgrade';
+        modal.className = 'tp3d-modal';
+        modal.innerHTML = '<div class="tp3d-modal-box upgrade-box"><div class="modal-header">'
+            + '<span>Upgrade to Premium</span><button type="button" class="tp3d-modal-close-btn" title="Close">×</button></div>'
+            + '<p class="upgrade-thanks" hidden></p>'
+            + '<p class="upgrade-intro">Premium unlocks every generator and tool in TrailPrint3D, and supports its development.</p>'
+            + '<table class="upgrade-table"><thead><tr><th scope="col">Feature</th><th scope="col">Free</th>'
+            + '<th scope="col" class="upgrade-premium-col">Premium</th></tr></thead><tbody>'
+            + TP3D_UPGRADE_ROWS.map(function(row) {
+                return '<tr><th scope="row">' + row[0] + '</th>' + cell(row[1]) + cell(row[2]) + '</tr>';
+            }).join('')
+            + '</tbody></table><div class="upgrade-links">'
+            + TP3D_UPGRADE_LINKS.map(function(link) {
+                return '<a class="btn-send upgrade-link" href="' + link.url + '" target="_blank" rel="noopener">' + link.label + '</a>';
+            }).join('')
+            + '</div></div>';
+        modal.querySelector('.tp3d-modal-close-btn').addEventListener('click', function() { modal.classList.remove('open'); });
+        modal.addEventListener('click', function(event) {
+            if (event.target === modal) modal.classList.remove('open');
+        });
+        document.body.appendChild(modal);
+    }
+    var thanks = modal.querySelector('.upgrade-thanks');
+    thanks.hidden = !mapsGenerated;
+    if (mapsGenerated) {
+        thanks.innerHTML = 'You\'ve generated <strong>' + Number(mapsGenerated).toLocaleString('en-US')
+            + ' maps</strong> with TrailPrint3D, so it looks like you\'re enjoying it! 🎉 '
+            + 'If you\'d like to support its development, getting Premium is the best way to do it.';
+    }
+    modal.classList.add('open');
+}
+document.addEventListener('click', function(event) {
+    if (event.target.closest && event.target.closest('[data-upgrade-panel]')) tp3dShowUpgradePanel();
+});
+
+// Every 100 generations (free version only) the pages with an Upgrade button
+// open the panel once with the thank-you note. Blender decides and records
+// it (picker_server.claim_support_prompt), so each milestone shows once.
+// Waits until no tutorial or other dialog is on screen.
+(function() {
+    function start() {
+        if (typeof PORT === 'undefined' || !document.querySelector('[data-upgrade-panel]')) return;
+        fetch('http://127.0.0.1:' + PORT + '/support_prompt', { cache: 'no-store' })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (!data || !(data.count > 0)) return;
+                var waited = 0;
+                (function show() {
+                    var busy = document.querySelector('#tp3dTutorial.active, .tp3d-modal.open');
+                    // Re-check 4x a second; give up after 3 minutes rather
+                    // than pop up mid-task.
+                    if (busy && waited < 720) { waited++; setTimeout(show, 250); return; }
+                    if (!busy) tp3dShowUpgradePanel(data.count);
+                }());
+            })
+            .catch(function() {});
+    }
+    // A short delay so the page's own first dialogs (tutorial offer,
+    // export-folder guide) get to open first and the prompt waits for them.
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function() { setTimeout(start, 300); });
+    else setTimeout(start, 300);
+}());
+
 // Small self-dismissing note -- for hints that shouldn't block the page the
 // way tp3dAlert does (e.g. clicking a Premium-only option in the free
 // version). Shown just below *anchor* when given (kept inside the window),
