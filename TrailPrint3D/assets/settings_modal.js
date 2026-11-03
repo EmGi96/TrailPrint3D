@@ -128,7 +128,7 @@ var SETTINGS_MODAL_OTHER_FIELDS = [
     { key: 'overwritePathElevation', source: 'SETTINGS_STATE', endpoint: 'update_setting',
       label: 'Snap Trail to Terrain', type: 'checkbox',
       title: 'Cast each point of the trail onto the Terrain Mesh — should usually always be enabled',
-      preview: 'https://trailprint3d.com/images/howto/SnapTrailToTerrain.jpg',
+      preview: 'https://trailprint3d.com/images/howto/SnapTrailToTerrain.webp',
       previewCaption: [
           'GPX files usually have their own elevation data, but sometimes they don\'t, and sometimes their values come from a different dataset.',
           'To make sure the trail and terrain match perfectly, enable this to snap each point of the trail onto the terrain.',
@@ -425,6 +425,8 @@ var COASTLINE_SIMPLIFY_FIELD = {
 var ROAD_MIN_WIDTH_FIELD = {
     key: 'elSEnforceMinWidth', source: 'ADVANCED_SETTINGS_STATE', endpoint: 'update_advanced_setting',
     label: 'Widen Thin Roads', type: 'checkbox',
+    preview: 'https://trailprint3d.com/images/howto/RoadWidening.webp',
+    previewCaption: 'Widens roads that would be too thin to print up to a minimum printable width.',
     // Roads come from OSM -- WorldCover has none.
     enabledWhen: function() { return !tp3dIsWorldCover(); },
     title: 'Widen roads that would come out too thin to print up to a minimum printable width. Off keeps every road at its true scaled width.'
