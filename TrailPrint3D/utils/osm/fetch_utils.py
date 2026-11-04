@@ -4,6 +4,8 @@ from typing import NamedTuple
 
 import requests
 
+from ..elevation import format_api_error
+
 
 class OsmFetchSettings(NamedTuple):
     """Snapshot of all bpy.context values needed by fetch_osm_data.
@@ -120,6 +122,8 @@ def _overpass_request(
     Returns the parsed JSON dict on success, or None on failure.
     """
     log_callback = log_callback or progress_callback
+    last_error = None
+    last_status = None
     for attempt in range(max_retries):
         try:
             stream = progress_callback is not None
@@ -147,41 +151,71 @@ def _overpass_request(
                             _read_with_progress(response, progress_callback, progress_label)
                         )
                     return response.json()
-                except ValueError:
+                except ValueError as e:
+                    last_error = e
+                    last_status = response.status_code
                     print(f"Attempt {attempt + 1}: Invalid JSON response")
                     # fall through to retry
             else:
+                last_status = response.status_code
                 next_attempt = attempt + 2
                 if next_attempt <= max_retries:
                     print(
-                        f"Status ({response.status_code}), retrying... {next_attempt}/{max_retries}"
+                        f"Overpass API returned HTTP {response.status_code} — retrying {next_attempt}/{max_retries}"
                     )
                     if log_callback:
                         log_callback(
-                            f"Overpass error {response.status_code} — retrying {next_attempt}/{max_retries}"
+                            f"Overpass API returned HTTP {response.status_code} — retrying {next_attempt}/{max_retries}"
                         )
                 else:
                     print(
-                        f"Status ({response.status_code}), giving up after {max_retries} attempts"
+                        f"Overpass API returned HTTP {response.status_code} after {max_retries} attempts"
                     )
                     if log_callback:
                         log_callback(
-                            f"Overpass error {response.status_code} — giving up"
+                            format_api_error(
+                                "Overpass API",
+                                status_code=response.status_code,
+                                extra=f"after {max_retries} attempts",
+                            )
                         )
                 time.sleep(5 + attempt)
 
-        except requests.exceptions.Timeout:
+        except requests.exceptions.Timeout as e:
+            last_error = e
             next_attempt = attempt + 2
-            print(f"Request timed out (attempt {attempt + 1}/{max_retries})")
+            print(f"Overpass API timed out (attempt {attempt + 1}/{max_retries})")
             if log_callback:
                 if next_attempt <= max_retries:
-                    log_callback(f"Timed out — retrying {next_attempt}/{max_retries}")
+                    log_callback(
+                        format_api_error(
+                            "Overpass API",
+                            e,
+                            extra=f"retrying {next_attempt}/{max_retries}",
+                        )
+                    )
                 else:
-                    log_callback("Timed out — giving up")
+                    log_callback(
+                        format_api_error(
+                            "Overpass API",
+                            e,
+                            extra=f"after {max_retries} attempts",
+                        )
+                    )
             time.sleep(5)
         except requests.RequestException as e:
-            print(f"Request failed: {e}")
+            last_error = e
+            print(format_api_error("Overpass API", e))
+            if log_callback:
+                log_callback(format_api_error("Overpass API", e))
             time.sleep(5)
 
-    print("Overpass request failed after retries")
+    print(
+        format_api_error(
+            "Overpass API",
+            last_error,
+            status_code=last_status,
+            extra=f"after {max_retries} attempts",
+        )
+    )
     return None
