@@ -45,14 +45,16 @@ function tp3dPieceIcons(names) {
             + '" role="img" aria-label="' + icon[0] + '"><title>' + icon[0] + '</title>' + icon[1] + '</svg>';
     }).join('') + '</span>';
 }
-// [feature, free, premium] -- true/false render as a check/dash; strings
-// are HTML.
+// [feature, free, premium, example image] -- true/false render as a
+// check/dash; strings are HTML. The image (in trailprint3d.com's
+// images/howto/) shows on hovering the "?" after the feature name.
+var TP3D_UPGRADE_IMAGE_BASE = 'https://trailprint3d.com/images/howto/';
 var TP3D_UPGRADE_ROWS = [
-    ['GPX trails per map', '1', 'Multiple'],
-    ['Shell, text icons & medal handles', false, true],
-    ['Jigsaw Puzzle Generator', tp3dPieceIcons(['square']), tp3dPieceIcons(['square', 'hex', 'radial'])],
-    ['Multi Tile Generator', false, true],
-    ['Sliding Puzzle Generator', false, true]
+    ['GPX trails per map', '1', 'Multiple', 'PR_MultipleGPX.webp'],
+    ['Shell, text icons & medal handles', false, true, 'PR_Plate.webp'],
+    ['Jigsaw Puzzle Generator', tp3dPieceIcons(['square']), tp3dPieceIcons(['square', 'hex', 'radial']), 'PR_Jigzaw.webp'],
+    ['Multi Tile Generator', false, true, 'PR_Multitile.webp'],
+    ['Sliding Puzzle Generator', false, true, 'PR_Sliding.webp']
 ];
 // *mapsGenerated*: set when opened for the every-100-generations support
 // prompt (see below) -- adds a thank-you note above the comparison.
@@ -74,7 +76,12 @@ function tp3dShowUpgradePanel(mapsGenerated) {
             + '<table class="upgrade-table"><thead><tr><th scope="col">Feature</th><th scope="col">Free</th>'
             + '<th scope="col" class="upgrade-premium-col">Premium</th></tr></thead><tbody>'
             + TP3D_UPGRADE_ROWS.map(function(row) {
-                return '<tr><th scope="row">' + row[0] + '</th>' + cell(row[1]) + cell(row[2]) + '</tr>';
+                var hint = row[3]
+                    ? '<button type="button" class="preview-btn upgrade-preview-btn" data-preview-hover data-preview-img="'
+                        + TP3D_UPGRADE_IMAGE_BASE + row[3] + '" aria-label="Show an example: ' + row[0].replace(/&/g, '&amp;') + '">?</button>'
+                    : '';
+                return '<tr><th scope="row"><span class="upgrade-feature">' + row[0] + hint + '</span></th>'
+                    + cell(row[1]) + cell(row[2]) + '</tr>';
             }).join('')
             + '</tbody></table>'
             + '<p class="upgrade-intro">Download the Premium version from either link below and install it in Blender '
@@ -173,6 +180,13 @@ function tp3dToggleImagePopover(anchor) {
         tp3dCloseImagePopover();
         return;
     }
+    tp3dOpenImagePopover(anchor);
+}
+// *hover*: opened by pointing at / focusing a data-preview-hover button --
+// the card then ignores the mouse, so it can't cover its own "?" and make
+// the pointer "leave" it (which would close and reopen it in a loop).
+function tp3dOpenImagePopover(anchor, hover) {
+    var pop = document.getElementById('tp3dImagePopover');
     if (!pop) {
         pop = document.createElement('div');
         pop.id = 'tp3dImagePopover';
@@ -192,6 +206,7 @@ function tp3dToggleImagePopover(anchor) {
         pop.appendChild(caption);
     }
     pop.tp3dAnchor = anchor;
+    pop.classList.toggle('hover', !!hover);
     pop.classList.add('open');
     // Right of the "?" (the sidebar sits on the left), kept inside the window;
     // re-placed once the image knows its height.
@@ -214,7 +229,11 @@ document.addEventListener('click', function(event) {
     if (btn) {
         event.preventDefault();
         event.stopPropagation();
-        tp3dToggleImagePopover(btn);
+        // A hover "?" is already open by the time it's clicked (and a tap
+        // fires mouseover first) -- a click keeps it open instead of
+        // toggling it shut; tapping elsewhere closes it.
+        if (btn.hasAttribute('data-preview-hover')) tp3dOpenImagePopover(btn, true);
+        else tp3dToggleImagePopover(btn);
     } else if (!(event.target.closest && event.target.closest('#tp3dImagePopover'))) {
         tp3dCloseImagePopover();
     }
@@ -222,6 +241,29 @@ document.addEventListener('click', function(event) {
 document.addEventListener('keydown', function(event) {
     if (event.key === 'Escape') tp3dCloseImagePopover();
 });
+// data-preview-hover buttons (e.g. the Upgrade panel's feature rows) open on
+// hover / keyboard focus too, and close again when left.
+(function() {
+    function hoverAnchor(node) {
+        return node && node.closest ? node.closest('[data-preview-img][data-preview-hover]') : null;
+    }
+    function openFor(event) {
+        var anchor = hoverAnchor(event.target);
+        if (!anchor) return;
+        var pop = document.getElementById('tp3dImagePopover');
+        if (!(pop && pop.classList.contains('open') && pop.tp3dAnchor === anchor)) tp3dOpenImagePopover(anchor, true);
+    }
+    function closeFor(event) {
+        var anchor = hoverAnchor(event.target);
+        if (!anchor || anchor.contains(event.relatedTarget)) return;
+        var pop = document.getElementById('tp3dImagePopover');
+        if (pop && pop.tp3dAnchor === anchor) tp3dCloseImagePopover();
+    }
+    document.addEventListener('mouseover', openFor);
+    document.addEventListener('focusin', openFor);
+    document.addEventListener('mouseout', closeFor);
+    document.addEventListener('focusout', closeFor);
+}());
 
 (function() {
     var dialogSelector = '.tp3d-modal';

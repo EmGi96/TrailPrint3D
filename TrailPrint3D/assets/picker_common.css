@@ -450,6 +450,11 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 0.875rem; line
     width: min(800px, calc(100vw - 16px)); padding: 10px; background: var(--surface-panel);
     border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 6px 24px rgba(0,0,0,0.45); }
 .tp3d-img-popover.open { display: flex; }
+/* Above an open dialog (the Upgrade panel's hover "?"s), and -- when opened
+   by hover -- smaller and click-through, so it can't cover its own "?" and
+   flicker (picker_ui.js tp3dOpenImagePopover). */
+.tp3d-img-popover { z-index: calc(var(--z-modal) + 1); }
+.tp3d-img-popover.hover { width: min(560px, calc(100vw - 16px)); pointer-events: none; }
 .tp3d-img-popover img { width: 100%; max-height: 80vh; object-fit: contain; border-radius: 4px; }
 .tp3d-img-popover-caption { font-size: var(--fs-small); line-height: 1.45; color: var(--text-secondary); }
 /* The sidebar "?" sits inline after its label/readout. */
@@ -1004,6 +1009,8 @@ input[type=range] { min-width: 0; min-height: var(--control-height); }
 .upgrade-table td { color: var(--text-secondary); }
 .upgrade-table .upgrade-yes { color: var(--accent); font-weight: 700; }
 .upgrade-table .upgrade-no { color: var(--text-muted); }
+.upgrade-feature { display: inline-flex; align-items: center; gap: 6px; }
+.upgrade-table .upgrade-preview-btn { width: 18px; height: 18px; min-width: 18px; min-height: 18px; font-size: 10px; }
 .upgrade-icons { display: inline-flex; gap: 6px; vertical-align: middle; }
 .upgrade-icons svg { display: block; }
 .upgrade-links { display: flex; gap: 8px; }
