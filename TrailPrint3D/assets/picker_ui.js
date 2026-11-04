@@ -49,7 +49,6 @@ function tp3dPieceIcons(names) {
 // are HTML.
 var TP3D_UPGRADE_ROWS = [
     ['GPX trails per map', '1', 'Multiple'],
-    ['GeoJSON boundary files', '1', 'Multiple (merged)'],
     ['Shell, text icons & medal handles', false, true],
     ['Jigsaw Puzzle Generator', tp3dPieceIcons(['square']), tp3dPieceIcons(['square', 'hex', 'radial'])],
     ['Multi Tile Generator', false, true],
@@ -77,7 +76,10 @@ function tp3dShowUpgradePanel(mapsGenerated) {
             + TP3D_UPGRADE_ROWS.map(function(row) {
                 return '<tr><th scope="row">' + row[0] + '</th>' + cell(row[1]) + cell(row[2]) + '</tr>';
             }).join('')
-            + '</tbody></table><div class="upgrade-links">'
+            + '</tbody></table>'
+            + '<p class="upgrade-intro">Download the Premium version from either link below and install it in Blender '
+            + 'the same way as the free version.</p>'
+            + '<div class="upgrade-links">'
             + TP3D_UPGRADE_LINKS.map(function(link) {
                 return '<a class="btn-send upgrade-link" href="' + link.url + '" target="_blank" rel="noopener">' + link.label + '</a>';
             }).join('')
