@@ -1013,9 +1013,12 @@ def dovetail_cutout(zobj, sides=None, obj_size=None):
 
 
 class TP3D_PG_dovetail_target(bpy.types.PropertyGroup):
-    """One selected object in the Dovetail popup, with a toggle per edge."""
+    """One box in the Dovetail popup: every selected object sharing one edge
+    layout (same shape and rotation), with a toggle per edge that applies
+    to all of them."""
 
-    obj_name: StringProperty()
+    # Newline-separated: object names can't contain one.
+    obj_names: StringProperty()
     side_count: IntProperty()
     # Sized for the largest supported shape (OCTAGON); only the first
     # side_count entries are drawn and read.
@@ -1047,24 +1050,41 @@ class TP3D_OT_dovetail(bpy.types.Operator):
 
         return True
 
+    @staticmethod
+    def _group_objects(item):
+        """The still-existing objects of one popup box."""
+        objs = (bpy.data.objects.get(name) for name in item.obj_names.split("\n") if name)
+        return [o for o in objs if o is not None]
+
     def invoke(self, context, event):
         self.targets.clear()
+        # One box per distinct edge layout rather than per object, so a
+        # selection of matching tiles (a whole multitile grid) gets a single
+        # set of side toggles that applies to all of them.
+        groups = {}
         for zobj in context.selected_objects:
             if zobj.type != "MESH" or zobj.get("Dovetail"):
                 continue
             if zobj.get("Object type") not in self._TYPES or zobj.get("Shape") not in self._SHAPES:
                 continue
+            layout_key = tuple(
+                round(math.degrees(a)) % 360 for a in dovetail_side_angles(zobj)
+            )
+            groups.setdefault(layout_key, []).append(zobj)
+
+        for layout_key, objs in groups.items():
             item = self.targets.add()
-            item.obj_name = zobj.name
-            item.side_count = len(dovetail_side_angles(zobj))
+            item.obj_names = "\n".join(o.name for o in objs)
+            item.side_count = len(layout_key)
 
         if not self.targets:
             self.report({"ERROR"}, _rpt("The selected objects already have dovetail cutouts"))
             return {"CANCELLED"}
 
         focus = context.active_object
-        if focus is None or focus.name not in {t.obj_name for t in self.targets}:
-            focus = bpy.data.objects.get(self.targets[0].obj_name)
+        names = {n for t in self.targets for n in t.obj_names.split("\n")}
+        if focus is None or focus.name not in names:
+            focus = self._group_objects(self.targets[0])[0]
         self._frame_top_view(context, focus)
 
         return context.window_manager.invoke_props_dialog(self, width=560)
@@ -1096,11 +1116,19 @@ class TP3D_OT_dovetail(bpy.types.Operator):
         layout.label(text=_("Sides are numbered counter-clockwise (0° = +X)"), icon="INFO")
 
         for item in self.targets:
-            zobj = bpy.data.objects.get(item.obj_name)
-            if zobj is None:
+            objs = self._group_objects(item)
+            if not objs:
                 continue
+            zobj = objs[0]
             box = layout.box()
-            box.label(text=item.obj_name, icon="OBJECT_DATA", translate=False)
+            if len(objs) == 1:
+                box.label(text=zobj.name, icon="OBJECT_DATA", translate=False)
+            else:
+                box.label(
+                    text=_("{n} selected tiles").format(n=len(objs)),
+                    icon="OBJECT_DATA",
+                    translate=False,
+                )
 
             # Place each checkbox where its edge sits in the top view (+X
             # right, +Y up): one grid row per distinct edge height, and one
@@ -1137,12 +1165,12 @@ class TP3D_OT_dovetail(bpy.types.Operator):
 
         cut_count = 0
         for item in self.targets:
-            zobj = bpy.data.objects.get(item.obj_name)
-            if zobj is None or zobj.get("Dovetail"):
-                continue
             sides = {i for i in range(item.side_count) if item.sides[i]}
-            if sides and dovetail_cutout(zobj, sides=sides):
-                cut_count += 1
+            if not sides:
+                continue
+            for zobj in self._group_objects(item):
+                if not zobj.get("Dovetail") and dovetail_cutout(zobj, sides=sides):
+                    cut_count += 1
 
         if selected_objects:
             context.view_layer.objects.active = selected_objects[0]

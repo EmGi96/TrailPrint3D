@@ -624,6 +624,51 @@ def refresh_state_snapshots(element_states: dict | None = None, settings_state: 
         _Handler.color_styles_json = json.dumps(color_styles).encode('utf-8')
 
 
+SUPPORT_PROMPT_EVERY = 100
+
+
+def claim_support_prompt() -> int:
+    """Free version only: every SUPPORT_PROMPT_EVERY generations the free
+    generator pages open their Upgrade panel with a thank-you note (see
+    picker_ui.js tp3dShowUpgradePanel). Returns the generation count to
+    mention when a new milestone was reached and not shown yet -- recording
+    it, so each milestone shows once -- else 0.
+
+    The milestone is kept next to the counter in generation_counter.json
+    (utils.elevation.save_generation_counter preserves it). Plain file I/O,
+    no bpy, so it's safe on the HTTP server's own thread.
+    """
+    from . import temp
+
+    if temp.PREMIUMVERSION:
+        return 0
+    path = const.generation_counter_file
+    try:
+        with open(path, "r") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError, ValueError):
+        return 0
+    if not isinstance(data, dict):
+        return 0
+    try:
+        total = int(data.get("total_maps_generated", 0))
+        shown = int(data.get("support_prompt_milestone", 0))
+    except (TypeError, ValueError):
+        return 0
+    milestone = total // SUPPORT_PROMPT_EVERY
+    if milestone <= shown:
+        return 0
+    data["support_prompt_milestone"] = milestone
+    try:
+        with open(path, "w") as f:
+            json.dump(data, f)
+    except OSError as e:
+        # Couldn't record it -- skip rather than show it on every page open.
+        print(f"[TP3D picker] could not record support prompt: {e}")
+        return 0
+    return total
+
+
 def merge_settings_snapshot(changes: dict) -> None:
     """Update only *changes*' keys in the SETTINGS_STATE snapshot -- for pages
     whose snapshot isn't build_settings_row_state()'s (the medal holder and
@@ -1169,6 +1214,16 @@ class _Handler(BaseHTTPRequestHandler):
             self._do_post()
 
     def _do_get(self):
+        if self.path == '/support_prompt':
+            # Fetched once on load by the free generator pages (the ones
+            # with an Upgrade button) -- see claim_support_prompt.
+            body = json.dumps({'count': claim_support_prompt()}).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if self.path == '/get_source_state':
             # Every picker page's OSM/ESA WorldCover switch
             # (settings_modal.js) polls this after posting the switch to

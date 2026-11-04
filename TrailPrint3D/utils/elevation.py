@@ -61,8 +61,19 @@ def load_generation_counter():
     return 0
 
 def save_generation_counter(count):
+    # Keep the file's other keys -- picker_server's support prompt stores
+    # the last milestone it showed (support_prompt_milestone) alongside.
+    data = {}
+    try:
+        with open(const.generation_counter_file, "r") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            data = {}
+    except (OSError, json.JSONDecodeError, ValueError):
+        data = {}
+    data["total_maps_generated"] = count
     with open(const.generation_counter_file, "w") as f:
-        json.dump({"total_maps_generated": count}, f)
+        json.dump(data, f)
 
 
 def format_cache_size(num_bytes):
