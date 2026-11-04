@@ -75,6 +75,81 @@ def save_generation_counter(count):
     with open(const.generation_counter_file, "w") as f:
         json.dump(data, f)
 
+
+def format_cache_size(num_bytes):
+    """Return a compact human-readable size string for cache UI text."""
+    if num_bytes is None:
+        return "0 B"
+    units = ["B", "KB", "MB", "GB", "TB"]
+    value = float(num_bytes)
+    unit_index = 0
+    while value >= 1024.0 and unit_index < len(units) - 1:
+        value /= 1024.0
+        unit_index += 1
+    if unit_index == 0:
+        return f"{int(value)} {units[unit_index]}"
+    return f"{value:.1f} {units[unit_index]}"
+
+
+def get_cache_dir_size(path=None):
+    """Total size in bytes of the addon cache tree, or 0 when unavailable."""
+    root = path or const.cache_dir
+    if not root or not os.path.isdir(root):
+        return 0
+    total = 0
+    for current, _, files in os.walk(root):
+        for filename in files:
+            file_path = os.path.join(current, filename)
+            try:
+                total += os.path.getsize(file_path)
+            except OSError:
+                pass
+    return total
+
+
+def format_api_error(service, exc=None, *, status_code=None, extra=None):
+    """Return a compact user-facing error summary for API/network failures."""
+    details = []
+    if status_code is not None:
+        if isinstance(status_code, int):
+            details.append(f"HTTP {status_code}")
+        else:
+            details.append(str(status_code))
+    if exc is not None:
+        if isinstance(exc, requests.exceptions.Timeout):
+            details.append("timed out")
+        elif isinstance(exc, requests.exceptions.ConnectionError):
+            details.append("connection failed")
+        elif isinstance(exc, requests.exceptions.HTTPError):
+            response = exc.response
+            status = getattr(response, "status_code", None)
+            if status is not None:
+                details.append(f"HTTP {status}")
+            text = str(exc).strip()
+            if text and text not in {"HTTP Error"}:
+                details.append(text)
+        elif isinstance(exc, requests.exceptions.RequestException):
+            text = str(exc).strip()
+            if text:
+                details.append(text)
+        else:
+            text = str(exc).strip()
+            if text:
+                details.append(text)
+    if extra:
+        details.append(str(extra))
+    detail_text = "; ".join(part for part in details if part)
+    if detail_text:
+        return (
+            f"{service}: {detail_text}. Check your internet connection, API status, "
+            "and any required API key or firewall settings."
+        )
+    return (
+        f"{service}: request failed. Check your internet connection, API status, "
+        "and any required API key or firewall settings."
+    )
+
+
 def update_request_counter():
 
     api = bpy.context.scene.tp3d.api

@@ -11,7 +11,7 @@ from bpy.app.translations import pgettext_iface as _
 from bpy.app.translations import pgettext_rpt as _rpt
 from bpy.app.translations import pgettext_tip as _tip
 
-from . import addon_preferences, operators, temp, updater
+from . import addon_preferences, operators, temp, updater, utils
 from . import constants as const
 from .constants import _LANDCOVER_COLOR_ROWS
 from .props import (
@@ -1409,6 +1409,8 @@ def _draw_api_box(layout, props, context):
     box.separator(factor=0.5)
     box.label(text=_("Elements (Water, forest, ...) runs on the Overpass API"))
     box.prop(props, "apiRetries")
+    cache_size = utils.elevation.get_cache_dir_size(const.cache_dir)
+    box.label(text=_("Cache size: {size}").format(size=utils.elevation.format_cache_size(cache_size)))
     box.separator(factor=0.5)
     box.operator("tp3d.clear_cache", icon="BRUSH_DATA")
 
