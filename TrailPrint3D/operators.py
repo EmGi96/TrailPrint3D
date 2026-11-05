@@ -3073,7 +3073,7 @@ class TP3D_OT_install_three_mf(bpy.types.Operator):
         if not bpy.app.online_access:
             self.report(
                 {"WARNING"},
-                _("Online access is off. Enable Allow Online Access in Preferences > System > Network."),
+                _rpt("Online access is off. Enable Allow Online Access in Preferences > System > Network."),
             )
             return {"CANCELLED"}
 
@@ -3083,7 +3083,7 @@ class TP3D_OT_install_three_mf(bpy.types.Operator):
 
         except RuntimeError as e:
             print({"ERROR"}, f"Install failed: {e}")
-            self.report({"WARNING"}, _("3MF install failed. Check Blender's System Console."))
+            self.report({"WARNING"}, _rpt("3MF install failed. Check Blender's System Console."))
             return {"CANCELLED"}
 
         inst = utils.is_3mf_extension_installed()

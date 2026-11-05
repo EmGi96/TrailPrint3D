@@ -1173,7 +1173,7 @@ def _draw_post_process_box(layout, props, context):
         sub.label(text=_("Color by Height"), icon="RNDCURVE")
         col = sub.column(align=True)
         color_row = col.split(align=True, factor=0.3)
-        color_row.label(text=_("Color:"))
+        color_row.label(text=_("Color"))
         color_row.prop(props, "mountain_color")
         col.prop(props, "mountain_treshold")
         col.prop(

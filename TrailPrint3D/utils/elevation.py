@@ -1091,9 +1091,9 @@ def get_tile_elevation_ranges(obj, elevations, scale_hor):
 
     n_verts = len(obj.data.vertices)
     if n_verts == 0 or len(elevations) != n_verts:
-        raise ValueError("Elevation values must match a non-empty tile mesh.")
+        raise ValueError(_rpt("Elevation values must match a non-empty tile mesh."))
     if not math.isfinite(scale_hor) or scale_hor <= 0:
-        raise ValueError("Horizontal scale must be positive and finite.")
+        raise ValueError(_rpt("Horizontal scale must be positive and finite."))
 
     coords = np.empty(n_verts * 3, dtype=np.float64)
     obj.data.vertices.foreach_get("co", coords)

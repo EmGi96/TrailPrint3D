@@ -5,6 +5,7 @@ import zlib
 
 import bpy
 from bpy.app.translations import pgettext_iface as _
+from bpy.app.translations import pgettext_rpt as _rpt
 from bpy.app.translations import pgettext_tip as _tip
 
 from .. import constants as const
@@ -137,7 +138,7 @@ _user_style_colors_cache = {}
 
 def hex_to_srgb(value):
     if not isinstance(value, str) or not re.fullmatch(r"#?[0-9A-Fa-f]{6}", value):
-        raise ValueError(f"Invalid color: {value!r}")
+        raise ValueError(_rpt("Invalid color: {value!r}").format(value=value))
     value = value.lstrip("#")
     return tuple(int(value[i : i + 2], 16) for i in (0, 2, 4))
 
@@ -251,7 +252,7 @@ def load_user_style(name):
     with open(path, "r", encoding="utf-8") as handle:
         data = json.load(handle)
     if not isinstance(data, dict) or data.get("version") != STYLE_VERSION:
-        raise ValueError("Unsupported color style version")
+        raise ValueError(_rpt("Unsupported color style version"))
     colors = normalize_colors(data.get("colors"))
     _user_style_colors_cache[path] = (signature, colors)
     return dict(colors)
@@ -290,7 +291,9 @@ def style_colors(identifier):
         return normalize_colors(BUILT_IN_STYLES[identifier][2])
     if identifier.startswith(USER_STYLE_PREFIX):
         return load_user_style(identifier[len(USER_STYLE_PREFIX) :])
-    raise ValueError(f"Unknown color style: {identifier}")
+    raise ValueError(
+        _rpt("Unknown color style: {identifier}").format(identifier=identifier)
+    )  # noqa: UP032
 
 
 def color_style_items(_self, _context):
@@ -363,7 +366,10 @@ def recolor_object_materials(objects, colors):
             role = material_role(material)
             if role is None:
                 continue
-            if material.get(MATERIAL_ROLE_PROP) and users.get(material.name, set()) <= objects:
+            if (
+                material.get(MATERIAL_ROLE_PROP)
+                and users.get(material.name, set()) <= objects
+            ):
                 target = material
             else:
                 target = copies.get(material.name)
@@ -426,7 +432,7 @@ def read_mesh_color_roles(mesh, fallback):
     try:
         parsed = json.loads(raw)
         if not isinstance(parsed, dict):
-            raise TypeError("color roles must be an object")
+            raise TypeError(_rpt("Color roles must be an object"))
         # Roles missing from an older snapshot take the caller's fallback (the
         # current material color), not DEFAULT, which would recolor the wrong pixels.
         roles = dict(fallback)
@@ -436,6 +442,8 @@ def read_mesh_color_roles(mesh, fallback):
         return roles
     except (TypeError, ValueError, json.JSONDecodeError):
         print(
-            f"[TP3D colors] Invalid {COLOR_ROLES_PROP} on {mesh.name}; using current materials"
+            _rpt(
+                "[TP3D colors] Invalid {COLOR_ROLES_PROP} on {mesh_name}; using current materials"
+            ).format(COLOR_ROLES_PROP=COLOR_ROLES_PROP, mesh_name=mesh.name)
         )
         return dict(fallback)
