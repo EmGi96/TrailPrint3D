@@ -20,6 +20,10 @@ Added: OSM building can now show roof shapes (By Clonephaze)
 Added: OSM polygon smoothing control (Taubin smoothing) (By Clonephaze)
 Added: GeoJSON and SVG file import as custom map outline Shapes (By Clonephaze)
 Added: Option to smooth Terrain when elevation data hits the API's resolution limit
+Added: Water flattening (flat top surface on water objects) and Water Insert, compatible with Paint mode with and without texture
+Added: Local GeoTIFF DEM files as an elevation source
+Added: Default 3MF Export Profile preference (By Clonephaze)
+Added: Prefetching of map elements in all Generator pages, with ALT-click junction expansion and ALT box-drag to disable sections
 Changed: Increased maximum River Width and Road Width Multiplier from 10 to 100
 Changed: Reworked Color Mountain into Color by Height, with stacked height bands and support for Single Element Mode and textured maps
 Changed: Improved Generation Settings Snapshots with additional terrain and shape metadata
