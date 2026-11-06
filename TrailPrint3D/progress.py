@@ -19,11 +19,13 @@ import pathlib
 import subprocess
 import sys
 import tempfile
+import textwrap
 import time
 
 import blf
 import bpy
 import gpu
+from bpy.app.translations import pgettext_iface as _
 from gpu_extras.batch import batch_for_shader
 
 _CREATE_NO_WINDOW = 0x08000000 if sys.platform == 'win32' else 0
@@ -158,6 +160,7 @@ class ProgressOverlay:
     COL_FETCH_IDLE = (0.25, 0.25, 0.25, 1.00)
     FETCH_COLORS = {
         'elevation':  (0.25, 0.45, 0.70, 1.00),
+        'landcover':  (0.42, 0.62, 0.30, 1.00),
         'forest':     (0.20, 0.58, 0.25, 1.00),
         'water':      (0.18, 0.48, 0.80, 1.00),
         'scree':      (0.52, 0.42, 0.32, 1.00),
@@ -228,11 +231,20 @@ class ProgressOverlay:
         SubprocessProgress.get().start()
         _force_redraw()
 
-    def set_fetch_items(self, items):
-        """Register the list of fetch items (call once before fetching begins)."""
+    def set_fetch_items(self, items, keep_done=()):
+        """Register the list of fetch items (call once before fetching begins).
+
+        keep_done: keys whose 'done' status from the previous list carries
+        over instead of resetting to pending -- e.g. elevation the map
+        generator already fetched itself before handing off to
+        runTileGeneration, which re-registers the list.
+        """
+        done = {it['key'] for it in self.fetch_items
+                if it['key'] in keep_done and it['status'] == 'done'}
         self.fetch_items = [
             {'key': it['key'], 'icon': it['icon'], 'label': it['label'],
-             'status': 'pending', 'percent': 0.0}
+             'status': 'done' if it['key'] in done else 'pending',
+             'percent': 1.0 if it['key'] in done else 0.0}
             for it in items
         ]
         self._sync_subprocess()
@@ -246,6 +258,10 @@ class ProgressOverlay:
                 item['percent'] = max(0.0, min(1.0, percent))
                 break
         self._sync_subprocess()
+
+    def is_fetch_done(self, key):
+        """True if the fetch item `key` is registered and marked done."""
+        return any(it['key'] == key and it['status'] == 'done' for it in self.fetch_items)
 
     def set_fetch_ready(self, key):
         """Mark an item as downloaded but awaiting mesh processing (↓)."""
@@ -523,7 +539,7 @@ class WarningsOverlay:
         icon: "warn" (yellow !), "error" (red ✗), "ok" (green ✓)
 
         Duplicate (message, icon) pairs are collapsed to one entry --
-        generating several tiles in one batch (multitile configurator)
+        generating several tiles in one batch (multitile generator)
         otherwise repeats the same warning once per tile.
         """
         entry = (message, icon)
@@ -561,53 +577,74 @@ class WarningsOverlay:
 
     # ------------------------------------------------------------------
     def _draw_cb(self):
-        if not self.active:
-            return
+        try:
+            if not self.active:
+                return
 
-        region = bpy.context.region
-        if region is None:
-            return
+            region = bpy.context.region
+            if region is None:
+                return
 
-        msgs = self.__class__._messages
-        n    = len(msgs)
-        h    = self.HEADER_H + self.PAD + n * self.ROW_H + self.PAD
-        p    = self.PAD
-        r    = self.RADIUS
-        x    = self.MARGIN_X
-        y    = self.MARGIN_Y
+            msgs = self.__class__._messages
+            n    = len(msgs)
+            h    = self.HEADER_H + self.PAD + n * self.ROW_H + self.PAD
+            p    = self.PAD
+            r    = self.RADIUS
+            x    = self.MARGIN_X
+            y    = self.MARGIN_Y
+            
+            max_chars=60
+            wrapped_msgs = []
+            for msg, icon in msgs:
+                lines=textwrap.wrap(msg, width=max_chars) or [""]
+                wrapped_msgs.append((lines, icon))
+                
+            # Dynamic height calculation based on total wrapped text lines
+            total_lines = sum(len(lines) for lines, _ in wrapped_msgs)
+            h = self.HEADER_H + self.PAD + (total_lines * self.ROW_H) + self.PAD
 
-        gpu.state.blend_set('ALPHA')
+            gpu.state.blend_set('ALPHA')
 
-        # 1px dark border
-        _rounded_rect(x - 1, y - 1, self.W + 2, h + 2, self.COL_BORDER, r + 1)
+            # 1px dark border
+            _rounded_rect(x - 1, y - 1, self.W + 2, h + 2, self.COL_BORDER, r + 1)
 
-        # Main panel background
-        _rounded_rect(x, y, self.W, h, self.COL_BG, r)
+            # Main panel background
+            _rounded_rect(x, y, self.W, h, self.COL_BG, r)
 
-        # Header background (rounded at top only)
-        header_y = y + h - self.HEADER_H
-        _rounded_rect_top(x, header_y, self.W, self.HEADER_H, self.COL_HEADER_BG, r)
-        _rect(x, header_y, self.W, 1, self.COL_SEPARATOR)
+            # Header background (rounded at top only)
+            header_y = y + h - self.HEADER_H
+            _rounded_rect_top(x, header_y, self.W, self.HEADER_H, self.COL_HEADER_BG, r)
+            _rect(x, header_y, self.W, 1, self.COL_SEPARATOR)
 
-        # Header: title left, dismiss hint right
-        label_y = header_y + (self.HEADER_H - 13) // 2
-        _text("Info", x + p, label_y, 13, self.COL_ACCENT)
-        _text_right("click to dismiss", x + self.W - p, label_y, 11, self.COL_MUTED)
+            # Header: title left, dismiss hint right
+            label_y = header_y + (self.HEADER_H - 13) // 2
+            _text("Info", x + p, label_y, 13, self.COL_ACCENT)
+            _text_right("click to dismiss", x + self.W - p, label_y, 11, self.COL_MUTED)
 
-        # Warning rows (newest at top)
-        for i, (msg, icon) in enumerate(msgs):
-            row_y = y + p + (n - 1 - i) * self.ROW_H
-            char, col = self.ICONS.get(icon, self.ICONS["warn"])
-            _text(char, x + p,      row_y + 3, 11, col)
-            _text(msg,  x + p + 14, row_y + 3, 11, self.COL_TEXT)
+            # Warning rows (drawn bottom to top, newest at top)
+            cur_y = y + p
+            for lines, icon in reversed(wrapped_msgs):
+                char, col = self.ICONS.get(icon, self.ICONS["warn"])
+                
+                # Draw lines of the entry bottom-up
+                for line_idx, line in enumerate(reversed(lines)):
+                    # Draw the icon only on the top/first line of the message
+                    is_first_line = (line_idx == len(lines) - 1)
+                    if is_first_line:
+                        _text(char, x + p, cur_y + 3, 11, col)
+                    
+                    _text(line, x + p + 14, cur_y + 3, 11, self.COL_TEXT)
+                    cur_y += self.ROW_H
 
-        gpu.state.blend_set('NONE')
+            gpu.state.blend_set('NONE')
+        except Exception as e:  # noqa: BLE001
+            print(f"[WarningsOverlay Draw Error] {e}")
 
 
 class TP3D_OT_warnings_mouse(bpy.types.Operator):
     """Modal that dismisses the warnings overlay on any mouse click."""
     bl_idname  = "tp3d.warnings_mouse"
-    bl_label   = "Warnings Mouse Watcher"
+    bl_label   = _("Warnings Mouse Watcher")
     bl_options = {'INTERNAL'}
 
     def modal(self, context, event):

@@ -1,0 +1,1291 @@
+<!--
+  Copyright (C) 2026 EmGi.
+
+  You are free to modify it under the terms of the GNU General Public
+  License as published by the Free Software Foundation.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script>__PICKER_UI_JS__</script>
+    <title>TrailPrint3D Backplate Generator</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' fill='%23404040'/%3E%3Cpolygon points='170,90 130,159 50,159 10,90 50,21 130,21' fill='none' stroke='%23fff' stroke-width='10'/%3E%3Cpolygon points='135,90 112.5,129 67.5,129 45,90 67.5,51 112.5,51' fill='%23fff'/%3E%3C/svg%3E">
+    <style>
+__COMMON_CSS__
+        #viewportColumn { flex: 1; min-width: 0; position: relative; }
+        #viewport { position: absolute; inset: 0; }
+        #viewport canvas { display: block; outline: none; }
+        /* Floating settings panels, one per corner of the 3D preview. Each
+           scrolls on its own if the window is too short for it. */
+        .corner-panel { position: absolute; z-index: 10; width: 16rem; max-height: calc(50% - 18px); overflow-y: auto;
+            display: flex; flex-direction: column; gap: 10px; padding: 12px 14px;
+            background: rgba(30, 30, 30, 0.88); backdrop-filter: blur(6px);
+            border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,0.35); }
+        .corner-panel > * { flex-shrink: 0; }
+        /* The bottom panels are short (Send ~145 px, Defaults ~200 px), so
+           the top ones may use the rest of the height before they scroll. */
+        .corner-tl { top: 12px; left: 12px; max-height: calc(100% - 24px - 160px); }
+        .corner-tr { top: 12px; right: 12px; max-height: calc(100% - 24px - 215px); }
+        .corner-bl { bottom: 12px; left: 12px; width: 15rem; }
+        .corner-br { bottom: 12px; right: 12px; overflow: visible; }
+        #defaultsSelect { width: 100%; background: var(--surface-field); color: var(--text-primary); border: 1px solid var(--border);
+            border-radius: 4px; padding: 5px 6px; font-size: 12px; font-family: inherit; }
+        .defaults-actions, .defaults-inline-btns { display: flex; gap: 4px; }
+        .defaults-actions .element-mode-btn { flex: 1; }
+        .defaults-inline { display: flex; flex-direction: column; gap: 6px; }
+        .defaults-inline[hidden] { display: none; }
+        #defaultsName { width: 100%; background: var(--surface-field); color: var(--text-primary); border: 1px solid var(--border);
+            border-radius: 4px; padding: 5px 7px; font-size: 12px; font-family: inherit; }
+        .defaults-hint { font-size: 11px; color: var(--text-muted); line-height: 1.4; }
+        .defaults-hint:empty { display: none; }
+        .defaults-head { display: flex; align-items: center; gap: 4px; }
+        .defaults-dirty { display: inline-flex; align-items: center; gap: 6px; font-weight: normal; font-size: 11px; color: #e0b050; margin-left: 4px; }
+        .defaults-dirty[hidden] { display: none; }
+        .restore-btn { padding: 1px 7px; background: none; color: var(--text-secondary); border: 1px solid var(--border);
+            border-radius: 10px; cursor: pointer; font-size: 11px; font-family: inherit; }
+        .restore-btn:hover, .restore-btn:focus-visible { border-color: var(--accent); color: var(--text-primary); outline: none; }
+        .element-mode-btn.danger:not(:disabled) { background: #6e3434; border-color: #8f3434; color: #fff; }
+        .corner-panel .sidebar-heading { margin-bottom: 0; }
+        .info-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+        #dimsLabel { font-size: 12px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+        /* The shared stylesheet colors Send / Select Export Folder only
+           inside #sidebar -- same colors for this page's corner panel. */
+        .send-panel .btn-send { margin-top: 0; background: var(--send-action); }
+        .send-panel .btn-send:hover:not(:disabled) { background: var(--send-action-hover); }
+        .send-panel .btn-send:disabled { background: var(--border); }
+        .send-panel .btn-send.export-folder-pick { background: #8f3434; }
+        .send-panel .btn-send.export-folder-pick:hover:not(:disabled) { background: #9c3a3a; }
+        .send-panel .btn-send.export-folder-pick:disabled { background: #6e3434; }
+        .send-panel .btn-send[hidden] { display: none; }
+        .send-panel #exportFolderSlot { margin-top: 0; }
+        .send-panel .export-folder-row { margin-top: -4px; }
+        #status { font-size: 12px; line-height: 1.4; }
+        @media (max-width: 48rem) {
+            .corner-panel { width: 13rem; padding: 10px; }
+            .corner-bl { width: 12rem; }
+        }
+        #shapeToggle { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+        #shapeToggle .shape-btn { padding: 8px 6px; display: flex; align-items: center; justify-content: center;
+            gap: 6px; font-size: 12px; }
+        .field-row input[type=number] { width: 72px; }
+        .field-hint { font-size: 0.8125rem; color: var(--text-muted); line-height: 1.4; }
+        .clear-btn { padding: 3px 8px; background: #2a1e1e; color: #cc6666; border: 1px solid #553333;
+            border-radius: 4px; cursor: pointer; font-size: 11px; font-family: inherit; }
+        .clear-btn:hover { background: #3a2424; }
+        .help-wrap { position: relative; display: flex; align-items: center; }
+        .help-icon { width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
+            border: 1px solid var(--border); border-radius: 50%; background: var(--surface-raised); color: var(--text-secondary); font-size: 13px;
+            font-weight: bold; cursor: help; user-select: none; }
+        .help-icon:hover, .help-icon:focus { border-color: var(--accent); color: #fff; outline: none; }
+        /* Opens up and to the left: the "?" sits at the right end of the
+           bottom-right panel (which doesn't scroll, so it can't clip the tip). */
+        .help-tip { display: none; position: absolute; bottom: calc(100% + 8px); right: 0; width: 280px; z-index: 20;
+            flex-direction: column; gap: 8px; padding: 10px 12px; background: rgba(26,26,26,0.95);
+            border: 1px solid var(--border); border-radius: 4px; font-size: 12px; color: var(--text-secondary); line-height: 1.45;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4); }
+        .help-wrap:hover .help-tip, .help-icon:focus + .help-tip { display: flex; }
+        #textModal .tp3d-modal-box { width: 380px; }
+        .text-entry { display: flex; gap: 6px; align-items: stretch; }
+        .text-input-wrap { position: relative; flex: 1; min-width: 0; }
+        #textValue { width: 100%; background: var(--surface-field); color: var(--text-primary); border: 1px solid var(--border); border-radius: 4px;
+            padding: 7px 40px 7px 9px; font-size: 14px; font-family: inherit; }
+        .menu-btn { display: flex; align-items: center; gap: 6px; flex-shrink: 0; max-width: 130px; padding: 0 8px;
+            background: var(--surface-field); color: var(--text-primary); border: 1px solid var(--border); border-radius: 4px;
+            cursor: pointer; font-size: 12px; font-family: inherit; }
+        .menu-btn span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .menu-btn:hover:not(:disabled), .menu-btn:focus-visible, .codes-btn:hover, .codes-btn:focus-visible { border-color: var(--accent); outline: none; }
+        .menu-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .menu-caret { color: var(--text-muted); font-size: 10px; }
+        .codes-btn { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); padding: 2px 6px;
+            background: var(--surface-raised); color: var(--text-secondary); border: 1px solid var(--border); border-radius: 3px;
+            cursor: pointer; font-size: 11px; font-family: ui-monospace, Consolas, monospace; }
+        .pop-menu { position: fixed; z-index: 5; min-width: 150px; max-height: 260px; overflow-y: auto; padding: 4px;
+            background: var(--surface-panel); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 6px 18px rgba(0,0,0,0.5); }
+        .pop-menu[hidden] { display: none; }
+        .pop-item { display: flex; justify-content: space-between; align-items: baseline; gap: 14px; width: 100%; padding: 5px 8px;
+            background: none; border: none; border-radius: 4px; color: var(--text-primary); text-align: left;
+            cursor: pointer; font-size: 12px; font-family: inherit; }
+        .pop-item:hover, .pop-item:focus-visible { background: var(--surface-raised); outline: none; }
+        .pop-item.active { color: var(--accent); font-weight: bold; }
+        .pop-item span { white-space: nowrap; }
+        .pop-item .pop-desc { color: var(--text-muted); font-size: 11px; font-weight: normal; }
+        #textFont { flex: 1; min-width: 0; max-width: 200px; background: var(--surface-field); color: var(--text-primary); border: 1px solid var(--border);
+            border-radius: 4px; padding: 4px 6px; font-size: 12px; font-family: inherit; }
+        .text-room { font-size: 11px; color: var(--text-muted); line-height: 1.4; }
+        .text-modal-actions { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+        .text-modal-actions .btn-send { margin-top: 0; padding: 8px 20px; }
+        .plain-check { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; margin: 0; }
+        #layoutSwitch .element-mode-btn, #handleSwitch .element-mode-btn { font-size: 11px; padding: 4px 6px; }
+        #advancedSection .adv-body { padding: 4px 10px 10px; display: flex; flex-direction: column; gap: 10px; }
+        #textSettings { display: flex; flex-direction: column; gap: 10px; }
+        #status.warn { color: #e0b050; }
+        #status.error { color: #e07070; }
+        /* Top center, between the two top panels. */
+        #busy { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 10; display: none; align-items: center;
+            background: rgba(26,26,26,0.85); border: 1px solid var(--border); border-radius: 4px; padding: 6px 10px;
+            font-size: 12px; color: var(--text-secondary); }
+        #busy.show { display: flex; }
+        #busy .prefetch-spinner { margin-right: 8px; }
+    </style>
+</head>
+<body>
+    <a class="skip-link" href="#viewport">Skip to the 3D preview</a>
+    <!-- The 3D preview fills the window; the settings float over its four
+         corners: plate + medal handle (top left), text (top right), saved
+         Defaults + model info (bottom right), status + Send (bottom left). -->
+    <div id="viewportColumn" role="main" tabindex="-1" aria-label="Generator workspace">
+        <div id="viewport" tabindex="-1"></div>
+
+    <section class="corner-panel corner-tl" aria-label="Shape and plate settings">
+        <div class="sidebar-heading"><a class="brand-link" href="https://trailprint3d.com" target="_blank" rel="noopener" title="Open trailprint3d.com">TrailPrint3D</a><br>
+            <span class="sidebar-subtitle">Backplate Generator</span></div>
+
+        <div class="section-label">Shape</div>
+        <div id="shapeToggle">
+            <button class="shape-btn active" data-shape="HEXAGON" title="Hexagon">
+                <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polygon points="17,10 13.5,16.06 6.5,16.06 3,10 6.5,3.94 13.5,3.94"/></svg>Hexagon
+            </button>
+            <button class="shape-btn" data-shape="OCTAGON" title="Octagon">
+                <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polygon points="17,7.1 12.9,3 7.1,3 3,7.1 3,12.9 7.1,17 12.9,17 17,12.9"/></svg>Octagon
+            </button>
+            <button class="shape-btn" data-shape="CIRCLE" title="Round">
+                <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="10" cy="10" r="7"/></svg>Round
+            </button>
+            <button class="shape-btn" data-shape="SQUARE" title="Square">
+                <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="12" height="12"/></svg>Square
+            </button>
+        </div>
+
+        <hr class="sidebar-divider">
+        <div class="section-label">Plate</div>
+        <div class="field-row">
+            <label for="objSize" title="Size of the map that sits in the plate">Map Size (mm)</label>
+            <input type="number" id="objSize" min="10" max="1000" step="1" value="100">
+        </div>
+        <div class="field-row">
+            <label for="plateThickness" title="How tall the plate is">Plate Height (mm)</label>
+            <input type="number" id="plateThickness" min="0.6" max="50" step="0.5" value="5">
+        </div>
+        <div class="field-row">
+            <label for="outerBorderSize" title="How thick the border is, as a percentage of the map size">Border Thickness (%)</label>
+            <input type="number" id="outerBorderSize" min="1" max="200" step="1" value="20">
+        </div>
+        <div class="field-row">
+            <label for="plateInsertValue" title="How far down the map sits in the plate (0 = no pocket)">Map Inset Depth (mm)</label>
+            <input type="number" id="plateInsertValue" min="0" max="50" step="0.5" value="2">
+        </div>
+        <div class="field-row">
+            <label for="plateBevel" title="Bevel the top and bottom edges of the plate (0 to disable)">Plate Bevel</label>
+            <input type="number" id="plateBevel" min="0" max="25" step="0.1" value="0">
+        </div>
+
+        <details id="advancedSection">
+            <summary>Advanced</summary>
+            <div class="adv-body">
+                <div class="field-row">
+                    <label for="tolerance" title="Clearance around the map in its pocket">Tolerance (mm)</label>
+                    <input type="number" id="tolerance" min="0" max="2" step="0.05" value="0.2">
+                </div>
+            </div>
+        </details>
+
+        <hr class="sidebar-divider">
+        <div class="section-label">Medal Handle</div>
+        <div class="element-mode-switch" id="handleSwitch" role="group" aria-label="Medal handle">
+            <button class="element-mode-btn active" data-handle="NONE">None</button>
+            <button class="element-mode-btn" data-handle="ROUND">Round</button>
+            <button class="element-mode-btn" data-handle="FLAT">Flat</button>
+        </div>
+    </section>
+
+    <section class="corner-panel corner-tr" aria-label="Text settings">
+        <div class="section-label">Text Layout</div>
+        <div class="element-mode-switch" id="layoutSwitch" role="group" aria-label="Text layout"></div>
+        <div id="textSettings">
+            <div class="field-row">
+                <label for="textFont">Font</label>
+                <select id="textFont"></select>
+            </div>
+            <div class="field-row">
+                <label for="textSizeTitle" title="Keep 0 to use the Text Size">Title Text Size</label>
+                <input type="number" id="textSizeTitle" min="0" max="100" step="1" value="0">
+            </div>
+            <div class="field-row">
+                <label for="textSize">Text Size</label>
+                <input type="number" id="textSize" min="1" max="100" step="1" value="5">
+            </div>
+            <label class="field-row clickable-label" id="insetRow">
+                <span title="Carve the text into the plate instead of raising it">Inset Text</span>
+                <input type="checkbox" id="textPlacement" class="plain-check">
+            </label>
+            <div class="field-hint">Click a <span class="hint-success">green</span> ball in the preview to add text there.</div>
+        </div>
+    </section>
+
+    <section class="corner-panel corner-br" aria-label="Saved defaults and model info">
+        <div class="section-label defaults-head">Defaults
+            <span id="defaultsDirty" class="defaults-dirty" hidden>• changed
+                <button type="button" id="defaultsRestore" class="restore-btn" title="Undo your changes — load the saved default again">↺ Restore</button>
+            </span>
+        </div>
+        <select id="defaultsSelect" aria-label="Load a saved default" title="Load a saved backplate">
+            <option value="">— Choose a default —</option>
+        </select>
+        <div class="defaults-actions">
+            <button type="button" id="defaultsSave" class="element-mode-btn" title="Save the current settings as a new default">Save new</button>
+            <button type="button" id="defaultsEdit" class="element-mode-btn" title="Replace the selected default with the current settings (and rename it)">Update</button>
+            <button type="button" id="defaultsDelete" class="element-mode-btn" title="Delete the selected default">Delete</button>
+        </div>
+        <!-- Inline name entry for Save new / Update, and the delete confirmation. -->
+        <div id="defaultsNameRow" class="defaults-inline" hidden>
+            <input type="text" id="defaultsName" maxlength="60" placeholder="Name, e.g. 15 cm hexagon" aria-label="Default name">
+            <div class="defaults-inline-btns">
+                <button type="button" id="defaultsNameOk" class="element-mode-btn active">Save</button>
+                <button type="button" id="defaultsNameCancel" class="element-mode-btn">Cancel</button>
+            </div>
+            <div id="defaultsNameHint" class="defaults-hint"></div>
+        </div>
+        <div id="defaultsConfirmRow" class="defaults-inline" hidden>
+            <div id="defaultsConfirmText" class="defaults-hint"></div>
+            <div class="defaults-inline-btns">
+                <button type="button" id="defaultsConfirmOk" class="element-mode-btn danger">Delete</button>
+                <button type="button" id="defaultsConfirmCancel" class="element-mode-btn">Cancel</button>
+            </div>
+        </div>
+        <hr class="sidebar-divider">
+        <div class="info-row">
+            <span id="dimsLabel" title="Overall size of the model">–</span>
+            <div class="help-wrap">
+                <span class="help-icon" tabindex="0" aria-label="Preview help">?</span>
+                <div class="help-tip" role="tooltip">
+                    <div><b>Dovetails:</b> click a <span class="hint-accent">blue</span> ball to add a dovetail cutout on that edge, a <span class="hint-danger">red</span> one to remove it.</div>
+                    <div><b>Text:</b> click a <span class="hint-success">green</span> ball to add text at that spot; click the text itself to edit it.</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="corner-panel corner-bl send-panel" aria-label="Send to Blender">
+        <div id="status" role="status" aria-live="polite">Loading preview…</div>
+        <div id="exportFolderSlot"></div>
+        <button id="confirmBtn" class="btn-send">Send to Blender</button>
+    </section>
+
+        <div id="textModal" class="tp3d-modal">
+            <div class="tp3d-modal-box">
+                <div class="modal-header">
+                    <span id="textModalTitle">Text</span>
+                    <button id="textModalClose" class="tp3d-modal-close-btn" title="Close">✕</button>
+                </div>
+                <div class="text-entry">
+                    <button type="button" id="iconBtn" class="menu-btn" aria-haspopup="listbox" title="Icon in front of the text">
+                        <span id="iconBtnLabel">No Icon</span><span class="menu-caret" aria-hidden="true">▾</span>
+                    </button>
+                    <div class="text-input-wrap">
+                        <input type="text" id="textValue" maxlength="60" placeholder="e.g. Berlin Marathon 2026" aria-label="Text">
+                        <button type="button" id="codesBtn" class="codes-btn" aria-haspopup="menu" title="Insert a code ({name}, {length}, …)">{ }</button>
+                    </div>
+                </div>
+                <div id="textRoom" class="text-room"></div>
+                <div class="text-modal-actions">
+                    <button id="textRemove" class="clear-btn">Remove text</button>
+                    <button id="textDone" class="btn-send">Done</button>
+                </div>
+            </div>
+            <!-- Outside the box: the box scrolls (overflow), which would clip it. -->
+            <div id="popMenu" class="pop-menu" hidden></div>
+        </div>
+        <div id="busy"><span class="prefetch-spinner"></span>Updating…</div>
+    </div>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+        import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+        const PORT = __PORT__;
+        const BASE = 'http://127.0.0.1:' + PORT;
+        // The scene's own Shape Extras settings the page starts from
+        // (operators.TP3D_OT_backplate_generator.invoke), plus 'premium'.
+        __SETTINGS_STATE_JS__
+        const PREMIUM = SETTINGS_STATE.premium === true;
+        const NUMBER_FIELDS = ['objSize', 'plateThickness', 'outerBorderSize', 'plateInsertValue',
+                               'plateBevel', 'tolerance', 'textSize', 'textSizeTitle'];
+
+        // Mirrors utils.shape_capabilities.TEXT_LAYOUTS_BY_SHAPE, minus
+        // ON_MAP (a backplate has no map surface) -- backplate.LAYOUTS.
+        const LAYOUTS_BY_SHAPE = {
+            HEXAGON: ['NONE', 'OUTER_EDGE', 'FRONT_FACE'],
+            OCTAGON: ['NONE', 'OUTER_EDGE', 'FRONT_FACE'],
+            CIRCLE: ['NONE', 'CURVED'],
+            SQUARE: ['NONE', 'OUTER_EDGE', 'FRONT_FACE'],
+        };
+        const LAYOUT_LABELS = { NONE: 'None', OUTER_EDGE: 'Outer Edge', FRONT_FACE: 'Front Face', CURVED: 'Curved' };
+        // Same lists as shape_extras.js / props.py's icon enums.
+        const TITLE_ICONS = [['cycling', 'Cycling'], ['hiking', 'Hiking'], ['running', 'Running'], ['swimming', 'Swimming'],
+            ['skiing', 'Skiing'], ['snowboarding', 'Snowboarding'], ['kajak', 'Kayak'], ['no', 'No Icon']];
+        const TEXT_ICONS = [['distance', 'Distance'], ['elevation', 'Elevation'], ['time', 'Time'],
+            ['speed', 'Speed'], ['date', 'Date'], ['no', 'No Icon']];
+
+        let shape = 'HEXAGON';
+        let textLayout = 'OUTER_EDGE';
+        let handleStyle = 'NONE';
+        let textFont = '';
+        // Edge indices (medal_holder._dovetail_angles order) that get a
+        // dovetail. Only meaningful for the current shape -- cleared on change.
+        let dovetails = new Set();
+        // Per text field (titlefield, textfield1, ...): {text, icon}. Kept
+        // across layout changes -- only the current layout's fields are built.
+        let texts = {};
+
+        // ── 3D viewport ────────────────────────────────────────────────
+        // Lighting/material values are the Medal Holder Generator's.
+        const container = document.getElementById('viewport');
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 0.8;
+        container.appendChild(renderer.domElement);
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color('#4d4d4d');
+        const pmrem = new THREE.PMREMGenerator(renderer);
+        scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+        const frontLight = new THREE.DirectionalLight(0xffffff, 2.75);
+        frontLight.position.set(-0.7, 0.3, 1.3);
+        scene.add(frontLight);
+        const backLight = new THREE.DirectionalLight(0xffffff, 2.2);
+        backLight.position.set(1, 2, -3);
+        scene.add(backLight);
+        scene.add(new THREE.HemisphereLight('#a1a1a1', '#3b3b3b', 0.55));
+        const HEADLIGHT_HEIGHT = 0.85;
+        const PLATE_MATERIAL = { color: '#363636', roughness: 0.63, metalness: 0.14, envMapIntensity: 0.55 };
+        const TEXT_MATERIAL = { color: '#e6e6e6', roughness: 0.6, metalness: 0.0, envMapIntensity: 0.55 };
+        const headLight = new THREE.DirectionalLight(0xffffff, 1.4);
+        scene.add(headLight);
+        scene.add(headLight.target);
+
+        const camera = new THREE.PerspectiveCamera(35, 1, 1, 5000);
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.12;
+
+        // Blender coordinates used as-is (Z-up there, Y-up here): the plate
+        // stands upright with its front face toward the camera.
+        const modelRoot = new THREE.Group();
+        scene.add(modelRoot);
+        let grid = null;
+        let lastFrameSize = 0;
+
+        function resize() {
+            const w = container.clientWidth, h = container.clientHeight;
+            renderer.setSize(w, h);
+            camera.aspect = w / Math.max(1, h);
+            camera.updateProjectionMatrix();
+        }
+        window.addEventListener('resize', resize);
+        new ResizeObserver(resize).observe(container);
+        resize();
+
+        function modelBox() {
+            return new THREE.Box3().setFromObject(modelRoot);
+        }
+
+        const FRAME_DIRECTION = new THREE.Vector3(-0.55, 0.3, 1).normalize();
+        function frameModel() {
+            const box = modelBox();
+            if (box.isEmpty()) return;
+            const center = box.getCenter(new THREE.Vector3());
+            const size = box.getSize(new THREE.Vector3());
+            const radius = Math.max(size.x, size.y, size.z) / 2;
+            // Extra margin: the corner panels cover the edges of the view.
+            const dist = radius / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * 1.6;
+            camera.position.copy(center).addScaledVector(FRAME_DIRECTION, dist);
+            camera.near = dist / 100;
+            camera.far = dist * 20;
+            camera.updateProjectionMatrix();
+            controls.target.copy(center);
+            controls.update();
+            lastFrameSize = radius;
+        }
+
+        const OUTLINE_ANGLE = 30;
+        const outlineMaterial = new THREE.LineBasicMaterial({ color: 0x000000 });
+        function disposeModel() {
+            modelRoot.traverse(function(o) {
+                if (o.geometry) o.geometry.dispose();
+                if (o.material) [].concat(o.material).forEach(function(m) {
+                    if (m !== outlineMaterial) m.dispose();  // shared across rebuilds
+                });
+            });
+            modelRoot.clear();
+        }
+
+        function updateGrid(box) {
+            const size = box.getSize(new THREE.Vector3());
+            const extent = Math.ceil(Math.max(size.x, size.z) * 2 / 10) * 10 + 40;
+            if (grid) { scene.remove(grid); grid.geometry.dispose(); grid.material.dispose(); }
+            grid = new THREE.GridHelper(extent, extent / 10, 0x8a8a8a, 0x7a7a7a);
+            grid.position.set(0, box.min.y, box.getCenter(new THREE.Vector3()).z);
+            scene.add(grid);
+        }
+
+        // Each mesh says what it is via userData.part (the GLB node's
+        // extras, see medal_holder.write_glb): 'plate' or 'text'.
+        function applyMaterialSettings() {
+            modelRoot.traverse(function(o) {
+                if (!o.isMesh || !o.material) return;
+                const look = o.userData.part === 'text' ? TEXT_MATERIAL : PLATE_MATERIAL;
+                o.material.color.set(look.color);
+                o.material.roughness = look.roughness;
+                o.material.metalness = look.metalness;
+                o.material.envMapIntensity = look.envMapIntensity;
+            });
+        }
+
+        // Black lines along every sharp edge, so the dark plate reads even
+        // in shadow (see the Medal Holder Generator).
+        function addEdgeOutlines() {
+            const meshes = [];
+            modelRoot.traverse(function(o) { if (o.isMesh) meshes.push(o); });
+            meshes.forEach(function(mesh) {
+                mesh.material.polygonOffset = true;
+                mesh.material.polygonOffsetFactor = 1;
+                mesh.material.polygonOffsetUnits = 1;
+                mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry, OUTLINE_ANGLE), outlineMaterial));
+            });
+        }
+
+        const loader = new GLTFLoader();
+        function loadPreview(job) {
+            return new Promise(function(resolve, reject) {
+                loader.load(BASE + '/model_preview.glb?v=' + job.version, function(gltf) {
+                    disposeModel();
+                    modelRoot.add(gltf.scene);
+                    applyMaterialSettings();
+                    addEdgeOutlines();
+                    const box = modelBox();
+                    const size = box.getSize(new THREE.Vector3());
+                    document.getElementById('dimsLabel').textContent =
+                        size.x.toFixed(1) + ' × ' + size.y.toFixed(1) + ' × ' + size.z.toFixed(1) + ' mm';
+                    updateGrid(box);
+                    setMarkerSpots(job);
+                    const radius = Math.max(size.x, size.y, size.z) / 2;
+                    // Only re-frame on first load or a big size change.
+                    if (!lastFrameSize || radius > lastFrameSize * 1.25 || radius < lastFrameSize * 0.6) {
+                        frameModel();
+                    }
+                    resolve();
+                }, undefined, reject);
+            });
+        }
+
+        // ── Markers ────────────────────────────────────────────────────
+        // Clickable balls at the spots Blender reports with each preview
+        // (backplate.preview_info):
+        //  - dovetail (job.dovetailSpots): on each edge's back rim -- blue =
+        //    free, click to add; red = added, click to remove.
+        //  - text (job.textSpots): green, one per text field of the current
+        //    layout that has no text yet; click to add text there. Fields
+        //    that have text are edited by clicking the text itself.
+        const markerRoot = new THREE.Group();
+        scene.add(markerRoot);
+        const MARKER_STYLE = {
+            free:  { color: 0x2f8cff, opacity: 0.45, hover: 0.8 },
+            added: { color: 0xff4a3d, opacity: 0.55, hover: 0.85 },
+            text:  { color: 0x2ecc71, opacity: 0.6, hover: 0.9 },
+        };
+        const TEXT_HOVER_GLOW = 0x1f8f4f;
+        const TEXT_BALL_R = 3;
+        let dovetailSpots = [];
+        let textSpots = [];
+        let textRoom = 0;
+        let plateSize = 0;
+        let markerDovetailSize = 15;
+        let hoveredMarker = null;
+
+        function styleMarker(m) {
+            if (m.userData.part === 'text') {  // the text mesh from the model
+                m.material.emissive.setHex(m === hoveredMarker ? TEXT_HOVER_GLOW : 0x000000);
+                return;
+            }
+            const st = m.userData.kind === 'text' ? MARKER_STYLE.text
+                : dovetails.has(m.userData.index) ? MARKER_STYLE.added : MARKER_STYLE.free;
+            m.material.color.setHex(st.color);
+            m.material.opacity = m === hoveredMarker ? st.hover : st.opacity;
+        }
+
+        function addMarker(radius, x, y, z, userData, alwaysOnTop) {
+            const m = new THREE.Mesh(
+                new THREE.SphereGeometry(radius, 24, 16),
+                // Front-ring text balls are drawn on top so the raised
+                // border never hides them; the rest hide behind the plate.
+                new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, depthTest: !alwaysOnTop }),
+            );
+            m.position.set(x, y, z);
+            m.userData = userData;
+            m.renderOrder = 2;
+            styleMarker(m);
+            markerRoot.add(m);
+        }
+
+        function hasText(field) {
+            return !!(texts[field] && texts[field].text && texts[field].text.trim());
+        }
+
+        function rebuildMarkers() {
+            markerRoot.children.forEach(function(m) { m.geometry.dispose(); m.material.dispose(); });
+            markerRoot.clear();
+            hoveredMarker = null;
+            const ballR = Math.max(2.5, markerDovetailSize * 0.25);
+            dovetailSpots.forEach(function(s) {
+                // On the back rim (dovetails are cut into the back face),
+                // pushed half a ball outward so it sits on the edge.
+                const out = ballR * 0.5;
+                addMarker(ballR, s.x + Math.cos(s.angle) * out, s.y + Math.sin(s.angle) * out, 0,
+                          { kind: 'dovetail', index: s.index }, false);
+            });
+            textSpots.forEach(function(s) {
+                if (hasText(s.field)) return;  // the text itself is clickable
+                if (s.face === 'side') {
+                    const out = TEXT_BALL_R * 0.8;
+                    addMarker(TEXT_BALL_R, s.x + Math.cos(s.angle) * out, s.y + Math.sin(s.angle) * out, s.z,
+                              { kind: 'text', field: s.field }, false);
+                } else {
+                    addMarker(TEXT_BALL_R, s.x, s.y, s.z + TEXT_BALL_R * 0.6, { kind: 'text', field: s.field }, true);
+                }
+            });
+        }
+
+        function modelTextMeshes() {
+            const list = [];
+            modelRoot.traverse(function(o) { if (o.isMesh && o.userData.part === 'text') list.push(o); });
+            return list;
+        }
+
+        function setMarkerSpots(job) {
+            dovetailSpots = job.dovetailsPossible === false ? [] : (job.dovetailSpots || []);
+            markerDovetailSize = job.dovetailSize || 15;
+            textSpots = job.textSpots || [];
+            textRoom = job.textRoom || 0;
+            plateSize = job.plateSize || 0;
+            rebuildMarkers();
+            refreshStatus(readParams());
+        }
+
+        // All of a layout's text is one mesh -- the field clicked is the
+        // filled spot nearest to where it was hit.
+        function fieldNear(point) {
+            let best = null, bestD = Infinity;
+            textSpots.forEach(function(s) {
+                if (!hasText(s.field)) return;
+                const d = point.distanceTo(new THREE.Vector3(s.x, s.y, s.z));
+                if (d < bestD) { bestD = d; best = s.field; }
+            });
+            return best;
+        }
+
+        const raycaster = new THREE.Raycaster();
+        const pointer = new THREE.Vector2();
+        // {object, field?} under the pointer, or null.
+        function targetAt(ev) {
+            const rect = renderer.domElement.getBoundingClientRect();
+            pointer.set(((ev.clientX - rect.left) / rect.width) * 2 - 1,
+                        -((ev.clientY - rect.top) / rect.height) * 2 + 1);
+            raycaster.setFromCamera(pointer, camera);
+            const hits = raycaster.intersectObjects(markerRoot.children.filter(function(m) { return m.visible; }), false);
+            // Text balls drawn on top win ties.
+            const onTop = hits.find(function(h) { return h.object.material.depthTest === false; });
+            if (onTop) return { object: onTop.object };
+            // Existing text -- only when it's the nearest solid under the pointer.
+            const solids = modelTextMeshes();
+            modelRoot.traverse(function(o) { if (o.isMesh && o.userData.part === 'plate') solids.push(o); });
+            const solidHit = raycaster.intersectObjects(solids, false)[0];
+            if (solidHit && solidHit.object.userData.part === 'text'
+                    && (!hits[0] || solidHit.distance < hits[0].distance)) {
+                const local = modelRoot.worldToLocal(solidHit.point.clone());
+                const field = fieldNear(local);
+                if (field) return { object: solidHit.object, field: field };
+            }
+            return hits[0] ? { object: hits[0].object } : null;
+        }
+
+        renderer.domElement.addEventListener('pointermove', function(ev) {
+            const t = targetAt(ev);
+            const m = t ? t.object : null;
+            if (m === hoveredMarker) return;
+            const prev = hoveredMarker;
+            hoveredMarker = m;
+            if (prev) styleMarker(prev);
+            if (m) styleMarker(m);
+            renderer.domElement.style.cursor = m ? 'pointer' : '';
+        });
+
+        // A click only counts if the pointer barely moved -- otherwise it
+        // was the end of an orbit drag that happened to finish on a ball.
+        let downAt = null;
+        renderer.domElement.addEventListener('pointerdown', function(ev) { downAt = [ev.clientX, ev.clientY]; });
+        renderer.domElement.addEventListener('pointerup', function(ev) {
+            if (!downAt || Math.hypot(ev.clientX - downAt[0], ev.clientY - downAt[1]) > 5) return;
+            const t = targetAt(ev);
+            if (!t) return;
+            const m = t.object;
+            if (t.field) { openTextEditor(t.field); return; }
+            if (m.userData.kind === 'text') { openTextEditor(m.userData.field); return; }
+            const idx = m.userData.index;
+            if (dovetails.has(idx)) dovetails.delete(idx); else dovetails.add(idx);
+            styleMarker(m);
+            schedulePreview();
+        });
+
+        (function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            headLight.position.copy(camera.position)
+                .addScaledVector(camera.up, camera.position.distanceTo(controls.target) * HEADLIGHT_HEIGHT);
+            headLight.target.position.copy(controls.target);
+            // On-top text balls show through everything -- hide them while
+            // looking at the back, where they'd float over the wrong face.
+            const fromFront = camera.position.z > controls.target.z;
+            markerRoot.children.forEach(function(m) {
+                if (m.material.depthTest === false) m.visible = fromFront;
+            });
+            renderer.render(scene, camera);
+        })();
+
+        // ── Fonts ──────────────────────────────────────────────────────
+        let fontListPromise = null;
+        function loadFonts() {
+            if (!fontListPromise) {
+                fontListPromise = fetch(BASE + '/list_fonts', { cache: 'no-store' })
+                    .then(function(r) { return r.json(); })
+                    .catch(function() { return []; });
+            }
+            return fontListPromise;
+        }
+
+        function fontOption(name, path) {
+            const opt = document.createElement('option');
+            opt.value = path;
+            opt.textContent = name;
+            opt.title = path || 'Default font';
+            return opt;
+        }
+
+        // Keeps the current font selectable even when it isn't an installed
+        // one (e.g. picked in Blender), under its file name.
+        function syncFontSelect() {
+            const sel = document.getElementById('textFont');
+            if (textFont && !Array.from(sel.options).some(function(o) { return o.value === textFont; })) {
+                sel.insertBefore(fontOption(textFont.split(/[\\/]/).pop().replace(/\.[^.]+$/, ''), textFont),
+                                 sel.options[1] || null);
+            }
+            sel.value = textFont;
+            sel.title = textFont || 'Default font';
+        }
+
+        (function initFontSelect() {
+            const sel = document.getElementById('textFont');
+            sel.appendChild(fontOption('Default font', ''));
+            syncFontSelect();
+            loadFonts().then(function(fonts) {
+                fonts.forEach(function(f) {
+                    if (f.path !== textFont) sel.appendChild(fontOption(f.name, f.path));
+                });
+                syncFontSelect();
+            });
+            sel.addEventListener('change', function() {
+                textFont = this.value;
+                this.title = textFont || 'Default font';
+                schedulePreview();
+            });
+        })();
+
+        // ── Text editor ────────────────────────────────────────────────
+        let editingField = null;
+
+        // ── Popover menu ───────────────────────────────────────────────
+        // One small in-page menu, shared by the icon picker and the codes
+        // button. Drawn by the page rather than a <select>, whose native
+        // popup didn't open in the picker's --app browser window.
+        const popMenu = document.getElementById('popMenu');
+        let popAnchor = null;
+
+        // items: [{label, desc?, active?}]; onPick(index).
+        function openPopMenu(anchor, items, onPick) {
+            if (popAnchor === anchor) { closePopMenu(); return; }  // toggle
+            popMenu.innerHTML = '';
+            items.forEach(function(it, i) {
+                const b = document.createElement('button');
+                b.type = 'button';
+                b.className = 'pop-item' + (it.active ? ' active' : '');
+                const label = document.createElement('span');
+                label.textContent = it.label;
+                b.appendChild(label);
+                if (it.desc) {
+                    const d = document.createElement('span');
+                    d.className = 'pop-desc';
+                    d.textContent = it.desc;
+                    b.appendChild(d);
+                }
+                // Keeps the text field's cursor/selection for code inserts.
+                b.addEventListener('mousedown', function(ev) { ev.preventDefault(); });
+                b.addEventListener('click', function() { closePopMenu(); onPick(i); });
+                popMenu.appendChild(b);
+            });
+            // Fixed, in viewport coordinates, below the anchor: left-aligned
+            // with it, or right-aligned when that would stick out past the
+            // editor box (the codes button at the field's right end).
+            const a = anchor.getBoundingClientRect();
+            const boxRight = anchor.closest('.tp3d-modal-box').getBoundingClientRect().right;
+            popMenu.hidden = false;
+            const w = popMenu.offsetWidth;
+            let left = a.left + w > boxRight ? a.right - w : a.left;
+            left = Math.min(left, window.innerWidth - w - 8);
+            popMenu.style.top = (a.bottom + 4) + 'px';
+            popMenu.style.left = Math.max(8, left) + 'px';
+            popAnchor = anchor;
+            anchor.setAttribute('aria-expanded', 'true');
+        }
+
+        function closePopMenu() {
+            if (!popAnchor) return;
+            popAnchor.setAttribute('aria-expanded', 'false');
+            popAnchor = null;
+            popMenu.hidden = true;
+        }
+
+        document.addEventListener('mousedown', function(ev) {
+            if (popAnchor && !popMenu.contains(ev.target) && !popAnchor.contains(ev.target)) closePopMenu();
+        });
+
+        // ── Icon picker ────────────────────────────────────────────────
+        let editingIcon = 'no';
+        function iconList(field) {
+            return field === 'titlefield' ? TITLE_ICONS : TEXT_ICONS;
+        }
+
+        function renderIconBtn() {
+            const btn = document.getElementById('iconBtn');
+            const ic = iconList(editingField).find(function(i) { return i[0] === editingIcon; });
+            document.getElementById('iconBtnLabel').textContent = PREMIUM ? (ic ? ic[1] : 'No Icon') : '🔒 Icon';
+            btn.disabled = !PREMIUM;
+            btn.title = PREMIUM ? 'Icon in front of the text' : 'Text icons are a Premium feature';
+        }
+
+        document.getElementById('iconBtn').addEventListener('click', function() {
+            const list = iconList(editingField);
+            openPopMenu(this, list.map(function(ic) { return { label: ic[1], active: ic[0] === editingIcon }; }),
+                function(i) {
+                    editingIcon = list[i][0];
+                    renderIconBtn();
+                    readTextEditor();
+                });
+        });
+
+        // ── Codes ──────────────────────────────────────────────────────
+        // Placeholders text_objects.replaceShapeText fills in; inserted at
+        // the cursor (replacing any selection).
+        const TEXT_CODES = [
+            ['{name}', 'Model name'], ['{length}', 'Trail length'], ['{elevation}', 'Elevation gain'],
+            ['{duration}', 'Duration'], ['{date}', 'Trail date'], ['{speed}', 'Average speed'],
+            ['{scale}', 'Map scale'],
+        ];
+        document.getElementById('codesBtn').addEventListener('mousedown', function(ev) { ev.preventDefault(); });
+        document.getElementById('codesBtn').addEventListener('click', function() {
+            openPopMenu(this, TEXT_CODES.map(function(c) { return { label: c[0], desc: c[1] }; }), function(i) {
+                const code = TEXT_CODES[i][0];
+                const input = document.getElementById('textValue');
+                const start = input.selectionStart == null ? input.value.length : input.selectionStart;
+                const end = input.selectionEnd == null ? start : input.selectionEnd;
+                const value = input.value.slice(0, start) + code + input.value.slice(end);
+                if (value.length > input.maxLength) return;  // wouldn't fit the 60-char limit
+                input.value = value;
+                input.focus();
+                input.setSelectionRange(start + code.length, start + code.length);
+                readTextEditor();
+            });
+        });
+
+        function openTextEditor(field) {
+            editingField = field;
+            const spec = texts[field] || { text: '', icon: 'no' };
+            const spot = textSpots.find(function(s) { return s.field === field; });
+            document.getElementById('textModalTitle').textContent = spot ? spot.label : 'Text';
+            document.getElementById('textValue').value = spec.text || '';
+            editingIcon = PREMIUM ? (spec.icon || 'no') : 'no';
+            renderIconBtn();
+            closePopMenu();
+            const size = (field === 'titlefield' && readParams().textSizeTitle) || readParams().textSize;
+            document.getElementById('textRoom').textContent = textRoom > 0
+                ? 'Room here: ' + textRoom.toFixed(1) + ' mm — Text Size is ' + size + ' mm.'
+                : '';
+            document.getElementById('textModal').classList.add('open');
+            document.getElementById('textValue').focus();
+        }
+
+        function closeTextEditor() {
+            closePopMenu();
+            document.getElementById('textModal').classList.remove('open');
+            editingField = null;
+        }
+
+        function readTextEditor() {
+            if (!editingField) return;
+            const text = document.getElementById('textValue').value;
+            if (text.trim()) {
+                texts[editingField] = { text: text, icon: PREMIUM ? editingIcon : 'no' };
+            } else {
+                delete texts[editingField];
+            }
+            schedulePreview();
+        }
+
+        document.getElementById('textValue').addEventListener('input', readTextEditor);
+        document.getElementById('textDone').addEventListener('click', closeTextEditor);
+        document.getElementById('textModalClose').addEventListener('click', closeTextEditor);
+        document.getElementById('textRemove').addEventListener('click', function() {
+            document.getElementById('textValue').value = '';
+            readTextEditor();
+            closeTextEditor();
+        });
+        document.getElementById('textModal').addEventListener('click', function(ev) {
+            if (ev.target === this) closeTextEditor();  // click on the dimmed backdrop
+        });
+        document.addEventListener('keydown', function(ev) {
+            if (ev.key === 'Escape' && popAnchor) { closePopMenu(); return; }  // menu first, then the editor
+            if (ev.key === 'Escape' && editingField) closeTextEditor();
+            if (ev.key === 'Enter' && editingField && ev.target.id === 'textValue') closeTextEditor();
+        });
+
+        // ── Parameters ─────────────────────────────────────────────────
+        function readParams() {
+            const p = {
+                shape: shape,
+                textLayout: textLayout,
+                textFont: textFont,
+                textPlacement: document.getElementById('textPlacement').checked,
+                handleStyle: PREMIUM ? handleStyle : 'NONE',
+                dovetails: Array.from(dovetails).sort(function(a, b) { return a - b; }),
+                texts: JSON.parse(JSON.stringify(texts)),
+            };
+            NUMBER_FIELDS.forEach(function(id) {
+                p[id] = parseFloat(document.getElementById(id).value);
+            });
+            return p;
+        }
+
+        function applyParams(p) {
+            if (!p) return;
+            if (p.shape && LAYOUTS_BY_SHAPE[p.shape]) shape = p.shape;
+            NUMBER_FIELDS.forEach(function(id) {
+                if (typeof p[id] === 'number' && isFinite(p[id])) document.getElementById(id).value = p[id];
+            });
+            if (typeof p.textLayout === 'string') textLayout = p.textLayout;
+            if (typeof p.textFont === 'string') textFont = p.textFont;
+            if (typeof p.textPlacement === 'boolean') document.getElementById('textPlacement').checked = p.textPlacement;
+            if (typeof p.handleStyle === 'string') handleStyle = p.handleStyle;
+            if (Array.isArray(p.dovetails)) dovetails = new Set(p.dovetails);
+            if (p.texts && typeof p.texts === 'object') {
+                texts = {};
+                Object.keys(p.texts).forEach(function(k) {
+                    const t = p.texts[k];
+                    if (t && typeof t.text === 'string' && t.text.trim()) texts[k] = { text: t.text, icon: t.icon || 'no' };
+                });
+            }
+            syncFontSelect();
+            renderShape();
+            renderLayouts();
+            renderHandles();
+        }
+
+        function validate(p) {
+            for (const id of NUMBER_FIELDS) {
+                if (!isFinite(p[id])) return { level: 'error', text: 'Enter a number for every field.' };
+            }
+            if (p.plateInsertValue > p.plateThickness - 0.4) {
+                return { level: 'warn', text: 'Map Inset Depth is capped at ' + Math.max(0, p.plateThickness - 0.4).toFixed(1)
+                    + ' mm — the pocket needs a floor under it.' };
+            }
+            // Room comes from the last built preview (Blender's own numbers).
+            const anyText = textSpots.some(function(s) { return hasText(s.field); });
+            const size = Math.max(p.textSize, p.textSizeTitle || 0);
+            if (p.textLayout !== 'NONE' && anyText && textRoom > 0 && size > textRoom) {
+                return { level: 'warn', text: 'Text Size ' + size + ' mm is larger than the ' + textRoom.toFixed(1)
+                    + (p.textLayout === 'FRONT_FACE' ? ' mm plate height' : ' mm border')
+                    + ' — lower it or make the ' + (p.textLayout === 'FRONT_FACE' ? 'plate taller.' : 'border thicker.') };
+            }
+            return null;
+        }
+
+        function setStatus(text, level) {
+            const el = document.getElementById('status');
+            el.textContent = text;
+            el.className = level || '';
+        }
+
+        function refreshStatus(p) {
+            const issue = validate(p);
+            if (issue) setStatus(issue.text, issue.level);
+            else setStatus('Ready — ' + p.objSize + ' mm map' + (plateSize ? ', ' + plateSize.toFixed(0) + ' mm plate' : ''));
+            document.getElementById('confirmBtn').disabled = !!(issue && issue.level === 'error');
+        }
+
+        // ── Preview requests ───────────────────────────────────────────
+        // Same seq/version polling as the Medal Holder Generator.
+        let seq = 0;
+        let seenVersion = -1;
+        let polling = false;
+        let debounceTimer = null;
+
+        function requestPreview() {
+            const p = readParams();
+            refreshStatus(p);
+            updateDefaultsDirty();
+            saveState();
+            const issue = validate(p);
+            if (issue && issue.level === 'error') return;
+            p.seq = ++seq;
+            document.getElementById('busy').classList.add('show');
+            fetch(BASE + '/request_model_preview', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(p),
+            }).then(function() {
+                if (!polling) poll();
+            }).catch(function() {
+                setStatus('Could not reach Blender.', 'error');
+            });
+        }
+
+        function schedulePreview() {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(requestPreview, 250);
+        }
+
+        function poll() {
+            polling = true;
+            fetch(BASE + '/model_preview_status', { cache: 'no-store' })
+                .then(function(r) { return r.json(); })
+                .then(function(job) {
+                    const caughtUp = job.seq === seq && (job.status === 'done' || job.status === 'error');
+                    let load = Promise.resolve();
+                    if (job.version > seenVersion && job.status === 'done') {
+                        seenVersion = job.version;
+                        load = loadPreview(job);
+                    }
+                    if (job.status === 'error' && caughtUp) {
+                        setStatus('Blender: ' + job.message, 'error');
+                    }
+                    return load.then(function() {
+                        if (caughtUp) {
+                            polling = false;
+                            document.getElementById('busy').classList.remove('show');
+                        } else {
+                            setTimeout(poll, 120);
+                        }
+                    });
+                })
+                .catch(function() {
+                    setTimeout(poll, 500);
+                });
+        }
+
+        // ── Controls ───────────────────────────────────────────────────
+        function renderShape() {
+            document.querySelectorAll('#shapeToggle .shape-btn').forEach(function(btn) {
+                btn.classList.toggle('active', btn.dataset.shape === shape);
+            });
+        }
+
+        // Layout buttons for the current shape, keeping the selection if
+        // the shape still offers it (else None).
+        function renderLayouts() {
+            const options = LAYOUTS_BY_SHAPE[shape];
+            if (options.indexOf(textLayout) === -1) textLayout = 'NONE';
+            const box = document.getElementById('layoutSwitch');
+            box.innerHTML = '';
+            options.forEach(function(ident) {
+                const b = document.createElement('button');
+                b.type = 'button';
+                b.className = 'element-mode-btn' + (ident === textLayout ? ' active' : '');
+                b.textContent = LAYOUT_LABELS[ident];
+                b.setAttribute('aria-pressed', ident === textLayout ? 'true' : 'false');
+                b.addEventListener('click', function() {
+                    textLayout = ident;
+                    renderLayouts();
+                    schedulePreview();
+                });
+                box.appendChild(b);
+            });
+            document.getElementById('textSettings').style.display = textLayout === 'NONE' ? 'none' : 'flex';
+            // Front Face carves sideways into the wall -- still supported.
+            document.getElementById('insetRow').style.display = textLayout === 'NONE' ? 'none' : '';
+        }
+
+        function renderHandles() {
+            if (!PREMIUM) handleStyle = 'NONE';
+            document.querySelectorAll('#handleSwitch .element-mode-btn').forEach(function(btn) {
+                const h = btn.dataset.handle;
+                btn.classList.toggle('active', h === handleStyle);
+                if (h !== 'NONE' && !PREMIUM) {
+                    // Looks disabled but stays clickable, so the click can
+                    // show a short note why (see the click handler below).
+                    btn.classList.add('premium-locked');
+                    btn.setAttribute('aria-disabled', 'true');
+                    btn.textContent = '🔒 ' + btn.textContent.replace(/^🔒 /, '');
+                    btn.title = 'Medal handles are a Premium feature';
+                }
+            });
+        }
+
+        document.querySelectorAll('#shapeToggle .shape-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                // Edge indices mean different edges on a different shape.
+                if (btn.dataset.shape !== shape) dovetails.clear();
+                shape = btn.dataset.shape;
+                renderShape();
+                renderLayouts();
+                schedulePreview();
+            });
+        });
+        document.querySelectorAll('#handleSwitch .element-mode-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                if (!PREMIUM && btn.dataset.handle !== 'NONE') {
+                    tp3dToast('🔒 Medal handles require the Premium version', btn);
+                    return;
+                }
+                handleStyle = btn.dataset.handle;
+                renderHandles();
+                schedulePreview();
+            });
+        });
+        NUMBER_FIELDS.forEach(function(id) {
+            document.getElementById(id).addEventListener('input', schedulePreview);
+        });
+        document.getElementById('textPlacement').addEventListener('change', schedulePreview);
+
+        function saveState() {
+            const s = readParams();
+            // Which default is loaded, and its settings, so "• changed"
+            // still works after the window is reopened.
+            s._default = loadedDefault;
+            s._defaultSnapshot = loadedSnapshot;
+            fetch(BASE + '/save_state', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(s),
+            }).catch(function() {});
+        }
+
+        // ── Saved defaults ─────────────────────────────────────────────
+        // Named snapshots of readParams(), kept by Blender (picker_server's
+        // /get_page_defaults & /save_page_defaults) -- the picker window's
+        // browser profile is thrown away on close. Picking one loads it.
+        let savedDefaults = [];     // [{name, settings}], sorted by name
+        let loadedDefault = null;   // name of the default last loaded/saved
+        let loadedSnapshot = null;  // readParams() right after that, as JSON
+        let nameMode = null;        // 'new' | 'edit' while the name row is open
+
+        function paramsSnapshot() {
+            return JSON.stringify(readParams());
+        }
+
+        function findDefault(name) {
+            const key = String(name || '').trim().toLowerCase();
+            return savedDefaults.find(function(d) { return d.name.toLowerCase() === key; }) || null;
+        }
+
+        function renderDefaults() {
+            const sel = document.getElementById('defaultsSelect');
+            sel.innerHTML = '';
+            const none = document.createElement('option');
+            none.value = '';
+            none.textContent = savedDefaults.length ? '— Choose a default —' : '— No saved defaults yet —';
+            sel.appendChild(none);
+            savedDefaults.forEach(function(d) {
+                const opt = document.createElement('option');
+                opt.value = d.name;
+                opt.textContent = d.name;
+                sel.appendChild(opt);
+            });
+            if (loadedDefault && !findDefault(loadedDefault)) loadedDefault = null;
+            sel.value = loadedDefault ? findDefault(loadedDefault).name : '';
+            document.getElementById('defaultsEdit').disabled = !loadedDefault;
+            document.getElementById('defaultsDelete').disabled = !loadedDefault;
+            updateDefaultsDirty();
+        }
+
+        function updateDefaultsDirty() {
+            document.getElementById('defaultsDirty').hidden =
+                !(loadedDefault && loadedSnapshot && paramsSnapshot() !== loadedSnapshot);
+        }
+
+        function persistDefaults(list) {
+            return fetch(BASE + '/save_page_defaults', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ defaults: list }),
+            })
+                .then(function(r) { return r.json(); })
+                .then(function(saved) {
+                    savedDefaults = Array.isArray(saved) ? saved : [];
+                    renderDefaults();
+                })
+                .catch(function() { tp3dAlert('Could not save the defaults — is Blender still running?'); });
+        }
+
+        function closeDefaultsRows() {
+            nameMode = null;
+            document.getElementById('defaultsNameRow').hidden = true;
+            document.getElementById('defaultsConfirmRow').hidden = true;
+        }
+
+        function openNameRow(mode) {
+            closeDefaultsRows();
+            nameMode = mode;
+            const input = document.getElementById('defaultsName');
+            input.value = mode === 'edit' ? loadedDefault : '';
+            document.getElementById('defaultsNameOk').textContent = mode === 'edit' ? 'Update' : 'Save';
+            document.getElementById('defaultsNameRow').hidden = false;
+            updateNameHint();
+            input.focus();
+            input.select();
+        }
+
+        function updateNameHint() {
+            const name = document.getElementById('defaultsName').value.trim();
+            const clash = findDefault(name);
+            const own = nameMode === 'edit' && clash && clash.name.toLowerCase() === String(loadedDefault).toLowerCase();
+            let hint = nameMode === 'edit'
+                ? 'Replaces “' + loadedDefault + '” with the current settings.'
+                : 'Saves the current settings.';
+            if (clash && !own) hint = 'Replaces the existing default “' + clash.name + '”.';
+            document.getElementById('defaultsNameHint').textContent = hint;
+        }
+
+        function commitName() {
+            const name = document.getElementById('defaultsName').value.trim().replace(/\s+/g, ' ');
+            if (!name) {
+                document.getElementById('defaultsNameHint').textContent = 'Enter a name first.';
+                document.getElementById('defaultsName').focus();
+                return;
+            }
+            // Drop the entry being edited (it may be renamed) and any other
+            // one with the new name -- the new one replaces both.
+            const drop = [name.toLowerCase()];
+            if (nameMode === 'edit' && loadedDefault) drop.push(loadedDefault.toLowerCase());
+            const list = savedDefaults.filter(function(d) { return drop.indexOf(d.name.toLowerCase()) === -1; });
+            list.push({ name: name, settings: readParams() });
+            loadedDefault = name;
+            loadedSnapshot = paramsSnapshot();
+            closeDefaultsRows();
+            persistDefaults(list).then(saveState);
+        }
+
+        function loadDefault(entry) {
+            closeDefaultsRows();
+            applyParams(entry.settings);
+            loadedDefault = entry.name;
+            loadedSnapshot = paramsSnapshot();
+            renderDefaults();
+            requestPreview();
+        }
+
+        document.getElementById('defaultsSelect').addEventListener('change', function() {
+            const entry = findDefault(this.value);
+            if (entry) { loadDefault(entry); return; }
+            closeDefaultsRows();
+            loadedDefault = loadedSnapshot = null;
+            renderDefaults();
+            saveState();
+        });
+        // "↺ Restore" (shown with "• changed"): back to the saved settings.
+        document.getElementById('defaultsRestore').addEventListener('click', function() {
+            const entry = findDefault(loadedDefault);
+            if (entry) loadDefault(entry);
+        });
+        document.getElementById('defaultsSave').addEventListener('click', function() { openNameRow('new'); });
+        document.getElementById('defaultsEdit').addEventListener('click', function() { openNameRow('edit'); });
+        document.getElementById('defaultsDelete').addEventListener('click', function() {
+            closeDefaultsRows();
+            document.getElementById('defaultsConfirmText').textContent = 'Delete the default “' + loadedDefault + '”?';
+            document.getElementById('defaultsConfirmRow').hidden = false;
+            document.getElementById('defaultsConfirmCancel').focus();
+        });
+        document.getElementById('defaultsConfirmOk').addEventListener('click', function() {
+            const gone = String(loadedDefault).toLowerCase();
+            loadedDefault = loadedSnapshot = null;
+            closeDefaultsRows();
+            persistDefaults(savedDefaults.filter(function(d) { return d.name.toLowerCase() !== gone; })).then(saveState);
+        });
+        document.getElementById('defaultsConfirmCancel').addEventListener('click', closeDefaultsRows);
+        document.getElementById('defaultsNameOk').addEventListener('click', commitName);
+        document.getElementById('defaultsNameCancel').addEventListener('click', closeDefaultsRows);
+        document.getElementById('defaultsName').addEventListener('input', updateNameHint);
+        document.getElementById('defaultsName').addEventListener('keydown', function(ev) {
+            if (ev.key === 'Enter') { ev.preventDefault(); commitName(); }
+            if (ev.key === 'Escape') { ev.preventDefault(); closeDefaultsRows(); }
+        });
+
+        document.getElementById('confirmBtn').addEventListener('click', function() {
+            const payload = readParams();
+            const btn = document.getElementById('confirmBtn');
+            btn.disabled = true;
+            setStatus('Sending to Blender…');
+            fetch(BASE + '/confirm', {
+                method: 'POST',
+                mode: 'cors',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            })
+            .then(function() { window.close(); })
+            .catch(function() {
+                tp3dAlert('Could not connect to Blender. Ensure the addon is running.');
+                btn.disabled = false;
+                refreshStatus(readParams());
+            });
+        });
+
+        // Start from the scene's Shape Extras settings, then last session's
+        // page state if there is one.
+        applyParams(SETTINGS_STATE);
+        const defaultsLoaded = fetch(BASE + '/get_page_defaults', { cache: 'no-store' })
+            .then(function(r) { return r.json(); })
+            .then(function(list) { savedDefaults = Array.isArray(list) ? list : []; })
+            .catch(function() {});
+        fetch(BASE + '/get_state', { cache: 'no-store' })
+            .then(function(r) { return r.json(); })
+            .then(function(s) {
+                if (s && s.shape) {
+                    applyParams(s);
+                    if (typeof s._default === 'string') {
+                        loadedDefault = s._default;
+                        loadedSnapshot = typeof s._defaultSnapshot === 'string' ? s._defaultSnapshot : null;
+                    }
+                }
+            })
+            .catch(function() {})
+            .then(function() { return defaultsLoaded; })
+            .then(function() {
+                renderDefaults();
+                requestPreview();
+            });
+    </script>
+    <script>__TUTORIAL_JS__</script>
+    <script>__EXPORT_FOLDER_JS__</script>
+    <script>__TRANSLATE_JS__</script>
+    <script>__THREEMF_PROMO_JS__</script>
+</body>
+</html>

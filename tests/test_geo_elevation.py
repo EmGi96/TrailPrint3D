@@ -1,7 +1,7 @@
-"""Unit tests for pure-math functions in geo.py and elevation.py.
+"""Unit tests for geo/elevation math and tile elevation cache/range helpers.
 
-No bpy scene properties are read by any function under test — all tested
-functions take plain Python arguments and return plain values.
+Cache tests isolate scene settings; range tests compare bulk mesh calculations
+against the scalar world-space formula.
 
 Run with:
   & "C:\Program Files\Blender Foundation\Blender 5.1\blender.exe" --background --factory-startup --python-exit-code 1 -P tests/test_geo_elevation.py
@@ -534,6 +534,191 @@ def test_paeth_zero_inputs():
 
 
 # ---------------------------------------------------------------------------
+# Run-scoped elevation cache
+# ---------------------------------------------------------------------------
+
+def test_run_elevation_cache_hits_and_skips_disk_writes_when_disabled():
+    from array import array
+    from types import SimpleNamespace
+    from unittest.mock import Mock, patch
+
+    import bpy
+    from mathutils import Vector
+
+    from TrailPrint3D import utils
+    from TrailPrint3D.utils import elevation
+
+    assert utils.begin_run_cache is elevation.begin_run_cache
+    assert utils.end_run_cache is elevation.end_run_cache
+
+    scene_property_registered = False
+    test_property_class = None
+    if not hasattr(bpy.types.Scene, "tp3d"):
+        test_property_class = type(
+            "TP3DTestRunCacheProperties",
+            (bpy.types.PropertyGroup,),
+            {
+                "__annotations__": {
+                    "api": bpy.props.StringProperty(default="LOCAL_DEM"),
+                    "disableCache": bpy.props.BoolProperty(default=False),
+                    "disableElevationOutlierFix": bpy.props.BoolProperty(default=False),
+                    "num_subdivisions": bpy.props.IntProperty(default=2),
+                    "sScaleHor": bpy.props.FloatProperty(default=1.0),
+                    "sAdditionalExtrusion": bpy.props.FloatProperty(default=0.0),
+                }
+            },
+        )
+        bpy.utils.register_class(test_property_class)
+        bpy.types.Scene.tp3d = bpy.props.PointerProperty(
+            type=test_property_class
+        )
+        scene_property_registered = True
+
+    tp3d = bpy.context.scene.tp3d
+    property_names = (
+        "api",
+        "disableCache",
+        "disableElevationOutlierFix",
+        "num_subdivisions",
+        "sScaleHor",
+        "sAdditionalExtrusion",
+    )
+    original_properties = {name: getattr(tp3d, name) for name in property_names}
+    dynamic_keys = ("lowestElevation", "highestElevation", "o_verticesMap")
+    original_dynamic_values = {
+        key: (key in tp3d, tp3d.get(key)) for key in dynamic_keys
+    }
+    world_verts = [Vector((0, 0, 0)), Vector((1, 1, 0))]
+    obj = SimpleNamespace(data=SimpleNamespace(vertices=[None, None]))
+    fetch = Mock(return_value=[120.25, 125.5])
+    save_disk_cache = Mock()
+    disk_write = AssertionError("disableCache must not write elevation files")
+
+    def _bounds(_obj):
+        return world_verts, 2, tp3d.disableCache, 47.0, 47.1, 8.0, 8.1
+
+    elevation.end_run_cache()
+    try:
+        tp3d.api = "LOCAL_DEM"
+        tp3d.disableCache = 1
+        tp3d.disableElevationOutlierFix = True
+        tp3d.num_subdivisions = 2
+
+        with (
+            patch.object(elevation, "compute_and_store_tile_bounds", _bounds),
+            patch.object(
+                elevation,
+                "_elevation_results_key",
+                side_effect=[
+                    "run-cache-test.elev",
+                    "run-cache-test.elev",
+                    "run-cache-zero.elev",
+                ],
+            ),
+            patch.object(elevation, "get_elevation_localDem", fetch),
+            patch.object(elevation, "save_elevation_cache", save_disk_cache),
+            patch.object(elevation.os, "makedirs", side_effect=disk_write),
+            patch.object(elevation, "open", side_effect=disk_write, create=True),
+        ):
+            elevation.begin_run_cache()
+            try:
+                first_elevations, first_diff = elevation.get_tile_elevation(obj)
+                cached = elevation._run_elevation_cache["run-cache-test.elev"]
+                assert isinstance(cached, array) and cached.typecode == "f"
+                assert first_elevations == [120.25, 125.5]
+                assert first_diff == 5.25
+
+                second_elevations, second_diff = elevation.get_tile_elevation(obj)
+                assert second_elevations == first_elevations
+                assert second_diff == first_diff
+                assert fetch.call_count == 1, "the second request must use the run cache"
+                assert tp3d["lowestElevation"] == 120.25
+                assert tp3d["highestElevation"] == 125.5
+                assert tp3d.sAdditionalExtrusion == 120.25
+                assert save_disk_cache.call_count == 0
+
+                fetch.return_value = [0.0, 0.0]
+                zero_elevations, _zero_diff = elevation.get_tile_elevation(obj)
+                assert zero_elevations == [0.0, 0.0]
+                assert "run-cache-zero.elev" not in elevation._run_elevation_cache
+                assert fetch.call_count == 2
+            finally:
+                elevation.end_run_cache()
+
+            assert elevation._run_elevation_cache is None
+            assert fetch.call_count == 2
+    finally:
+        elevation.end_run_cache()
+        for name, value in original_properties.items():
+            setattr(tp3d, name, value)
+        for key, (existed, value) in original_dynamic_values.items():
+            if existed:
+                tp3d[key] = value
+            elif key in tp3d:
+                del tp3d[key]
+        if scene_property_registered:
+            del bpy.types.Scene.tp3d
+            if test_property_class is not None:
+                bpy.utils.unregister_class(test_property_class)
+
+
+def test_tile_elevation_ranges_match_scalar_world_space_calculation():
+    import bpy
+    from mathutils import Matrix
+
+    from TrailPrint3D import constants as const
+    from TrailPrint3D.utils.elevation import get_tile_elevation_ranges
+
+    scale_hor = 0.25
+    center_y = const.R * scale_hor * math.log(math.tan(math.pi / 4 + math.radians(65) / 2))
+    mesh = bpy.data.meshes.new("ElevationRangeTest")
+    obj = bpy.data.objects.new("ElevationRangeTest", mesh)
+    try:
+        mesh.from_pydata([(-10, -20, 0), (10, -20, 1), (10, 20, 2), (-10, 20, 3)], [], [])
+        obj.matrix_world = (
+            Matrix.Translation((80, center_y, 5))
+            @ Matrix.Rotation(0.2, 4, "Z")
+            @ Matrix.Diagonal((1.2, 0.7, 2.0, 1.0))
+        )
+        elevations = [-80.25, 0.0, 210.75, 760.0]
+        expected = []
+        for vertex, elevation in zip(mesh.vertices, elevations):
+            world = obj.matrix_world @ vertex.co
+            lat = 2 * math.atan(math.exp(world.y / (const.R * scale_hor))) - math.pi / 2
+            expected.append(elevation / math.cos(lat))
+
+        raw_range, corrected_range = get_tile_elevation_ranges(obj, elevations, scale_hor)
+        assert raw_range == (min(elevations), max(elevations))
+        for actual, reference in zip(corrected_range, (min(expected), max(expected))):
+            assert math.isclose(actual, reference, rel_tol=1e-6, abs_tol=1e-4)
+    finally:
+        bpy.data.objects.remove(obj, do_unlink=True)
+        bpy.data.meshes.remove(mesh)
+
+
+def test_tile_elevation_ranges_reject_invalid_inputs():
+    from types import SimpleNamespace
+
+    from TrailPrint3D.utils.elevation import get_tile_elevation_ranges
+
+    obj = SimpleNamespace(data=SimpleNamespace(vertices=[None]))
+    for elevations, scale in (([], 1), ([1.0], 0), ([1.0], float("nan"))):
+        try:
+            get_tile_elevation_ranges(obj, elevations, scale)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("Expected invalid range inputs to raise ValueError")
+    obj.data.vertices = []
+    try:
+        get_tile_elevation_ranges(obj, [], 1)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Expected an empty tile mesh to raise ValueError")
+
+
+# ---------------------------------------------------------------------------
 # fix_invalid_elevations
 # ---------------------------------------------------------------------------
 
@@ -684,6 +869,14 @@ if __name__ == "__main__":
     _run("paeth: returns b when pb smallest",            test_paeth_returns_b)
     _run("paeth: returns c when pc smallest",            test_paeth_returns_c)
     _run("paeth: zero inputs",                           test_paeth_zero_inputs)
+
+    # Run-scoped elevation cache
+    _run("elevation cache: run hit, cleanup, disableCache disk writes",
+         test_run_elevation_cache_hits_and_skips_disk_writes_when_disabled)
+    _run("elevation range: bulk matches scalar world-space calculation",
+         test_tile_elevation_ranges_match_scalar_world_space_calculation)
+    _run("elevation range: invalid inputs raise",
+         test_tile_elevation_ranges_reject_invalid_inputs)
 
     # fix_invalid_elevations
     _run("fix_invalid: empty list",                      test_fix_invalid_empty)

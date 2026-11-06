@@ -4,6 +4,12 @@ This is a **Blender 5.1+ Python addon** using the Blender Extensions platform. A
 
 ---
 
+## Terminology
+
+When the user says **"generators"**, they usually mean the HTML configurator pages as a group — `generators/map_generator.html`, `premium/generators/map_generator_pe.html`, `generators/puzzleGenerator.html`, `premium/generators/puzzleGenerator_pe.html`, `premium/generators/multitile_generator.html`, `premium/generators/slidingPuzzleGenerator.html` (plus `generators/medalHolderGenerator.html`) — the browser-based picker UIs served by `picker_server.py`. All six share the same served-page machinery (`__PORT__`, `__COMMON_CSS__`, `__SETTINGS_MODAL_JS__`, etc. tokens substituted in `picker_server.py`'s `do_GET`), so a change to that shared plumbing (or to "every generator") applies to all six, not just the four puzzle/multitile ones. Default to that reading unless the surrounding request is clearly about the Blender-side mesh-generation pipeline instead (`utils/generation.py`, `runGeneration()`).
+
+---
+
 ## Project Layout
 
 ```
@@ -24,11 +30,23 @@ TrailPrint3D/                 - Blender addon package (installed as a Blender ex
   threemf_discovery.py         - discovery helper for the bundled 3MF Import/Export addon
   translation.py               - translations_dict (DE/ZH UI strings)
   updater.py                   - GitHub/Patreon release checker + auto-download
-  puzzleGenerator.html         - free Puzzle Configurator (browser UI)
+  generators/                  - free generator pages (browser UIs served by picker_server.py)
+    map_generator.html          - free Map Generator
+    puzzleGenerator.html        - free Puzzle Configurator
+    medalHolderGenerator.html   - Medal Holder Generator (3D-preview page)
+    backplateGenerator.html     - Backplate Generator (3D-preview page, Shape Extras solid plate)
   assets/                      - .blend asset libraries (connectors, holder, other) + progress-overlay SVG icons
-  wheels/                      - bundled Shapely / Mapbox Earcut wheels (per-platform)
+  sample_files/                - bundled sample files, e.g. GPX tracks (for tutorials and example generations)
+    BetweenLakes.gpx            - Lake Como to Lake Ceresio route (komoot export)
+    germany.json                - Germany country border as GeoJSON (Natural Earth admin-0)
+    star.svg                    - five-pointed star, sample SVG map shape (made for TrailPrint3D)
+  wheels/                      - bundled Shapely wheels (per-platform)
   utils/
     __init__.py                - re-exports from submodules (wildcards OK here, see §10)
+    accessories/
+      medal_holder.py           - Medal Holder mesh builder (backs generators/medalHolderGenerator.html)
+      backplate.py              - Backplate builder via the Shape Extras code (backs generators/backplateGenerator.html)
+    color_styles.py             - map element color roles, built-in/user color styles (JSON), scene color helpers
     elevation.py                - elevation API helpers
     generation.py                - runGeneration() orchestration
     geo.py                       - coordinate math
@@ -49,14 +67,18 @@ premium/                       - Premium-only source, absent from the free build
   __init__.py
   operators_pe.py               - premium bpy.types.Operator subclasses
   utils_pe.py                   - premium-only utility functions
-  multitile_configurator.html   - premium multi-tile map configurator (browser UI)
-  puzzleGenerator_pe.html       - premium Puzzle Configurator (hex/radial piece shapes, multi-GPX)
+  generators/                   - premium generator pages (browser UIs)
+    map_generator_pe.html        - premium Map Generator (multi-GPX)
+    multitile_generator.html     - premium multi-tile map generator
+    puzzleGenerator_pe.html      - premium Jigsaw Puzzle Configurator (hex/radial piece shapes, multi-GPX)
+    slidingPuzzleGenerator.html  - premium Sliding Puzzle Configurator (square rounded-corner tiles, stepped-base retention)
   assets/                       - premium-only .blend asset libraries (puzzles.blend)
 
 tests/                         - standalone test suite, run inside Blender's own Python (not pytest)
   run_all_tests.py              - runs every test_*.py and prints a combined pass/fail summary
   headless_generate.py          - headless generator with a browser-based config UI (manual/dev use)
   test_generation_pipeline.py   - end-to-end runGeneration() tests against real elevation/Overpass APIs
+  test_element_colors.py        - tests for scene color styles and recoloring existing maps
   test_model_shape_matrix.py    - runGeneration() across every shape/shape-extra/medal-handle combo, exported as 3MF
   test_geo_elevation.py         - unit tests for pure-math functions in geo.py / elevation.py
   test_geojson_import.py        - tests for the GeoJSON boundary reader
@@ -70,6 +92,11 @@ tests/                         - standalone test suite, run inside Blender's own
 Tests run directly with Blender's bundled Python, not `pytest`, e.g.:
 ```powershell
 & "C:\Program Files\Blender Foundation\Blender 5.1\blender.exe" --background --factory-startup --python-exit-code 1 -P tests/run_all_tests.py
+```
+
+There is no system Python on the dev machine (`python` resolves to the Microsoft Store stub). For anything that doesn't need `bpy` — `py_compile` checks, quick standalone scripts — use Blender's bundled interpreter directly:
+```powershell
+& "C:\Program Files\Blender Foundation\Blender 5.1\5.1\python\bin\python.exe" -m py_compile premium/utils_pe.py
 ```
 
 ---

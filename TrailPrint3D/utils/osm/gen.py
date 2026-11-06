@@ -1,5 +1,6 @@
 from collections import deque
 
+from bpy.app.translations import pgettext_rpt as _rpt
 from mathutils import Vector
 
 from ... import progress as _progress
@@ -87,7 +88,7 @@ def extract_multipolygon_bodies(elements, nodes):
                         f"Skipping OSM outer ring with {len(loop)} nodes (limit {OSM_MAX_POLYGON_VERTS})"
                     )
                     _progress.WarningsOverlay.add_warning(
-                        "once Very large instance polygon was removed due to its complex shape",
+                        _rpt("once Very large instance polygon was removed due to its complex shape"),
                         "warn",
                     )
                     continue
@@ -95,7 +96,7 @@ def extract_multipolygon_bodies(elements, nodes):
             for loop in inner_loops:
                 if len(loop) > OSM_MAX_POLYGON_VERTS:
                     _progress.WarningsOverlay.add_warning(
-                        "once Very large instance polygon was removed due to its complex shape",
+                        _rpt("once Very large instance polygon was removed due to its complex shape"),
                         "warn",
                     )
                     print(

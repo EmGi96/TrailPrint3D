@@ -1,16 +1,14 @@
-"""Coverage matrix: every shape / Shape-Extras / Medal-Handle combination.
+"""Coverage matrix: every shape / plate / text-layout / Medal-Handle combination.
 
 Generates the same 3BergeTour hike -- resolution=3 (num_subdivisions), no
 terrain elements (every col_*/el_* flag off) -- once for every shape +
-"Shape Extras" (shapeTextStyle) combination the UI actually exposes (see
-props.SHAPE_TEXT_STYLES), and additionally for every Medal Handle
-(handleStyle) style on the four shape/extra combos that expose that control
-(HEXAGON OUTER TEXT, HEXAGON FRONT TEXT, OCTAGON OUTER TEXT, CIRCLE OUTER
-TEXT -- see panels.py's `effective_shape in {...}` gate around
-"handleStyle"). handleStyle has zero effect anywhere else (add_medal_handle
-is only ever called from those four shape functions), so cross-multiplying
-it against every combo would just re-generate identical geometry under a
-different name -- it's only varied where it actually changes the output.
+"Shape Extras" combination the UI actually exposes: every plateMode in
+shape_capabilities.PLATE_MODES_BY_SHAPE times every textLayout that
+shape_capabilities.valid_layouts() allows for it. The scenarios are built
+from those tables, so a shape or layout added there is covered here
+automatically. Medal Handle (handleStyle) is only varied on SOLID_PLATE --
+create_generic_plate is the only caller of add_medal_handle, so anywhere
+else it would just re-generate identical geometry under a different name.
 
 Each scenario gets a unique trailName (-> modelname -> export filename) and
 real export is left on (disable_auto_export=False, disable_3mf_export=
@@ -68,8 +66,19 @@ for _mod in _addon_utils.modules():
         break
 
 from TrailPrint3D.export import is_3mf_extension_installed
+from TrailPrint3D.progress import WarningsOverlay
+from TrailPrint3D.props import set_road_active
 from TrailPrint3D.utils import elevation as _elevation_module
-from TrailPrint3D.utils.generation import runGeneration
+from TrailPrint3D.utils.dataclasses import GenerationContext
+from TrailPrint3D.utils.generation.orchestrator import runGeneration
+from TrailPrint3D.utils.osm.roads import TIER_TAGS
+from TrailPrint3D.utils.shape_capabilities import PLATE_MODES_BY_SHAPE, valid_layouts
+
+# runGeneration() catches every exception itself and only reports it through
+# WarningsOverlay -- an "error" icon (ValidationError / GenerationError) or
+# this generic message (any other exception). --factory-startup keeps the UI
+# in English, so the untranslated text matches.
+_GENERIC_ERROR_MESSAGE = "There was an error, see console for details."
 
 # ---------------------------------------------------------------------------
 # Elevation stub — synthetic single-hill heightfield, no network.
@@ -77,7 +86,7 @@ from TrailPrint3D.utils.generation import runGeneration
 _original_get_tile_elevation = _elevation_module.get_tile_elevation
 
 
-def _fake_get_tile_elevation(obj, progress_cb=None):
+def _fake_get_tile_elevation(gen_or_obj, progress_cb=None):
     """Drop-in replacement for elevation.get_tile_elevation() that fabricates
     a smooth single-hill heightfield instead of calling MapTerhorn. Keeps
     real geographic-bounds bookkeeping (compute_and_store_tile_bounds is
@@ -85,6 +94,11 @@ def _fake_get_tile_elevation(obj, progress_cb=None):
     the network round-trip is skipped. Matches the real function's
     (elevations, diff) return contract and the scene-property side effects
     downstream code (metadata, overlays) reads."""
+    # Mirrors the real function's gen_or_obj contract (accepts either a
+    # GenerationContext or a bare bpy Object).
+    gen = gen_or_obj if isinstance(gen_or_obj, GenerationContext) else None
+    obj = gen.runtime.mapObject if gen is not None else gen_or_obj
+
     world_verts, _num_subdivisions, _disable_cache, _minLat, _maxLat, _minLon, _maxLon = (
         _elevation_module.compute_and_store_tile_bounds(obj)
     )
@@ -102,6 +116,12 @@ def _fake_get_tile_elevation(obj, progress_cb=None):
     tp3d.lowestElevation = lowestElevation
     tp3d.highestElevation = highestElevation
     tp3d.sAdditionalExtrusion = lowestElevation
+
+    # _rg_fetch_elevation reads the results from gen.runtime, not from the
+    # return value -- without these it raises "Elevation fetch returned no data".
+    if gen is not None:
+        gen.runtime.tileVerts = elevations
+        gen.runtime.elDiff = diff
 
     return elevations, diff
 
@@ -146,13 +166,19 @@ def _assert_all_passed():
 
 def _reset_scene_defaults():
     tp3d = bpy.context.scene.tp3d
+    # Clear the caches first: shape_update restores plateMode/textLayout
+    # from them, which would leak the previous scenario's extras.
+    tp3d.plateModeCache = "NONE"
+    tp3d.textLayoutCache = "NONE"
     tp3d.shape = "HEXAGON"
-    tp3d.shapeTextStyle = "NONE"
+    tp3d.shapeExtrasActive = False
+    tp3d.plateMode = "NONE"
+    tp3d.textLayout = "NONE"
     tp3d.handleStyle = "NONE"
     tp3d.objSize = 100
     tp3d.num_subdivisions = 3  # resolution = 3
     tp3d.scaleElevation = 1.0
-    tp3d.fixedElevationScale = False
+    tp3d.elevationMode = "PROPORTIONAL"
     tp3d.singleColorMode = False
     tp3d.elementMode = "PAINT"
     tp3d.disableCache = False  # reuse the addon's real cache across runs
@@ -162,18 +188,17 @@ def _reset_scene_defaults():
     tp3d.api = "MAPTERHORN"
     # No terrain elements for any scenario in this matrix.
     tp3d.col_fActive = False
-    tp3d.col_wPondsActive = False
-    tp3d.col_wSmallRiversActive = False
-    tp3d.col_wBigRiversActive = False
+    tp3d.col_wBodiesActive = False
+    tp3d.col_wMinorActive = False
+    tp3d.col_wMajorActive = False
     tp3d.col_cActive = False
     tp3d.col_scrActive = False
     tp3d.col_grActive = False
     tp3d.col_faActive = False
     tp3d.col_glActive = False
     tp3d.el_bActive = False
-    tp3d.el_sBigActive = False
-    tp3d.el_sMedActive = False
-    tp3d.el_sSmallActive = False
+    for _road_id in TIER_TAGS:
+        set_road_active(tp3d, _road_id, False)
     tp3d.el_oActive = False
     tp3d.ellipseRatio = 0.75
     tp3d.rectangleHeight = 100
@@ -200,82 +225,59 @@ def _cleanup_objects(objects):
 # The matrix
 # ---------------------------------------------------------------------------
 
-# Every shape / "Shape Extras" (shapeTextStyle) combination the UI exposes —
-# mirrors props.SHAPE_TEXT_STYLES. HEART has no extras at all.
-_SHAPE_EXTRAS = [
-    ("HEXAGON", "NONE"),
-    ("HEXAGON", "INNER TEXT"),
-    ("HEXAGON", "OUTER TEXT"),
-    ("HEXAGON", "FRONT TEXT"),
-    ("HEXAGON", "SHELL"),
-    ("OCTAGON", "NONE"),
-    ("OCTAGON", "OUTER TEXT"),
-    ("OCTAGON", "SHELL"),
-    ("CIRCLE", "NONE"),
-    ("CIRCLE", "OUTER TEXT"),
-    ("CIRCLE", "SHELL"),
-    ("SQUARE", "NONE"),
-    ("SQUARE", "SHELL"),
-    ("ELLIPSE", "NONE"),
-    ("ELLIPSE", "SHELL"),
-    ("HEART", "NONE"),
-]
-
-# Combos that actually show the "Medal Handle" control (panels.py gates
-# handleStyle to `effective_shape in {...}` these four) — handleStyle is a
-# no-op everywhere else (add_medal_handle is only called from these four
-# shape functions in text_objects.py), so it's only varied here.
-_HANDLE_CAPABLE = {
-    ("HEXAGON", "OUTER TEXT"),
-    ("HEXAGON", "FRONT TEXT"),
-    ("OCTAGON", "OUTER TEXT"),
-    ("CIRCLE", "OUTER TEXT"),
-}
+# File-based shapes (GEOJSON / SVG) need an import file, not the GPX this
+# matrix generates from, so they're left out.
+_SHAPES = ["HEXAGON", "OCTAGON", "CIRCLE", "SQUARE", "ELLIPSE", "HEART"]
 _HANDLE_STYLES = ["NONE", "ROUND", "FLAT"]
 
-# Expected minimum object count per shapeTextStyle: map + trail, plus
-# whatever extra objects that style creates (matches the per-shape
-# expectations in test_generation_pipeline.py). A medal handle is joined
-# into the existing plate object, not a new object, so it doesn't change
-# these numbers.
-_MIN_OBJECTS = {
-    "NONE": 2,
-    "INNER TEXT": 3,
-    "OUTER TEXT": 4,
-    "FRONT TEXT": 4,
-    "SHELL": 3,
-}
 
-
-def _scenario_name(shape, extra, handle):
-    parts = [shape.lower(), extra.lower().replace(" ", "_")]
+def _scenario_name(shape, plate, layout, handle):
+    parts = [shape, plate, layout]
     if handle != "NONE":
-        parts.append(f"handle_{handle.lower()}")
-    return "matrix_" + "_".join(parts)
+        parts.append(f"handle_{handle}")
+    return "matrix_" + "_".join(parts).lower()
 
 
 def _build_scenarios():
     scenarios = []
-    for shape, extra in _SHAPE_EXTRAS:
-        handles = _HANDLE_STYLES if (shape, extra) in _HANDLE_CAPABLE else ["NONE"]
-        for handle in handles:
-            scenarios.append((shape, extra, handle))
+    for shape in _SHAPES:
+        for plate in PLATE_MODES_BY_SHAPE[shape]:
+            handles = _HANDLE_STYLES if plate == "SOLID_PLATE" else ["NONE"]
+            for layout in valid_layouts(shape, plate):
+                for handle in handles:
+                    scenarios.append((shape, plate, layout, handle))
     return scenarios
 
 
-def _run_matrix_scenario(shape, extra, handle):
-    name = _scenario_name(shape, extra, handle)
+def _min_objects(plate, layout):
+    """map + trail, plus one plate/shell object and one text object when
+    those are enabled. A medal handle is joined into the plate object, so it
+    doesn't add one."""
+    return 2 + (plate != "NONE") + (layout != "NONE")
+
+
+def _run_matrix_scenario(shape, plate, layout, handle):
+    name = _scenario_name(shape, plate, layout, handle)
 
     _reset_scene_defaults()
     tp3d = bpy.context.scene.tp3d
 
     tp3d.file_path = os.path.join(_RESOURCES_DIR, _GPX_FILE)
     tp3d.shape = shape
-    tp3d.shapeTextStyle = extra
+    tp3d.shapeExtrasActive = plate != "NONE" or layout != "NONE"
+    tp3d.plateMode = plate
+    tp3d.textLayout = layout
     tp3d.handleStyle = handle
     tp3d.trailName = name  # -> modelname -> export filename, unique per scenario
 
-    # All 24 scenarios share one flat output folder — trailName already makes
+    # The update callbacks silently drop values they consider invalid (e.g.
+    # SHELL without Premium) -- fail loudly instead of testing the wrong combo.
+    actual = (tp3d.shape, tp3d.plateMode, tp3d.textLayout, tp3d.handleStyle)
+    assert actual == (shape, plate, layout, handle), (
+        f"{name}: scene settings were changed to {actual} by the property update callbacks"
+    )
+
+    # Every scenario shares one flat output folder — trailName already makes
     # every filename unique, so there's no need for a per-scenario subfolder.
     tp3d.export_path = _OUTPUT_DIR + os.sep  # export_to_STL / export_selected_to_3mf concatenate path + filename directly
 
@@ -283,6 +285,10 @@ def _run_matrix_scenario(shape, extra, handle):
     runGeneration(0)
     after = set(bpy.data.objects)
     new_objects = list(after - before)
+    generation_errors = [
+        message for message, icon in WarningsOverlay._messages
+        if icon == "error" or message == _GENERIC_ERROR_MESSAGE
+    ]
 
     object_count = len(new_objects)
     total_vertices = sum(len(o.data.vertices) for o in new_objects if o.type == 'MESH')
@@ -297,12 +303,14 @@ def _run_matrix_scenario(shape, extra, handle):
 
     _cleanup_objects(new_objects)
 
-    print(f"    shape={shape:10s} extra={extra:12s} handle={handle:6s} "
+    print(f"    shape={shape:8s} plate={plate:11s} layout={layout:10s} handle={handle:5s} "
           f"objects={object_count} verts={total_vertices}")
 
-    min_objects = _MIN_OBJECTS[extra]
+    assert not generation_errors, f"{name}: runGeneration reported {generation_errors}"
+
+    min_objects = _min_objects(plate, layout)
     assert object_count >= min_objects, (
-        f"{name}: expected >= {min_objects} objects for {shape}/{extra}, got {object_count}"
+        f"{name}: expected >= {min_objects} objects for {shape}/{plate}/{layout}, got {object_count}"
     )
     assert total_vertices > 0, f"{name}: expected non-empty geometry"
     if is_3mf_extension_installed():
@@ -318,7 +326,7 @@ def _run_matrix_scenario(shape, extra, handle):
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     print("\n" + "=" * 60)
-    print("  TrailPrint3D shape / shape-extras / medal-handle matrix (synthetic elevation, 3MF export)")
+    print("  TrailPrint3D shape / plate / text-layout / medal-handle matrix (synthetic elevation, 3MF export)")
     print("=" * 60 + "\n")
 
     if is_3mf_extension_installed():
@@ -334,11 +342,10 @@ if __name__ == "__main__":
 
     _patch_elevation()
     try:
-        for shape, extra, handle in _build_scenarios():
-            scenario_name = _scenario_name(shape, extra, handle)
+        for scenario in _build_scenarios():
             _run(
-                scenario_name,
-                lambda shape=shape, extra=extra, handle=handle: _run_matrix_scenario(shape, extra, handle),
+                _scenario_name(*scenario),
+                lambda scenario=scenario: _run_matrix_scenario(*scenario),
             )
     finally:
         _unpatch_elevation()

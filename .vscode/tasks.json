@@ -49,6 +49,19 @@
                 "panel": "shared"
             },
             "problemMatcher": []
+        },
+        {
+            // Task to run Extract_Translations.py at repo root
+            "label": "Run Extract Translations",
+            "type": "shell",
+            "command": "py Extract_Translations.py",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            },
+            "problemMatcher": []
         }
     ]
 }

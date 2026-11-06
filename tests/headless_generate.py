@@ -47,6 +47,9 @@ _headless = __import__(
 )
 HeadlessConfigServer = _headless.HeadlessConfigServer
 
+_props_mod = __import__(f"{_ADDON_MODULE}.props", fromlist=["set_road_active"])
+set_road_active = _props_mod.set_road_active
+
 # ---------------------------------------------------------------------------
 # Apply a config dict to the scene properties
 # ---------------------------------------------------------------------------
@@ -66,16 +69,22 @@ def apply_config(cfg: dict):
     tp3d.singleColorMode    = bool(cfg.get("single_color_mode", False))
 
     # OSM elements
-    tp3d.col_wPondsActive       = bool(cfg.get("water", False))
-    tp3d.col_wBigRiversActive   = bool(cfg.get("rivers_big", False))
-    tp3d.col_wSmallRiversActive = bool(cfg.get("rivers_small", False))
+    tp3d.col_wBodiesActive       = bool(cfg.get("water", False))
+    tp3d.col_wMajorActive   = bool(cfg.get("rivers_big", False))
+    tp3d.col_wMinorActive = bool(cfg.get("rivers_small", False))
     tp3d.col_fActive            = bool(cfg.get("forest", False))
     tp3d.col_cActive            = bool(cfg.get("cities", False))
     tp3d.col_grActive           = bool(cfg.get("greenspace", False))
     tp3d.el_bActive             = bool(cfg.get("buildings", False))
-    tp3d.el_sBigActive          = bool(cfg.get("roads_big", False))
-    tp3d.el_sMedActive          = bool(cfg.get("roads_med", False))
-    tp3d.el_sSmallActive        = bool(cfg.get("roads_small", False))
+    # roads_big historically meant motorway+primary+trunk combined; the new
+    # tier split separates "highways" (motorway) from "major" (trunk/primary)
+    # -- set both from the one legacy checkbox so existing test configs keep
+    # fetching the same set of roads they did before.
+    _roads_big = bool(cfg.get("roads_big", False))
+    set_road_active(tp3d, "highways", _roads_big)
+    set_road_active(tp3d, "major", _roads_big)
+    set_road_active(tp3d, "minor", bool(cfg.get("roads_med", False)))
+    set_road_active(tp3d, "residential", bool(cfg.get("roads_small", False)))
 
     tp3d.disable_auto_export = False
 

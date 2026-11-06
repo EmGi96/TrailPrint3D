@@ -4,6 +4,7 @@ Covers:
   - Overpass HTTP request logic (retry, error handling, GET vs POST)
   - Per-tile parallel fetcher (_fetch_tiles_parallel)
   - Multi-kind parallel fetcher (_fetch_all_kinds_parallel)
+  - Combined-area OSM snapshots and background fetch overlap
   - Union query and element classifier (fetch_osm_combined)
   - coloring_main API surface
   - bmesh flood-fill loose-part splitting
@@ -78,6 +79,80 @@ def _make_response(status_code, body=None):
     r.status_code = status_code
     r.json.return_value = body if body is not None else {"elements": []}
     return r
+
+
+def test_combined_osm_fetch_snapshots_before_background_work():
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from TrailPrint3D.utils import terrain
+    from TrailPrint3D.utils.generation import terrain_gen
+
+    main_thread = threading.get_ident()
+    tp3d = SimpleNamespace(elementSource="OSM")
+    snapshot_settings = object()
+    tasks = [("WATER", [(47.0, 8.0, 47.1, 8.1)])]
+    expected = {"WATER": {"tile": ({"elements": []}, False)}}
+    osm_started = threading.Event()
+    elevation_work = threading.Event()
+
+    def _snapshot(actual_tp3d, map_km):
+        assert threading.get_ident() == main_thread
+        assert actual_tp3d is tp3d
+        assert map_km == 10.0
+        return snapshot_settings
+
+    def _fetch(actual_tasks, semaphore, settings=None):
+        assert threading.get_ident() != main_thread
+        assert actual_tasks is tasks
+        assert settings is snapshot_settings
+        osm_started.set()
+        assert elevation_work.wait(5), "OSM must overlap elevation work"
+        return expected
+
+    with (
+        patch.object(terrain_gen, "bpy", SimpleNamespace(context=SimpleNamespace(
+            scene=SimpleNamespace(tp3d=tp3d)
+        ))),
+        patch.object(terrain_gen, "_rg_build_osm_kind_tasks", return_value=tasks),
+        patch.object(terrain_gen, "_rg_osm_fetch_settings", side_effect=_snapshot),
+        patch.object(terrain, "_fetch_all_kinds_parallel", side_effect=_fetch),
+    ):
+        fetch = terrain_gen.prepare_combined_osm_fetch(47.0, 47.1, 8.0, 8.1, 10.0)
+        # The prepared worker must no longer need any Blender context.
+        with patch.object(terrain_gen, "bpy", object()):
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(fetch)
+                try:
+                    assert osm_started.wait(5), "Background OSM fetch did not start"
+                    assert not future.done()
+                finally:
+                    elevation_work.set()
+                assert future.result(timeout=5) == expected
+
+
+def test_combined_osm_fetch_with_no_active_kinds():
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from TrailPrint3D.utils import terrain
+    from TrailPrint3D.utils.generation import terrain_gen
+
+    tp3d = SimpleNamespace(elementSource="OSM")
+    with (
+        patch.object(terrain_gen, "bpy", SimpleNamespace(context=SimpleNamespace(
+            scene=SimpleNamespace(tp3d=tp3d)
+        ))),
+        patch.object(terrain_gen, "_rg_build_osm_kind_tasks", return_value=[]),
+        patch.object(terrain_gen, "_rg_osm_fetch_settings") as snapshot,
+        patch.object(terrain, "_fetch_all_kinds_parallel") as fetch,
+    ):
+        assert terrain_gen.prepare_combined_osm_fetch(47.0, 47.1, 8.0, 8.1, 10.0)() == {}
+        assert terrain_gen.fetch_combined_osm_data(47.0, 47.1, 8.0, 8.1, 10.0) == {}
+        snapshot.assert_not_called()
+        fetch.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -157,6 +232,28 @@ def test_overpass_request_log_callback_called_on_error():
                           max_retries=3, log_callback=messages.append)
 
     assert messages, "log_callback should have been called on HTTP error"
+
+
+def test_overpass_request_progress_callback_streams_body():
+    """progress_callback streams the body and reports the downloaded size."""
+    import json
+    from unittest.mock import patch
+
+    from TrailPrint3D.utils.osm.fetch_utils import _overpass_request
+
+    data = {"elements": [{"type": "node", "id": 1}]}
+    resp = _make_response(200, data)
+    body = json.dumps(data).encode("utf-8")
+    resp.iter_content.return_value = [body[:10], body[10:]]
+    messages = []
+    with patch("TrailPrint3D.utils.osm.fetch_utils.requests.post", return_value=resp) as mp, \
+         patch("TrailPrint3D.utils.osm.fetch_utils.time.sleep"):
+        result = _overpass_request("query", "https://example.com", max_retries=1,
+                                   progress_callback=messages.append)
+
+    assert result == data
+    assert mp.call_args.kwargs.get("stream") is True
+    assert any(m.startswith("Downloading") for m in messages), messages
 
 
 def test_overpass_request_get_method():
@@ -575,9 +672,12 @@ def _munich_settings(**overrides):
         "disable_cache": True,  # always go to the network; no stale results
         "api_retries": 2,
         "mapsize": 5.0,
-        "road_big": True,
-        "road_med": True,
-        "road_small": False,
+        "road_tiers": {
+            "highways": True, "major": True, "minor": True,
+            "residential": False, "service": False, "footway": False,
+            "pedestrian": False, "cycle_bridle": False, "track": False, "path": False,
+            "raceway": False,
+        },
         "water_ponds": True,
         "water_small_rivers": True,
         "water_big_rivers": True,
@@ -864,6 +964,157 @@ def test_close_chain_with_bbox_returns_polygon():
     assert len(poly) >= 3, f"Polygon needs at least 3 pts, got {len(poly)}"
 
 
+def test_ocean_probes_do_not_jump_from_island_across_mainland():
+    """A small offshore rock must not cause the entire mainland to become ocean."""
+    from shapely.geometry import Point
+
+    from TrailPrint3D.utils.terrain import _polygonize_ocean_faces
+
+    coast = [(50.0, -1.0), (50.0, 50.0), (50.0, 101.0)]
+    island = [
+        (50.001, 40.0), (50.003, 40.0), (50.003, 40.002),
+        (50.001, 40.002), (50.001, 40.0),
+    ]
+    for offset in (0.0, 3600.0):
+        for epsilon in (0.0, 0.1):
+            polygons = _polygonize_ocean_faces(
+                [[(x, y + offset) for x, y in coast]],
+                [[(x, y + offset) for x, y in island]],
+                (0.0, offset, 100.0, 100.0 + offset),
+                rdp_eps=epsilon,
+            )
+            assert polygons, "Expected an ocean face"
+            assert not any(p.covers(Point(25.0, 50.0 + offset)) for p in polygons), \
+                "An island's right-side probe jumped over the sea onto mainland"
+            assert any(p.covers(Point(75.0, 50.0 + offset)) for p in polygons)
+            assert abs(sum(p.area for p in polygons) - 5000.0) < 0.001
+
+
+def test_ocean_probes_preserve_narrow_channels():
+    """Probes must stay in a channel narrower than the default probing distance."""
+    from shapely.geometry import Point
+
+    from TrailPrint3D.utils.terrain import _polygonize_ocean_faces
+
+    west = [(50.0, -1.0), (50.0, 500.0), (50.0, 1001.0)]
+    east = [(50.02, 1001.0), (50.02, 500.0), (50.02, -1.0)]
+    polygons = _polygonize_ocean_faces([west, east], [], (0.0, 0.0, 100.0, 1000.0))
+    assert polygons, "Expected the narrow ocean channel"
+    assert abs(sum(p.area for p in polygons) - 20.0) < 1e-8
+    assert any(p.covers(Point(50.01, 500.0)) for p in polygons)
+    assert not any(p.covers(Point(25.0, 500.0)) for p in polygons)
+    assert not any(p.covers(Point(75.0, 500.0)) for p in polygons)
+
+
+def test_coast_simplify_auto_default():
+    from TrailPrint3D.utils.terrain import resolve_coast_simplify
+
+    assert resolve_coast_simplify(0.0, 0.0) == 0.1
+
+
+def test_coast_simplify_auto_midpoint_and_monotonicity():
+    from math import isclose
+
+    from TrailPrint3D.utils.terrain import resolve_coast_simplify
+
+    assert isclose(resolve_coast_simplify(0.5, 0.0), 0.15)
+    values = [resolve_coast_simplify(i / 100, 0.0) for i in range(101)]
+    assert values == sorted(values)
+
+
+def test_coast_simplify_auto_ceiling_and_clamping():
+    from math import isclose
+
+    from TrailPrint3D.utils.terrain import resolve_coast_simplify
+
+    assert isclose(resolve_coast_simplify(1.0, 0.0), 0.2)
+    assert isclose(resolve_coast_simplify(5.0, 0.0), 0.2)
+    assert resolve_coast_simplify(-1.0, 0.0) == 0.1
+
+
+def test_coast_simplify_explicit_ignores_smoothing():
+    from TrailPrint3D.utils.terrain import resolve_coast_simplify
+
+    assert resolve_coast_simplify(0.0, 0.3) == resolve_coast_simplify(1.0, 0.3) == 0.3
+
+
+def test_coast_simplify_explicit_uncapped_and_tiny():
+    from TrailPrint3D.utils.terrain import resolve_coast_simplify
+
+    for smoothing in (0.0, 0.5, 1.0, 5.0, -1.0):
+        assert resolve_coast_simplify(smoothing, 1.5) == 1.5
+        assert resolve_coast_simplify(smoothing, 0.001) == 0.001
+
+
+def test_ocean_rdp_epsilon_uses_scene_settings():
+    from types import SimpleNamespace
+
+    from TrailPrint3D.utils.terrain import _ocean_rdp_epsilon
+
+    assert _ocean_rdp_epsilon(None) == 0.1
+    assert _ocean_rdp_epsilon(SimpleNamespace(col_osmSmoothing=1.0)) == 0.2
+    assert _ocean_rdp_epsilon(SimpleNamespace(
+        col_osmSmoothing=1.0, el_oRdpEpsilon=0.05,
+    )) == 0.05
+
+
+def test_coast_simplify_preserves_taubin_smoothing():
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from shapely.geometry import box
+
+    from TrailPrint3D.utils import geometry2d, terrain
+
+    ocean = box(10.0, 10.0, 90.0, 90.0)
+    bbox = (0.0, 0.0, 100.0, 100.0)
+    for smoothing, explicit, tolerance, steps in (
+        (0.0, 0.0, 0.1, 0),
+        (1.0, 0.0, 0.2, 20),
+        (0.5, 0.05, 0.05, 10),
+    ):
+        tp3d = SimpleNamespace(col_osmSmoothing=smoothing, el_oRdpEpsilon=explicit)
+        with (
+            patch.object(terrain, "bpy", SimpleNamespace(
+                context=SimpleNamespace(scene=SimpleNamespace(tp3d=tp3d)),
+            )),
+            patch.object(terrain, "_polygonize_ocean_faces", return_value=[ocean]) as polygonize,
+            patch.object(geometry2d, "smooth_polygon_taubin_bbox_pinned", return_value=ocean) as smooth,
+        ):
+            result = terrain._smoothed_ocean_polys([], [], bbox, terrain._ocean_rdp_epsilon(tp3d))
+            assert result and result[0].equals(ocean)
+            polygonize.assert_called_once_with([], [], bbox, rdp_eps=tolerance)
+            if steps:
+                smooth.assert_called_once_with(ocean, bbox, steps=steps, debug_name="ocean_000")
+            else:
+                smooth.assert_not_called()
+
+
+def test_ocean_simplification_does_not_move_mainland_across_islands():
+    """Simplifying a shallow bay must not strand its offshore rock on land."""
+    from shapely.geometry import Point
+
+    from TrailPrint3D.utils.terrain import _polygonize_ocean_faces
+
+    coast = [
+        (50.0, -1.0), (50.0, 40.0), (49.95, 50.0),
+        (50.0, 60.0), (50.0, 101.0),
+    ]
+    island = [
+        (49.97, 49.99), (49.98, 49.99), (49.98, 50.01),
+        (49.97, 50.01), (49.97, 49.99),
+    ]
+    polygons = _polygonize_ocean_faces(
+        [coast], [island], (0.0, 0.0, 100.0, 100.0), rdp_eps=0.1,
+    )
+    assert polygons, "Expected ocean beside the mainland"
+    assert not any(p.covers(Point(25.0, 50.0)) for p in polygons), \
+        "Independent simplification swallowed the island and tagged mainland as water"
+    assert any(p.covers(Point(75.0, 50.0)) for p in polygons)
+    area = sum(p.area for p in polygons)
+    assert abs(area - 5000.5) <= 10.0, f"Ocean area exceeds simplification tolerance: {area}"
+
+
 def test_build_ocean_mesh_no_chains_returns_bbox_rect():
     """No open chains → tile is fully ocean → returns the full bbox rectangle."""
     from TrailPrint3D.utils.terrain import _build_ocean_mesh
@@ -998,7 +1249,7 @@ def test_real_coastline_fetch_returns_ways():
 
     settings = OsmFetchSettings(
         disable_cache=True, api_retries=2, mapsize=10.0,
-        road_big=False, road_med=False, road_small=False,
+        road_tiers={},
         water_ponds=False, water_small_rivers=False, water_big_rivers=False,
     )
     result = fetch_osm_combined(
@@ -1030,7 +1281,7 @@ def test_real_coastline_stitch_and_polygon():
 
     settings = OsmFetchSettings(
         disable_cache=False, api_retries=2, mapsize=10.0,
-        road_big=False, road_med=False, road_small=False,
+        road_tiers={},
         water_ponds=False, water_small_rivers=False, water_big_rivers=False,
     )
     result = fetch_osm_combined(
@@ -1089,6 +1340,7 @@ if __name__ == "__main__":
     _run("overpass request: exhausted retries → None",    test_overpass_request_exhausted_returns_none)
     _run("overpass request: Timeout triggers retry",      test_overpass_request_timeout_triggers_retry)
     _run("overpass request: log_callback fired on error", test_overpass_request_log_callback_called_on_error)
+    _run("overpass request: progress_callback streams body", test_overpass_request_progress_callback_streams_body)
     _run("overpass request: GET method uses requests.get",test_overpass_request_get_method)
 
     # Per-tile parallel fetcher
@@ -1100,6 +1352,10 @@ if __name__ == "__main__":
     _run("tile fetcher: semaphore caps peak concurrency", test_fetch_tiles_parallel_semaphore_caps_concurrency)
 
     # Multi-kind parallel fetcher
+    _run("combined fetch: snapshot on main thread, overlaps elevation",
+         test_combined_osm_fetch_snapshots_before_background_work)
+    _run("combined fetch: no active kinds performs no fetch",
+         test_combined_osm_fetch_with_no_active_kinds)
     _run("kind fetcher: all kinds fetched",               test_fetch_all_kinds_fetches_every_kind)
     _run("kind fetcher: failed kind → empty dict",        test_fetch_all_kinds_failed_kind_excluded)
     _run("kind fetcher: kinds genuinely concurrent",      test_fetch_all_kinds_actually_concurrent)
@@ -1135,6 +1391,17 @@ if __name__ == "__main__":
     _run("coastline stitch: disjoint chains stay separate",       test_stitch_disjoint_chains_stay_separate)
     _run("coastline stitch: two halves form closed ring",         test_stitch_fragments_form_closed_ring)
     _run("coastline bbox close: returns valid polygon",           test_close_chain_with_bbox_returns_polygon)
+    _run("coastline faces: island probes cannot jump onto land", test_ocean_probes_do_not_jump_from_island_across_mainland)
+    _run("coastline faces: narrow ocean channels stay water",    test_ocean_probes_preserve_narrow_channels)
+    _run("coastline faces: simplification preserves offshore islands",
+         test_ocean_simplification_does_not_move_mainland_across_islands)
+    _run("coast simplify: automatic default", test_coast_simplify_auto_default)
+    _run("coast simplify: midpoint and monotonicity", test_coast_simplify_auto_midpoint_and_monotonicity)
+    _run("coast simplify: ceiling and clamping", test_coast_simplify_auto_ceiling_and_clamping)
+    _run("coast simplify: explicit ignores smoothing", test_coast_simplify_explicit_ignores_smoothing)
+    _run("coast simplify: explicit uncapped and tiny", test_coast_simplify_explicit_uncapped_and_tiny)
+    _run("coast simplify: scene settings and defaults", test_ocean_rdp_epsilon_uses_scene_settings)
+    _run("coast simplify: preserves independent Taubin smoothing", test_coast_simplify_preserves_taubin_smoothing)
     _run("coastline mesh: no chains → full bbox rect",            test_build_ocean_mesh_no_chains_returns_bbox_rect)
     _run("coastline mesh: open chain → polygon object",           test_build_ocean_mesh_open_chain_produces_polygon)
     _run("fetch_coastline_ways: empty prefetch → []",             test_fetch_coastline_ways_empty_prefetch)

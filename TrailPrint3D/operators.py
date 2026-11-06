@@ -12,304 +12,402 @@ import time
 
 import bmesh  # type: ignore
 import bpy  # type: ignore
-from bpy.app.translations import (
-    pgettext_iface as _,  # type: ignore #For Translation of Text Required
+import numpy as np
+from bpy.app.translations import pgettext_iface as _
+from bpy.app.translations import pgettext_rpt as _rpt
+from bpy.app.translations import pgettext_tip as _tip
+from bpy.props import (  # type: ignore
+    BoolVectorProperty,
+    CollectionProperty,
+    IntProperty,
+    StringProperty,
 )
-from bpy.props import StringProperty  # type: ignore
-from mathutils import Euler, Quaternion, Vector  # type: ignore
+from mathutils import Euler, Quaternion, Vector, noise  # type: ignore
 
-from . import addon_preferences, utils
+from . import addon_preferences, export, utils
 from . import constants as const
 from . import progress as _progress
+from .utils import color_styles
+from .utils.color import set_material_srgb
+from .utils.dataclasses import ExportError, GenerationError
+
+_warn = _progress.WarningsOverlay.add_warning
 
 
 # Define the operator (script execution)
 class TP3D_OT_run_generation(bpy.types.Operator):
     bl_idname = "tp3d.run_generation"
-    bl_label = "Generate"
-    bl_description = "Generate the Path and the Map with current Settings"
+    bl_label = _("Generate")
+    bl_description = _tip("Generate the Path and the Map with current Settings")
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        export_path_set = bool(addon_preferences.get_export_folder(context.scene.tp3d))
+        file_path_set = bool(getattr(context.scene.tp3d, "file_path", None))
+        if not export_path_set and not file_path_set:
+            cls.poll_message_set(_tip("Choose a GPX file, and set an export path"))
+        elif not export_path_set:
+            cls.poll_message_set(_tip("Set an export path"))
+        elif not file_path_set:
+            cls.poll_message_set(_tip("Choose a GPX file"))
+        return export_path_set and file_path_set
 
     def execute(self, context):
+
+        self._handler = getattr(self, "_handler", None)
+
+        _progress.WarningsOverlay.clear()
+        # Texture mode needs no check here: props.tex_use_texture already
+        # reads False without the 3MF addon.
+        _progress.WarningsOverlay.get().show()
         utils.runGeneration(0)
-        
-        return {'FINISHED'}
+        return {"FINISHED"}
+
 
 class TP3D_OT_shapely_status(bpy.types.Operator):
     bl_idname = "tp3d.shapely_status"
-    bl_label = "Shapely failed to load"
-    # TODO: CLEAN THIS WHOLE CLASS
+    bl_label = _("Shapely Status")
+    bl_description = _tip("Check or display Shapely library load status")
+
+    @classmethod
+    def _get_shapely_error(cls) -> str | None:
+        from .utils import geometry2d as _g2d
+
+        return str(_g2d._SHAPELY_IMPORT_ERROR) if _g2d._SHAPELY_IMPORT_ERROR else None
 
     @classmethod
     def description(cls, context, properties):
-        from .utils import geometry2d as _g2d
-        err = str(_g2d._SHAPELY_IMPORT_ERROR) if _g2d._SHAPELY_IMPORT_ERROR is not None else _("Unknown error")
-        return _(
-            "Elements and Single-color mode might not work properly\n"
-            "{err}\n"
-            "Try reinstalling the addon or wait for an update"
-        ).format(err=err)
+        err = cls._get_shapely_error()
+        if err:
+            return (
+                f"{_('Elements and Single Extruder mode might not work properly.')}\n{err}"
+            )
+        return _("Shapely is loaded and operational.")
 
     def execute(self, context):
-        from .utils import geometry2d as _g2d
-        _err_text = str(_g2d._SHAPELY_IMPORT_ERROR) if _g2d._SHAPELY_IMPORT_ERROR is not None else _("Unknown error")
 
-        def _draw(popup_self, context):
-            col = popup_self.layout.column(align=True)
-            col.label(text=_("Elements and Single-color mode might not work properly"))
-            col.label(text=_("The issue is known and im looking for a solution"))
-            #col.label(text=err_text)
-            col.label(text=_("Try reinstalling the addon or wait for an update"))
+        self._handler = getattr(self, "_handler", None)
 
-        context.window_manager.popup_menu(_draw, title=_("Shapely failed to load"), icon='ERROR')
-        return {'FINISHED'}
+        _progress.WarningsOverlay.clear()
+        try:
+            err = self._get_shapely_error()
+            if err:
+                raise GenerationError(
+                    _(
+                        "Shapely failed to load: {error}. Reinstall the addon or check dependencies."
+                    ).format(error=err)
+                )
+        except GenerationError as e:
+            msg = str(e)
+            _warn(msg)
+            print(msg)
+            return {"CANCELLED"}
+        finally:
+            _progress.WarningsOverlay.get().show()
+
+        self.report({"INFO"}, _rpt("Shapely is working properly."))
+        return {"FINISHED"}
 
 
-class TP3D_OT_earcut_status(bpy.types.Operator):
-    bl_idname = "tp3d.earcut_status"
-    bl_label = "Earcut failed to load"
+class TP3D_OT_python_mismatch_status(bpy.types.Operator):
+    bl_idname = "tp3d.python_mismatch_status"
+    bl_label = _("Unsupported Blender build detected")
 
     @classmethod
     def description(cls, context, properties):
-        from .utils import geometry2d as _g2d
-        err = str(_g2d._EARCUT_IMPORT_ERROR) if _g2d._EARCUT_IMPORT_ERROR is not None else _("Unknown error")
+        import platform
+
         return _(
-            "Trail strips (Single-color mode) and 3D Elements will come out empty\n"
-            "{err}\n"
-            "Try reinstalling the addon or wait for an update"
-        ).format(err=err)
+            "This Blender is running Python {ver}, not the Python Blender's "
+            "official build ships with.\n"
+            "Click for details on why, and how to fix it."
+        ).format(ver=platform.python_version())
 
     def execute(self, context):
-        from .utils import geometry2d as _g2d
-        err_text = str(_g2d._EARCUT_IMPORT_ERROR) if _g2d._EARCUT_IMPORT_ERROR is not None else _("Unknown error")
+        import platform
 
-        def _draw(popup_self, context):
-            col = popup_self.layout.column(align=True)
-            col.label(text=_("Trail strips (Single-color mode) and 3D Elements will come out empty"))
-            col.label(text=err_text)
-            col.label(text=_("Try reinstalling the addon or wait for an update"))
+        self._handler = getattr(self, "_handler", None)
 
-        context.window_manager.popup_menu(_draw, title=_("Earcut failed to load"), icon='ERROR')
-        return {'FINISHED'}
+        _progress.WarningsOverlay.clear()
+
+        try:
+            print(
+                f"[TrailPrint3D] Detected Linux + Python {platform.python_version()} -- "
+                "this usually means Blender came from an unofficial source (e.g. "
+                "Flatpak) that bundles a different Python than the official "
+                "blender.org build. This breaks most of TrailPrint3D's feature set. "
+                "Please install Blender from blender.org instead."
+            )
+            raise GenerationError(
+                _(
+                    "Running Python {ver} instead of Blender's official version. "
+                    "Linux package sources (like Flatpak) sometimes swap it out, which breaks "
+                    "TrailPrint3D's bundled libraries (e.g. Shapely). "
+                    "Fix: install Blender directly from blender.org instead."
+                ).format(ver=platform.python_version())
+            )
+        except GenerationError as e:
+            _warn(str(e))
+            self.report({"ERROR"}, str(e))
+            return {"CANCELLED"}
+        finally:
+            _progress.WarningsOverlay.get().show()
 
 
-class TP3D_OT_export_stl(bpy.types.Operator):
+class TP3D_ExportBase:
+    """Mixin class for shared export validation logic."""
+
+    _messages = []
+    _handler = None
+
+    def get_valid_export_path(self, context):
+        if not context.selected_objects:
+            raise ExportError(_("Please select the object(s) you want to export."))
+
+        tp3d = context.scene.tp3d
+        raw_path = (
+            tp3d.get("export_path")
+            or addon_preferences.get_prefs().default_export_folder
+        )
+
+        if not raw_path:
+            raise ExportError(
+                _("Export path is empty! Please select a valid directory.")
+            )
+
+        export_path = bpy.path.abspath(raw_path)
+
+        if not os.path.isdir(export_path):
+            raise ExportError(
+                _("Invalid export directory: {path}").format(path=export_path)
+            )
+
+        return export_path
+
+
+class TP3D_OT_export_stl(bpy.types.Operator, TP3D_ExportBase):
     bl_idname = "tp3d.export_stl"
-    bl_label = "Export STL"
-    bl_description = "Export Selected Objects as Separate STL (Will lose Colors)"
+    bl_label = _("Export STL")
+    bl_description = _tip("Export Selected Objects as Separate STL (Will lose Colors)")
 
     def execute(self, context):
-        tp3d = context.scene.tp3d  # Access stored variables
+        self._handler = getattr(self, "_handler", None)
+        _progress.WarningsOverlay.clear()
 
-        exportPath = tp3d.get('export_path', None)
+        try:
+            # If this fails, it automatically throws the specific ExportError
+            export_path = self.get_valid_export_path(context)
 
-        if not exportPath:
-            exportPath = addon_preferences.get_prefs().default_export_folder
+            utils.export_selected_to_STL("STL")
 
-        if not exportPath:
-            self.report({'ERROR'}, "'Export path' is Empty. Please select a Directory For the finished files")
-            return {'CANCELLED'}
+            count = len(context.selected_objects)
+            _warn(
+                _("{count} STL file(s) exported to: {path}").format(
+                    count=count, path=export_path
+                ),
+                icon="ok",
+            )
+        except ExportError as e:
+            _warn(str(e))
+            self.report({"ERROR"}, str(e))
+            return {"CANCELLED"}
+        finally:
+            _progress.WarningsOverlay.get().show()
 
-        exportPath = bpy.path.abspath(exportPath)
+        return {"FINISHED"}
 
-        if not exportPath or exportPath == "":
-            self.report({'ERROR'}, "Export path is empty! Please select a valid folder.")
-            return {'CANCELLED'}
-        if not os.path.isdir(exportPath):
-            self.report({'ERROR'}, f"Invalid export Directory: {exportPath}. Please select a valid Directory.")
-            return {'CANCELLED'}
 
-        if not context.selected_objects:
-            self.report({'ERROR'}, "Please select the Object you want to Export")
-            return {'CANCELLED'}
-
-        utils.export_selected_to_STL("STL")
-
-        utils.show_message_box(f"{len(context.selected_objects)} file(s) exported to: {exportPath}", "INFO", "Export Complete")
-
-        
-        return {'FINISHED'}
-    
-class TP3D_OT_export_obj(bpy.types.Operator):
+class TP3D_OT_export_obj(bpy.types.Operator, TP3D_ExportBase):
     bl_idname = "tp3d.export_obj"
-    bl_label = "Export OBJ"
-    bl_description = "Export Selected Objects as Separate OBJ"
+    bl_label = _("Export OBJ")
+    bl_description = _tip("Export Selected Objects as Separate OBJ")
 
     def execute(self, context):
-        tp3d = context.scene.tp3d  # Access stored variables
+        self._handler = getattr(self, "_handler", None)
+        _progress.WarningsOverlay.clear()
 
-        exportPath = tp3d.get('export_path', None)
+        try:
+            export_path = self.get_valid_export_path(context)
 
-        if not exportPath:
-            exportPath = addon_preferences.get_prefs().default_export_folder
+            utils.export_selected_to_STL("OBJ")
 
-        if not exportPath:
-            self.report({'ERROR'}, "'Export path' is Empty. Please select a Directory For the finished files")
-            return {'CANCELLED'}
+            count = len(context.selected_objects)
+            _warn(
+                _("{count} OBJ file(s) exported to: {path}").format(
+                    count=count, path=export_path
+                ),
+                icon="ok",
+            )
+        except ExportError as e:
+            _warn(str(e))
+            self.report({"ERROR"}, str(e))
+            return {"CANCELLED"}
+        finally:
+            _progress.WarningsOverlay.get().show()
 
-        exportPath = bpy.path.abspath(exportPath)
+        return {"FINISHED"}
 
-        if not exportPath or exportPath == "":
-            self.report({'ERROR'}, "Export path is empty! Please select a valid folder.")
-            return {'CANCELLED'}
-        if not os.path.isdir(exportPath):
-            self.report({'ERROR'}, f"Invalid export Directory: {exportPath}. Please select a valid Directory.")
-            return {'CANCELLED'}
 
-        if not context.selected_objects:
-            self.report({'ERROR'}, "Please select the Object you want to Export")
-            return {'CANCELLED'}
-
-        utils.export_selected_to_STL("OBJ")
-
-        utils.show_message_box(f"{len(context.selected_objects)} file(s) exported to: {exportPath}", "INFO", "Export Complete")
-
-        
-        return {'FINISHED'}
-
-class TP3D_OT_export_three_mf(bpy.types.Operator):
+class TP3D_OT_export_three_mf(bpy.types.Operator, TP3D_ExportBase):
     bl_idname = "tp3d.export_three_mf"
-    bl_label = "Export 3mf"
-    bl_description = "Export Selected Objects as Separate 3MF. Separate Addon by Clonephaze"
+    bl_label = _("Export 3mf")
+    bl_description = _tip(
+        "Export Selected Objects as Separate 3MF. Separate Addon by Clonephaze"
+    )
+    bl_options = {"REGISTER"}
+
+    filename: StringProperty(name=_("File Name"), default="")  # type: ignore
+    # Filled by the folder browser invoke() opens when no export folder is set.
+    directory: StringProperty(
+        subtype="DIR_PATH", options={"HIDDEN", "SKIP_SAVE"}
+    )  # type: ignore
+    picking_folder: bpy.props.BoolProperty(
+        default=False, options={"HIDDEN", "SKIP_SAVE"}
+    )  # type: ignore
+
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "filename")
+
+    def invoke(self, context, event):
+        if not addon_preferences.get_export_folder(context.scene.tp3d):
+            # No folder to export into yet: let the user pick one first and
+            # keep it as the Default Export Folder preference.
+            self.picking_folder = True
+            context.window_manager.fileselect_add(self)
+            return {"RUNNING_MODAL"}
+        self.filename = context.scene.tp3d.modelname
+        return context.window_manager.invoke_props_dialog(self)
+
+    def _save_default_export_folder(self, context):
+        path = bpy.path.abspath(self.directory)
+        if not path or not os.path.isdir(path):
+            raise ExportError(
+                _("Invalid export directory: {path}").format(path=path)
+            )
+        # export.py appends file names directly, so keep the trailing slash.
+        addon_preferences.get_prefs().default_export_folder = os.path.join(path, "")
+        context.preferences.is_dirty = True
+        if not context.preferences.use_preferences_save:
+            # Auto-save is off, so the preference would be lost on quit.
+            def _save_prefs():
+                bpy.ops.wm.save_userpref()
+                return None
+
+            bpy.app.timers.register(_save_prefs, first_interval=0.0)
+
+        # Continue with the usual file-name dialog. Deferred: a dialog can't
+        # be opened from inside execute().
+        window = context.window
+
+        def _reinvoke():
+            if window is None:
+                return None
+            with bpy.context.temp_override(window=window):
+                bpy.ops.tp3d.export_three_mf("INVOKE_DEFAULT")
+            return None
+
+        bpy.app.timers.register(_reinvoke, first_interval=0.0)
 
     def execute(self, context):
-        tp3d = context.scene.tp3d  # Access stored variables
+        self._handler = getattr(self, "_handler", None)
 
-        installed = utils.is_3mf_extension_installed()
+        if self.picking_folder:
+            try:
+                self._save_default_export_folder(context)
+            except ExportError as e:
+                _progress.WarningsOverlay.clear()
+                _warn(str(e))
+                _progress.WarningsOverlay.get().show()
+                self.report({"ERROR"}, str(e))
+                return {"CANCELLED"}
+            return {"FINISHED"}
 
-        if installed:
-        
-            exportPath = tp3d.get('export_path', None)
+        _progress.WarningsOverlay.clear()
 
-            if not exportPath:
-                exportPath = addon_preferences.get_prefs().default_export_folder
+        try:
+            if not utils.is_3mf_extension_installed():
+                raise ExportError(_("3MF extension is not installed."))
 
-            if not exportPath:
-                self.report({'ERROR'}, "'Export path' is Empty. Please select a Directory For the finished files")
-                return {'CANCELLED'}
+            if not addon_preferences.get_export_folder(context.scene.tp3d):
+                raise ExportError(
+                    _("Export path is empty! Please select a valid directory.")
+                )
 
-            exportPath = bpy.path.abspath(exportPath)
+            if not self.filename:
+                raise ExportError(_("Please enter a filename."))
 
-            if not exportPath or exportPath == "":
-                self.report({'ERROR'}, "Export path is empty! Please select a valid folder.")
-                return {'CANCELLED'}
-            if not os.path.isdir(exportPath):
-                self.report({'ERROR'}, f"Invalid export Directory: {exportPath}. Please select a valid Directory.")
-                return {'CANCELLED'}
-            
-            if not context.selected_objects:
-                self.report({'ERROR'}, "Please select the Object you want to Export")
-                return {'CANCELLED'}
-            
-            utils.export_selected_to_3mf()
+            utils.export_selected_to_3mf(self.filename, manual=True)
+            _warn(_("Exported as 3mf"), "ok")
 
-            utils.show_message_box(f"Exported to: {exportPath}", "INFO", "Export Complete")
-        else:
-            print("Addon not Installed")
+        except ExportError as e:
+            _warn(str(e))
+            self.report({"ERROR"}, str(e))
+            return {"CANCELLED"}
+        finally:
+            _progress.WarningsOverlay.get().show()
 
-        
-
-        return {'FINISHED'}
+        return {"FINISHED"}
 
 
 class TP3D_OT_open_website(bpy.types.Operator):
     bl_idname = "tp3d.open_website"
-    bl_label = "Visit My Website"
-    bl_description = "The Patreon Version has Additional Features!"
+    bl_label = _("Visit My Website")
+    bl_description = _tip("The Patreon Version has Additional Features!")
 
     def execute(self, context):
         utils.open_website(self, context)
-        return {'FINISHED'}
-    
+        return {"FINISHED"}
+
 
 # Operator to open a website
 class TP3D_OT_join_discord(bpy.types.Operator):
     bl_idname = "tp3d.join_discord"
-    bl_label = "Join Discord"
-    bl_description = "Discord Community for TrailPrint3D!"
+    bl_label = _("Join Discord")
+    bl_description = _tip("Discord Community for TrailPrint3D!")
 
     def execute(self, context):
         utils.open_website(self, context, "https://discord.gg/C67H9EJFbz")
-        return {'FINISHED'}
+        return {"FINISHED"}
+
+
+class TP3D_OT_open_thangs(bpy.types.Operator):
+    bl_idname = "tp3d.open_thangs"
+    bl_label = _("Thangs")
+    bl_description = _tip("Get the Premium Version on Thangs")
+
+    def execute(self, context):
+        utils.open_website(
+            self,
+            context,
+            "https://thangs.com/designer/EmGi/3d-model/"
+            "TrailPrint3D%20Premium%20Version%20%7C%20Blender%20Addon-1587024",
+        )
+        return {"FINISHED"}
+
 
 # Operator to open a website
 class TP3D_OT_info_video(bpy.types.Operator):
     bl_idname = "tp3d.info_video"
-    bl_label = "Tutorial Video"
-    bl_description = "Link to Video explaining this Feature"
+    bl_label = _("Tutorial Video")
+    bl_description = _tip("Link to Video explaining this Feature")
 
-    url: bpy.props.StringProperty(name="Url", default = "")  # type: ignore
+    url: bpy.props.StringProperty(name=_("Url"), default="")  # type: ignore
 
     def execute(self, context):
-        
 
         utils.open_website(self, context, self.url)
-        return {'FINISHED'}
-    
-class TP3D_OT_rescale(bpy.types.Operator):
-    bl_idname = "tp3d.rescale"
-    bl_label = "Rescale the z value"
-    bl_description = "Rescales the Elevation the Currently selected objects"
-    bl_options = {'REGISTER', 'UNDO'}
+        return {"FINISHED"}
 
-    def execute(self, context):
-        multiZ = context.scene.tp3d.get('rescaleMultiplier', 1)
 
-        selected_objects = [obj for obj in bpy.context.selected_objects if obj.type in {'MESH', 'CURVE'}]
-        lowestZ = 1000
-
-        print("Rescaling")
-        for obj in selected_objects:
-            if obj.type == 'MESH':
-                mesh = obj.data
-                for i, vert in enumerate(mesh.vertices):
-                    if vert.co.z < lowestZ and vert.co.z > 0.1:
-                        lowestZ = vert.co.z
-            if obj.type == "CURVE" and lowestZ == 1000:
-                for spline in obj.data.splines:
-                    for point in spline.bezier_points:
-                        if point.co.z > 0.1 and point.co.z < lowestZ:
-                            lowestZ = point.co.z
-
-        print(f"lowestZ: {lowestZ}")
-
-        for obj in selected_objects:      
-            print(obj.name)
-            if lowestZ != 1000 and obj.type == "MESH":
-                    bpy.context.view_layer.objects.active = obj  # Make it active
-                    bpy.ops.object.mode_set(mode='EDIT')
-                    # Access mesh data
-                    mesh = bmesh.from_edit_mesh(obj.data)
-                    for v in mesh.verts:
-                        if v.co.z > 0.1:
-                            v.co.z = (v.co.z - lowestZ) * (multiZ) + lowestZ
-                    bmesh.update_edit_mesh(obj.data)    
-                    bpy.ops.object.mode_set(mode='OBJECT')  # Exit Edit Mode  
-            if lowestZ != 1000 and obj.type =="CURVE":
-                # Access curve splines
-                for spline in obj.data.splines:
-                    for point in spline.bezier_points:
-                        if point.co.z > -0.5:
-                            point.co.z = (point.co.z - lowestZ) * (multiZ) + lowestZ
-                    for point in spline.points:  # For NURBS
-                        if point.co.z > -0.5:
-                            point.co.z = (point.co.z - lowestZ) * (multiZ) + lowestZ
-
-            bpy.ops.object.mode_set(mode='OBJECT')  # Exit Edit Mode
-
-            if "Elevation Scale" in obj:
-                obj["Elevation Scale"] *= multiZ
-
-        print(f"Scaled all elevation points by Factor {multiZ} on {len(selected_objects)} object(s).")
-
-        return {'FINISHED'}
-    
 class TP3D_OT_save_preset(bpy.types.Operator):
     bl_idname = "tp3d.save_preset"
     bl_label = _("Save preset")
-    bl_description = "Save the current settings as a preset"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_description = _tip("Save the current settings as a preset")
+    bl_options = {"REGISTER", "UNDO"}
 
-    user_input: StringProperty(name="Preset name") # type: ignore
+    user_input: StringProperty(name=_("Preset name"))  # type: ignore
 
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self)
@@ -317,323 +415,271 @@ class TP3D_OT_save_preset(bpy.types.Operator):
     def draw(self, context):
         layout = self.layout
         layout.prop(self, "user_input")
-    
-    def execute(self,context):
 
-
+    def execute(self, context):
 
         utils.save_myproperties_to_csv(self.user_input)
 
-        utils.show_message_box("Saved Preset","CHECKMARK", " ")
+        utils.show_message_box("Saved Preset", "CHECKMARK", " ")
 
-        return {'FINISHED'}
+        return {"FINISHED"}
+
 
 class TP3D_OT_load_preset(bpy.types.Operator):
     bl_idname = "tp3d.load_preset"
     bl_label = _("Load preset")
-    bl_description = "Load the current settings as a preset"
-    bl_options = {'REGISTER', 'UNDO'}
-    
-    def execute(self,context):
+    bl_description = _tip("Load the current settings as a preset")
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
         current = bpy.context.scene.preset_list
         utils.load_myproperties_from_csv(current)
 
-        utils.show_message_box("Preset Loaded","CHECKMARK", " ")
+        utils.show_message_box("Preset Loaded", "CHECKMARK", " ")
 
-        return {'FINISHED'}
+        return {"FINISHED"}
+
 
 class TP3D_OT_delete_preset(bpy.types.Operator):
     bl_idname = "tp3d.delete_preset"
     bl_label = _("Delete preset")
-    bl_description = "Delete the current selected preset"
-    bl_options = {'REGISTER', 'UNDO'}
-    
-    def execute(self,context):
+    bl_description = _tip("Delete the current selected preset")
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
         current = bpy.context.scene.preset_list
         utils.delete_preset_file(current)
 
-        utils.show_message_box("Deleted Selected Preset","CHECKMARK", " ")
+        utils.show_message_box("Deleted Selected Preset", "CHECKMARK", " ")
 
-        return {'FINISHED'}
+        return {"FINISHED"}
+
 
 class TP3D_OT_clear_cache(bpy.types.Operator):
     bl_idname = "tp3d.clear_cache"
-    bl_label = "Clear Cache"
-    bl_description = "Delete all Cached Files from API calls"
-    bl_options = {'REGISTER', 'UNDO'}
-
-
-    def execute(self, context):
-        if not os.path.exists(const.cache_dir):
-            const._ensure_dirs()
-            return {'FINISHED'}
-
-        import shutil
-        try:
-            shutil.rmtree(const.cache_dir)
-            print(f"Deleted cache directory: {const.cache_dir}")
-        except OSError as e:
-            print(f"Failed to delete cache directory: {e}")
-
-        # Clear the in-memory elevation cache so the load guard doesn't
-        # serve stale data after the files have been deleted.
-        const._elevation_cache.clear()
-
-        # Recreate the directory tree so save_elevation_cache() doesn't
-        # silently fail trying to write into a path that no longer exists.
-        const._ensure_dirs()
-
-        return {'FINISHED'}
-
-
-class TP3D_OT_thicken(bpy.types.Operator):
-    bl_idname = "tp3d.thicken"
-    bl_label = "Thicken Map"
-    bl_description = "Make the selected Map thicker"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    def execute(self,context):
-        
-        selected_objects = context.selected_objects
-        val = context.scene.tp3d.thickenValue
-
-        bpy.context.tool_settings.mesh_select_mode = (False, False, True)
-
-        bpy.ops.object.select_all(action='DESELECT')
-        for zobj in selected_objects:
-            zobj.select_set(False)
-
-        if not selected_objects:
-            utils.show_message_box("No objects selected.")
-            return {'CANCELLED'}
-
-        for zobj in selected_objects:
-            # Check if the custom property 'Object type' exists
-            if "Object type" in zobj:
-                print(zobj.name)
-                if zobj["Object type"] == "TRAIL" or zobj["Object type"] == "WATER" or zobj["Object type"] == "FOREST" or zobj["Object type"] == "CITY" or zobj["Object type"] == "FARMLAND" or zobj["Object type"] == "GREENSPACE":
-                    zobj.location.z += val
-                elif zobj["Object type"] == "MAP" :
-                    zobj.select_set(True)
-                    bpy.context.view_layer.objects.active = zobj
-                    utils.selectBottomFaces(zobj)
-                    bpy.ops.mesh.select_more()
-                    bpy.ops.mesh.select_all(action='INVERT')
-                    mesh = bmesh.from_edit_mesh(zobj.data)
-                    
-                    verts_to_move = set()
-                    for face in mesh.faces:
-                        if face.select:
-                            verts_to_move.update(face.verts)
-
-                    for vert in verts_to_move:
-                        vert.co.z += val
-                    bpy.ops.object.mode_set(mode='OBJECT')
-                    bpy.ops.object.select_all(action='DESELECT')
-                    zobj.select_set(False)
-                    zobj["minThickness"] += val
-                    
-        bpy.context.view_layer.objects.active = selected_objects[0]
-        for zobj in selected_objects:
-            zobj.select_set(True)
-
-                    
-
-
-        return {'FINISHED'}
-
-class TP3D_OT_pin_coords(bpy.types.Operator):
-    bl_idname = "tp3d.pin_coords"
-    bl_label = "PinCoords"
-    bl_description = "Place a Pin on a Coordinate"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_label = _("Clear Cache")
+    bl_description = _tip("Delete all Cached Files from API calls")
+    bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        tp3d = context.scene.tp3d
-        
-        minThickness = tp3d.minThickness
+        utils.clear_api_cache()
+        return {"FINISHED"}
 
-        centerlat = tp3d.pinLat
-        centerlon = tp3d.pinLon
-
-
-
-        # _zp underscored because it's unused
-        xp,yp,_zp = utils.convert_to_blender_coordinates(float(centerlat),float(centerlon),0,0) 
-        name = "Pin_" + str(round(centerlat,2)) + "." + str(round(centerlon,2))
-
-        #Delete existing object with same name (optional)
-        if name in bpy.data.objects:
-            bpy.data.objects.remove(bpy.data.objects[name], do_unlink=True)
-
-        # Get map object for raycasting
-        map_obj = None
-        active = context.view_layer.objects.active
-        if active and "objSize" in active:
-            map_obj = active
-        elif context.scene.tp3d.currentMap:
-            map_obj = context.scene.tp3d.currentMap
-
-        # Determine Z: raycast onto map surface, fallback to minThickness
-        pin_z = minThickness + 2
-        if map_obj:
-            hit_z = utils.RaycastPointToMeshZ((xp, yp, 0), map_obj)
-            if hit_z is not None:
-                pin_z = hit_z + 1  # cone center 1mm below surface
-
-        #Creatin the Cone
-        bpy.ops.mesh.primitive_cone_add(
-            vertices=16,
-            radius1=0.4,
-            radius2=0.8,
-            depth=4,
-            location=(xp, yp, pin_z)
-        )
-        pin = bpy.context.active_object
-        pin.name = name
-        mat = bpy.data.materials.get("TRAIL")
-        if mat:
-            pin.data.materials.append(mat)
-
-        if tp3d.pinCutout:
-            apply_pin_cutout(context, pin, tp3d.pinCutoutClearance)
-
-        return {'FINISHED'}
 
 class TP3D_OT_magnet_holes(bpy.types.Operator):
     bl_idname = "tp3d.magnet_holes"
-    bl_label = "Magnet Holes"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_label = _("Magnet Holes")
+    bl_options = {"REGISTER", "UNDO"}
+    bl_description = _tip(
+        "Cut magnet holes into the bottom of the selected Map, Shell, or Plate"
+    )
 
+    _TYPES = {"MAP", "SHELL", "PLATE"}
+    # Material kept above each magnet so the hole never opens into the top
+    # surface, a shell's cavity or a plate's map insert.
+    _MIN_CEILING = 0.6
 
-    
-    def execute(self,context):
-        tp3d = context.scene.tp3d
+    @classmethod
+    def poll(cls, context):
+        has_valid_obj = any(
+            o.get("Object type") in cls._TYPES for o in context.selected_objects
+        )
+        if not has_valid_obj:
+            cls.poll_message_set(_("Select at least one Map, Shell, or Plate object"))
+        return has_valid_obj
 
-        selected_objects = context.selected_objects
+    def execute(self, context):
+        if context.mode != "OBJECT":
+            bpy.ops.object.mode_set(mode="OBJECT")
 
-        if not selected_objects:
-            utils.show_message_box("No objects selected")
-            #return{'FINISHED'}
-            return{'FINISHED'}
-        
-        
-        bpy.ops.object.select_all(action='DESELECT')
-        for zobj in selected_objects:
-            zobj.select_set(False)
-
-        for zobj in selected_objects:
-
-            if zobj.type != 'MESH':
-                continue
-
-            zobj.select_set(True)
-            bpy.context.view_layer.objects.active = zobj
-
-            obj_size = tp3d.objSize
-
-            #Check for selection and custom property
-            if zobj:
-                if "objSize" in zobj:
-                    obj_size = zobj["objSize"]
-            elif not zobj:
-                    print("Select a Map.")
-                    return{'FINISHED'}
-            
-            if "MagnetHoles" not in zobj:
-                continue
-
-            if zobj["MagnetHoles"]:
-                continue
-
-            magnetDiameter = tp3d.magnetDiameter
-            magnetHeight = tp3d.magnetHeight
-
-            #Flip normals and Get bottom faces
-            utils.selectBottomFaces(zobj)
-
-            #get the lowest zValue of one the faces
-            zValue = 0
-
-            # Switch to Edit Mode
-            bpy.ops.object.mode_set(mode='EDIT')
-            mesh = bmesh.from_edit_mesh(zobj.data)
-
-            # Get the world matrix to convert local to global coordinates
-            world_matrix = zobj.matrix_world
-
-            # Collect global Z-values of selected faces
-            z_values = [
-                (world_matrix @ face.calc_center_median()).z
-                for face in mesh.faces if face.select
-            ]
-            
-            zValue = min(z_values)
-
-
-            bpy.ops.object.mode_set(mode='OBJECT')
-
-
-            #Set 3D cursor to object's origin
-            bpy.context.scene.cursor.location = zobj.location
-
-            #Create 4 cylinders around the object
-            radius = obj_size / 3
-            angle_step = math.radians(90)
-            created_cylinders = []
-
-            for i in range(4):
-                angle = i * angle_step
-                offset_x = math.cos(angle) * radius
-                offset_y = math.sin(angle) * radius
-                pos = zobj.location + Vector((offset_x, offset_y, zValue))
-                pos = zobj.location + Vector((offset_x, offset_y, 0))
-
-                bpy.ops.mesh.primitive_cylinder_add(
-                    radius=magnetDiameter / 2,
-                    depth=magnetHeight*2,
-                    location=pos
+        selected_objects = list(context.selected_objects)
+        active = context.view_layer.objects.active
+        targets = [
+            o
+            for o in selected_objects
+            if o.type == "MESH" and o.get("Object type") in self._TYPES
+        ]
+        # A map selected together with its plate/shell sits on top of it, so
+        # the holes belong in the part that touches the table.
+        if any(o.get("Object type") in {"PLATE", "SHELL"} for o in targets):
+            n_maps = sum(1 for o in targets if o.get("Object type") == "MAP")
+            targets = [o for o in targets if o.get("Object type") != "MAP"]
+            if n_maps:
+                self.report(
+                    {"INFO"},
+                    _rpt(
+                        "Skipped {count} map(s): magnet holes go into the selected plate or shell."
+                    ).format(count=n_maps),
                 )
-                cyl = bpy.context.active_object
-                created_cylinders.append(cyl)
 
-            #Merge cylinders into one object
-            bpy.ops.object.select_all(action='DESELECT')
-            for cyl in created_cylinders:
-                cyl.select_set(True)
-            bpy.context.view_layer.objects.active = created_cylinders[0]
-            bpy.ops.object.join()
-            merged_cylinders = bpy.context.active_object
+        done = 0
+        for obj in targets:
+            if obj.get("MagnetHoles"):
+                self.report(
+                    {"WARNING"},
+                    _rpt("{name} already has magnet holes.").format(name=obj.name),
+                )
+                continue
+            if self._cut_holes(context, obj):
+                done += 1
 
-            #Perform boolean difference
-            bpy.ops.object.select_all(action='DESELECT')
-            zobj.select_set(True)
-            bpy.context.view_layer.objects.active = zobj
+        bpy.ops.object.select_all(action="DESELECT")
+        for obj in selected_objects:
+            obj.select_set(True)
+        context.view_layer.objects.active = active
 
-            bool_mod = zobj.modifiers.new(name="MagnetCutout", type='BOOLEAN')
-            bool_mod.operation = 'DIFFERENCE'
-            bool_mod.object = merged_cylinders
+        return {"FINISHED"} if done else {"CANCELLED"}
 
-            bpy.ops.object.modifier_apply(modifier=bool_mod.name)
+    def _cut_holes(self, context, obj):
+        from .utils import geometry2d as g2d
+        from .utils.magnet_layout import dovetail_footprints, magnet_layout
+        from .utils.mesh_ops import _extrude_flat_polygon, is_mesh_manifold
+        from .utils.outline import get_bottom_outline, rotation_of
 
-            #Cleanup - delete the merged cutter object
-            bpy.data.objects.remove(merged_cylinders, do_unlink=True)
+        tp3d = context.scene.tp3d
+        outline = get_bottom_outline(obj)
+        if outline is None:
+            self.report(
+                {"WARNING"},
+                _rpt("{name}: no usable outline found, skipped.").format(name=obj.name),
+            )
+            return False
 
-            zobj["MagnetHoles"] = True
+        # Puzzle pieces inherit the whole map's Shape, which isn't theirs.
+        is_piece = "PuzzleRow" in obj
+        shape = None if is_piece else obj.get("Shape")
+        rotation = rotation_of(obj, tp3d.shapeRotation)
+        blocked = None
+        if obj.get("Dovetail") and not is_piece and "objSize" in obj:
+            blocked = dovetail_footprints(obj["objSize"], shape, rotation)
 
-            bpy.ops.object.select_all(action='DESELECT')
-            zobj.select_set(False)
+        radius = tp3d.magnetDiameter / 2
+        centers = magnet_layout(
+            outline,
+            tp3d.magnetCount,
+            tp3d.magnetDiameter,
+            tp3d.magnetMargin,
+            blocked=blocked,
+            shape=shape,
+            rotation_deg=rotation,
+        )
+        if not centers:
+            self.report(
+                {"WARNING"},
+                _rpt(
+                    "{name}: no room for a {diameter:.1f} mm magnet with a {margin:.1f} mm margin."
+                ).format(
+                    name=obj.name,
+                    diameter=tp3d.magnetDiameter,
+                    margin=tp3d.magnetMargin,
+                ),
+            )
+            return False
+        if len(centers) < tp3d.magnetCount:
+            self.report(
+                {"WARNING"},
+                _rpt("{name}: only {placed} of {count} magnet holes fit.").format(
+                    name=obj.name, placed=len(centers), count=tp3d.magnetCount
+                ),
+            )
 
+        bottom_z = min(c[2] for c in obj.bound_box)
+        available = self._material_above(obj, centers, radius, bottom_z)
+        depth = min(tp3d.magnetHeight, available - self._MIN_CEILING)
+        if depth <= 0.1:
+            self.report(
+                {"WARNING"},
+                _rpt(
+                    "{name}: only {available:.1f} mm of material above the bottom, too thin for magnet holes."
+                ).format(name=obj.name, available=available),
+            )
+            return False
+        if depth < tp3d.magnetHeight - 1e-6:
+            self.report(
+                {"WARNING"},
+                _rpt(
+                    "{name}: magnet holes limited to {depth:.1f} mm deep (asked {height:.1f} mm) to keep {ceiling:.1f} mm of material above them."
+                ).format(
+                    name=obj.name,
+                    depth=depth,
+                    height=tp3d.magnetHeight,
+                    ceiling=self._MIN_CEILING,
+                ),
+            )
 
-        bpy.context.view_layer.objects.active = selected_objects[0]
-        for zobj in selected_objects:
-            zobj.select_set(True)
-        
+        holes = [g2d.Point(x, y).buffer(radius, quad_segs=16) for x, y in centers]
+        verts, faces = [], []
+        for part in g2d.iter_polygons(g2d.union(holes)):
+            # Starts below the bottom so the boolean never sees coplanar faces.
+            _extrude_flat_polygon(g2d, part, bottom_z - 1.0, bottom_z + depth, verts, faces)
+        mesh = bpy.data.meshes.new(f"{obj.name}_MagnetCutter")
+        mesh.from_pydata(verts, [], faces)
+        mesh.update()
+        cutter = bpy.data.objects.new(mesh.name, mesh)
+        context.collection.objects.link(cutter)
+        cutter.matrix_world = obj.matrix_world.copy()
+        context.view_layer.update()
 
-        print("Magnet holes Added")
+        # MANIFOLD silently no-ops on non-manifold or inconsistently wound
+        # input, so retry with EXACT if the mesh came back untouched.
+        n_verts = len(obj.data.vertices)
+        solver = "MANIFOLD" if is_mesh_manifold(obj) else "EXACT"
+        bpy.ops.object.select_all(action="DESELECT")
+        obj.select_set(True)
+        utils.boolean_operation(obj, cutter, "DIFFERENCE", solver=solver)
+        if solver == "MANIFOLD" and len(obj.data.vertices) == n_verts:
+            utils.boolean_operation(obj, cutter, "DIFFERENCE", solver="EXACT")
+        bpy.data.objects.remove(cutter, do_unlink=True)
+        bpy.data.meshes.remove(mesh)
 
+        if len(obj.data.vertices) == n_verts:
+            self.report(
+                {"ERROR"},
+                _rpt("{name}: the magnet hole cut failed.").format(name=obj.name),
+            )
+            return False
 
-        return{'FINISHED'}
+        obj["MagnetHoles"] = True
+        return True
+
+    def _material_above(self, obj, centers, radius, bottom_z):
+        """Thinnest material (mm, local Z) above *bottom_z* over the holes'
+        footprints, measured by casting rays up through the object. Falls
+        back to the object's own thickness metadata when no ray hits."""
+        up = Vector((0.0, 0.0, 1.0))
+        best = None
+        for cx, cy in centers:
+            samples = [(cx, cy)] + [
+                (
+                    cx + math.cos(a) * radius * 0.9,
+                    cy + math.sin(a) * radius * 0.9,
+                )
+                for a in (k * math.pi / 4 for k in range(8))
+            ]
+            for x, y in samples:
+                # First hit is the bottom surface, second the top of the
+                # material above it (terrain, shell floor or insert floor).
+                hit, loc, _n, _i = obj.ray_cast(Vector((x, y, bottom_z - 1.0)), up)
+                if not hit:
+                    continue
+                hit, loc, _n, _i = obj.ray_cast(loc + up * 1e-3, up)
+                if not hit:
+                    continue
+                thickness = loc.z - bottom_z
+                best = thickness if best is None else min(best, thickness)
+        if best is not None:
+            return best
+
+        tp3d = bpy.context.scene.tp3d
+        obj_type = obj.get("Object type")
+        if obj_type == "SHELL":
+            return obj.get("floorThickness", tp3d.plateThickness)
+        if obj_type == "PLATE":
+            return obj.get("plateThickness", tp3d.plateThickness) - obj.get(
+                "plateInsertValue", tp3d.plateInsertValue
+            )
+        return obj.get("minThickness", tp3d.minThickness)
+
 
 def find_pin_cutout_targets(context, pin):
     """Mesh objects sitting under/around the pin's own footprint -- the map
@@ -641,6 +687,7 @@ def find_pin_cutout_targets(context, pin):
     pin socket cutout should carve into. Found by bounding-box proximity
     rather than by object type, so any current or future element kind is
     covered automatically without needing to be listed here."""
+
     def world_bbox(obj):
         return [obj.matrix_world @ Vector(c) for c in obj.bound_box]
 
@@ -652,7 +699,7 @@ def find_pin_cutout_targets(context, pin):
 
     targets = []
     for obj in context.scene.objects:
-        if obj is pin or obj.type != 'MESH' or not obj.data.polygons:
+        if obj is pin or obj.type != "MESH" or not obj.data.polygons:
             continue
         # Skip other pins so two pins placed close together don't drill
         # holes into each other.
@@ -663,7 +710,12 @@ def find_pin_cutout_targets(context, pin):
         maxx = max(c.x for c in corners)
         miny = min(c.y for c in corners)
         maxy = max(c.y for c in corners)
-        if pin_minx <= maxx and pin_maxx >= minx and pin_miny <= maxy and pin_maxy >= miny:
+        if (
+            pin_minx <= maxx
+            and pin_maxx >= minx
+            and pin_miny <= maxy
+            and pin_maxy >= miny
+        ):
             targets.append(obj)
     return targets
 
@@ -681,8 +733,11 @@ def apply_pin_cutout(context, pin, clearance=0.0):
 
     cut_count = 0
     for i, target in enumerate(targets):
-        overlay.update(percent=i / len(targets), phase="Cutting Pin Socket",
-                       message=f"{target.name} ({i + 1}/{len(targets)})")
+        overlay.update(
+            percent=i / len(targets),
+            phase="Cutting Pin Socket",
+            message=f"{target.name} ({i + 1}/{len(targets)})",
+        )
 
         cutter_name = f"{pin.name}_socket_cutter"
         if cutter_name in bpy.data.objects:
@@ -719,7 +774,10 @@ def apply_pin_cutout(context, pin, clearance=0.0):
         if clearance > 0 and bm.verts:
             axis = cutter.matrix_world.translation
             max_world_radius = max(
-                math.hypot((cutter.matrix_world @ v.co).x - axis.x, (cutter.matrix_world @ v.co).y - axis.y)
+                math.hypot(
+                    (cutter.matrix_world @ v.co).x - axis.x,
+                    (cutter.matrix_world @ v.co).y - axis.y,
+                )
                 for v in bm.verts
             )
             if max_world_radius > 1e-6:
@@ -733,12 +791,14 @@ def apply_pin_cutout(context, pin, clearance=0.0):
         if tip_faces:
             tip_world_z = min((cutter.matrix_world @ v.co).z for v in tip_verts)
             floor_z = min((target.matrix_world @ Vector(c)).z for c in target.bound_box)
-            floor_margin = target.get("minThickness", context.scene.tp3d.minThickness) / 2
+            floor_margin = (
+                target.get("minThickness", context.scene.tp3d.minThickness) / 2
+            )
             spike_depth_world = max(tip_world_z - (floor_z + floor_margin), 0.0)
             spike_depth_local = spike_depth_world / max(abs(cutter.scale.z), 1e-6)
 
             ret = bmesh.ops.extrude_face_region(bm, geom=tip_faces)
-            new_verts = [v for v in ret['geom'] if isinstance(v, bmesh.types.BMVert)]
+            new_verts = [v for v in ret["geom"] if isinstance(v, bmesh.types.BMVert)]
             bmesh.ops.translate(bm, verts=new_verts, vec=(0.0, 0.0, -spike_depth_local))
             # extrude_face_region keeps the ORIGINAL tip cap face in
             # place in addition to the new (translated) one -- without
@@ -749,17 +809,17 @@ def apply_pin_cutout(context, pin, clearance=0.0):
             # (e.g. steep ground near a lake shoreline) it makes the
             # EXACT solver produce a broken, non-manifold result
             # instead of a clean hole.
-            bmesh.ops.delete(bm, geom=tip_faces, context='FACES')
+            bmesh.ops.delete(bm, geom=tip_faces, context="FACES")
             bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
         bm.to_mesh(cutter.data)
         bm.free()
 
-        bpy.ops.object.select_all(action='DESELECT')
+        bpy.ops.object.select_all(action="DESELECT")
         target.select_set(True)
         bpy.context.view_layer.objects.active = target
 
-        bool_mod = target.modifiers.new(name="PinSocket", type='BOOLEAN')
-        bool_mod.operation = 'DIFFERENCE'
+        bool_mod = target.modifiers.new(name="PinSocket", type="BOOLEAN")
+        bool_mod.operation = "DIFFERENCE"
         # MANIFOLD (not EXACT): on a real, large terrain (800k+ faces)
         # cut by this cutter's short tapered section, EXACT was found
         # to become numerically unstable right where it crosses steep
@@ -772,7 +832,7 @@ def apply_pin_cutout(context, pin, clearance=0.0):
         # non-manifold cutter, but the cutter is now always kept
         # manifold (see the delete() above), so that risk doesn't apply
         # here.
-        bool_mod.solver = 'MANIFOLD'
+        bool_mod.solver = "MANIFOLD"
         bool_mod.object = cutter
         bpy.ops.object.modifier_apply(modifier=bool_mod.name)
 
@@ -782,167 +842,377 @@ def apply_pin_cutout(context, pin, clearance=0.0):
     overlay.update(percent=1.0, phase="Done", message="")
     overlay.finish()
 
-    bpy.ops.object.select_all(action='DESELECT')
+    bpy.ops.object.select_all(action="DESELECT")
     pin.select_set(True)
     bpy.context.view_layer.objects.active = pin
 
     return cut_count
 
+
+def dovetail_side_angles(zobj):
+    """World-space outward angle (radians) of each edge of *zobj*'s shape, in
+    the order dovetail_cutout indexes them. SQUARE has 4 edges, OCTAGON 8,
+    HEXAGON 6."""
+    from .utils.outline import rotation_of
+
+    shape_rotation = math.radians(rotation_of(zobj, bpy.context.scene.tp3d.shapeRotation))
+    obj_shape = zobj.get("Shape", "HEXAGON")
+    if obj_shape == "SQUARE":
+        return [shape_rotation + i * math.radians(90) for i in range(4)]
+    if obj_shape == "OCTAGON":
+        return [shape_rotation + i * math.radians(45) for i in range(8)]
+    return [shape_rotation + math.radians(30) + i * math.radians(60) for i in range(6)]
+
+
+def dovetail_cutout(zobj, sides=None, obj_size=None):
+    """Boolean-cut dovetail recesses into the bottom edges of *zobj*.
+
+    *sides* is an optional set of edge indices (in dovetail_side_angles'
+    order) that restricts which edges get a cutout; None cuts every edge.
+    Returns True if a cut was made. *obj_size* overrides the object's
+    "objSize" property for callers whose tiles carry a stale one (the
+    multitile picker, where generation stamps the sidebar's objSize onto
+    every tile).
+    """
+    from .utils.outline import get_bottom_outline
+
+    # Shells (and any object missing the stamped size) fall back to
+    # the outline's own bounds instead of silently skipping.
+    if obj_size is None:
+        obj_size = zobj.get("objSize")
+    if obj_size is None:
+        outline = get_bottom_outline(zobj)
+        if outline is None:
+            return False
+        minx, miny, maxx, maxy = outline.bounds
+        obj_size = max(maxx - minx, maxy - miny)
+
+    dovetailSize = 15
+    dovetailHeight = 3
+
+    if obj_size <= 50:
+        dovetailSize = 5
+    elif obj_size <= 75:
+        dovetailSize = 10
+
+    zobj.select_set(True)
+    bpy.context.view_layer.objects.active = zobj
+
+    # Flip normals and Get bottom faces
+    utils.selectBottomFaces(zobj)
+
+    # Switch to Edit Mode
+    # bpy.ops.object.mode_set(mode='EDIT')
+    mesh = bmesh.from_edit_mesh(zobj.data)
+
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+    # Set 3D cursor to object's origin
+    bpy.context.scene.cursor.location = zobj.location
+
+    # Create cylinders around the object
+    obj_shape = zobj.get("Shape", "HEXAGON")
+    created_cylinders = []
+
+    # Map objects sit with local Z=0 at their bottom, but a Plate's
+    # local Z=0 is its TOP (origin shared with the map it holds, see
+    # create_generic_plate/_build_prism) -- its bottom is negative
+    # local Z. Read the real bottom from the mesh instead of
+    # assuming the object's origin sits there.
+    bottom_local_z = min(c[2] for c in zobj.bound_box)
+
+    if obj_shape == "HEXAGON":
+        radius = obj_size / 2 * 0.866 - dovetailSize / 2
+    else:
+        # SQUARE, or a regular OCTAGON (equal sides) built as a bevelled
+        # square -- every edge, flat or diagonal, sits at the same apothem
+        # as a square of the same obj_size.
+        radius = obj_size / 2 - dovetailSize / 2
+
+    for i, angle in enumerate(dovetail_side_angles(zobj)):
+        if sides is not None and i not in sides:
+            continue
+        offset_x = math.cos(angle) * radius
+        offset_y = math.sin(angle) * radius
+        pos = zobj.location + Vector(
+            (offset_x, offset_y, bottom_local_z + dovetailHeight / 2 - 0.01)
+        )
+        rotation = Euler((0, 0, angle - math.radians(90)), "XYZ")
+
+        bpy.ops.mesh.primitive_cylinder_add(
+            vertices=3,
+            radius=dovetailSize,
+            depth=dovetailHeight,
+            location=pos,
+            rotation=rotation,
+        )
+        cyl = bpy.context.active_object
+        created_cylinders.append(cyl)
+
+    if not created_cylinders:
+        bpy.ops.object.select_all(action="DESELECT")
+        return False
+
+    # Merge cylinders into one object
+    bpy.ops.object.select_all(action="DESELECT")
+    for cyl in created_cylinders:
+        cyl.select_set(True)
+    bpy.context.view_layer.objects.active = created_cylinders[0]
+    bpy.ops.object.join()
+    merged_cylinders = bpy.context.active_object
+
+    # Select top faces of the Triangles to scale them up slightly
+    utils.selectTopFaces(merged_cylinders)
+
+    mesh = bmesh.from_edit_mesh(merged_cylinders.data)
+    # Scale factor
+    scale_factor = 1.05
+
+    # Scale each selected face from its own center
+    for face in mesh.faces:
+        if face.select:
+            center = face.calc_center_median()
+            for vert in face.verts:
+                direction = vert.co - center
+                vert.co = center + direction * scale_factor
+
+    # Update the mesh
+    bmesh.update_edit_mesh(merged_cylinders.data, loop_triangles=False)
+
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+    # Perform boolean difference
+    bpy.ops.object.select_all(action="DESELECT")
+    zobj.select_set(True)
+    bpy.context.view_layer.objects.active = zobj
+
+    from .utils.mesh_ops import is_mesh_manifold
+
+    # MANIFOLD silently no-ops on non-manifold or inconsistently wound
+    # input, so retry with EXACT if the mesh came back untouched.
+    n_verts = len(zobj.data.vertices)
+    solver = "MANIFOLD" if is_mesh_manifold(zobj) else "EXACT"
+
+    bool_mod = zobj.modifiers.new(name="DovetailCutout", type="BOOLEAN")
+    bool_mod.operation = "DIFFERENCE"
+    bool_mod.object = merged_cylinders
+    bool_mod.solver = solver
+
+    zobj["Dovetail"] = True
+
+    bpy.ops.object.modifier_apply(modifier=bool_mod.name)
+    if solver == "MANIFOLD" and len(zobj.data.vertices) == n_verts:
+        utils.boolean_operation(zobj, merged_cylinders, "DIFFERENCE", solver="EXACT")
+
+    # Cleanup - delete the merged cutter object
+    bpy.data.objects.remove(merged_cylinders, do_unlink=True)
+
+    bpy.ops.object.select_all(action="DESELECT")
+    zobj.select_set(False)
+    return True
+
+
+class TP3D_PG_dovetail_target(bpy.types.PropertyGroup):
+    """One box in the Dovetail popup: every selected object sharing one edge
+    layout (same shape and rotation), with a toggle per edge that applies
+    to all of them."""
+
+    # Newline-separated: object names can't contain one.
+    obj_names: StringProperty()
+    side_count: IntProperty()
+    # Sized for the largest supported shape (OCTAGON); only the first
+    # side_count entries are drawn and read.
+    sides: BoolVectorProperty(size=8, default=(True,) * 8)
+
+
 class TP3D_OT_dovetail(bpy.types.Operator):
     bl_idname = "tp3d.dovetail"
-    bl_label = "Dovetail"
-    bl_options = {'REGISTER', 'UNDO'}
-    
-    def execute(self,context):
+    bl_label = _("Dovetail")
+    bl_options = {"REGISTER", "UNDO"}
+    bl_description = _tip("Add dovetail cutouts to the selected object")
+    _TYPES = {"MAP", "SHELL", "PLATE"}
+    # Only shapes that tile/stack edge-to-edge make sense to dovetail-join.
+    _SHAPES = {"SQUARE", "HEXAGON", "OCTAGON"}
 
-        selected_objects = context.selected_objects
+    targets: CollectionProperty(type=TP3D_PG_dovetail_target)
 
-        if not selected_objects:
-            utils.show_message_box("No objects selected")
-            return{'FINISHED'}
-        
-        bpy.ops.object.select_all(action='DESELECT')
-        for zobj in selected_objects:
-            zobj.select_set(False)
-        
-        for zobj in selected_objects:
+    @classmethod
+    def poll(cls, context):
+        candidates = [o for o in context.selected_objects if o.get("Object type") in cls._TYPES]
 
-            if zobj.type != 'MESH':
+        if not candidates:
+            cls.poll_message_set(_("Select at least one Map, Shell, or Plate object"))
+            return False
+
+        if not any(o.get("Shape") in cls._SHAPES for o in candidates):
+            cls.poll_message_set(_("Dovetail cutouts are only available for Square, Hexagon, and Octagon shapes"))
+            return False
+
+        return True
+
+    @staticmethod
+    def _group_objects(item):
+        """The still-existing objects of one popup box."""
+        objs = (bpy.data.objects.get(name) for name in item.obj_names.split("\n") if name)
+        return [o for o in objs if o is not None]
+
+    def invoke(self, context, event):
+        self.targets.clear()
+        # One box per distinct edge layout rather than per object, so a
+        # selection of matching tiles (a whole multitile grid) gets a single
+        # set of side toggles that applies to all of them.
+        groups = {}
+        for zobj in context.selected_objects:
+            if zobj.type != "MESH" or zobj.get("Dovetail"):
                 continue
-
-            if "Dovetail" not in zobj:
+            if zobj.get("Object type") not in self._TYPES or zobj.get("Shape") not in self._SHAPES:
                 continue
+            layout_key = tuple(
+                round(math.degrees(a)) % 360 for a in dovetail_side_angles(zobj)
+            )
+            groups.setdefault(layout_key, []).append(zobj)
 
-            if zobj["Dovetail"]:
+        for layout_key, objs in groups.items():
+            item = self.targets.add()
+            item.obj_names = "\n".join(o.name for o in objs)
+            item.side_count = len(layout_key)
+
+        if not self.targets:
+            self.report({"ERROR"}, _rpt("The selected objects already have dovetail cutouts"))
+            return {"CANCELLED"}
+
+        focus = context.active_object
+        names = {n for t in self.targets for n in t.obj_names.split("\n")}
+        if focus is None or focus.name not in names:
+            focus = self._group_objects(self.targets[0])[0]
+        self._frame_top_view(context, focus)
+
+        return context.window_manager.invoke_props_dialog(self, width=560)
+
+    @staticmethod
+    def _frame_top_view(context, obj):
+        """Switch the 3D viewport to an orthographic top view centred on
+        *obj*, so the side numbers in the popup can be matched to its edges."""
+        area = context.area
+        if (area is None or area.type != "VIEW_3D") and context.screen:
+            area = next((a for a in context.screen.areas if a.type == "VIEW_3D"), None)
+        if area is None or area.type != "VIEW_3D":
+            return
+        rv3d = area.spaces.active.region_3d
+
+        corners = [obj.matrix_world @ Vector(c) for c in obj.bound_box]
+        min_c = Vector(tuple(min(c[i] for c in corners) for i in range(3)))
+        max_c = Vector(tuple(max(c[i] for c in corners) for i in range(3)))
+        size = max(max_c.x - min_c.x, max_c.y - min_c.y)
+
+        rv3d.view_perspective = "ORTHO"
+        rv3d.view_rotation = Quaternion((1.0, 0.0, 0.0, 0.0))
+        rv3d.view_location = (min_c + max_c) / 2
+        rv3d.view_distance = size * 1.5
+        area.tag_redraw()
+
+    def draw(self, context):
+        layout = self.layout
+        layout.label(text=_("Sides are numbered counter-clockwise (0° = +X)"), icon="INFO")
+
+        for item in self.targets:
+            objs = self._group_objects(item)
+            if not objs:
                 continue
-
-            zobj.select_set(True)
-            bpy.context.view_layer.objects.active = zobj
-
-
-            #Check for selection and custom property
-            if zobj and "objSize" not in zobj:
-                break
-            
-            obj_size = zobj["objSize"]
-            shapeRotation = zobj["shapeRotation"]
-            dovetailSize = 15
-            dovetailHeight = 3
-
-
-            if obj_size <= 50:
-                dovetailSize = 5
-            elif obj_size <= 75:
-                dovetailSize = 10
-
-            #Flip normals and Get bottom faces
-            utils.selectBottomFaces(zobj)
-
-            # Switch to Edit Mode
-            #bpy.ops.object.mode_set(mode='EDIT')
-            mesh = bmesh.from_edit_mesh(zobj.data)
-
-            bpy.ops.object.mode_set(mode='OBJECT')
-
-            #Set 3D cursor to object's origin
-            bpy.context.scene.cursor.location = zobj.location
-
-            #Create cylinders around the object
-            obj_shape = zobj.get("Shape", "HEXAGON")
-            created_cylinders = []
-
-            if obj_shape == "SQUARE":
-                radius = obj_size/2 - dovetailSize/2
-                angle_step = math.radians(90)
-                steps = 4
-                angle_start = math.radians(shapeRotation)
-            else:  # HEXAGON
-                radius = obj_size/2 * 0.866 - dovetailSize/2
-                angle_step = math.radians(60)
-                steps = 6
-                angle_start = math.radians(shapeRotation) + math.radians(30)
-
-            for i in range(steps):
-                angle = i * angle_step + angle_start
-                offset_x = math.cos(angle) * radius
-                offset_y = math.sin(angle) * radius
-                pos = zobj.location + Vector((offset_x, offset_y, 0 + dovetailHeight/2))
-                rotation = Euler((0, 0, angle - math.radians(90)), 'XYZ')
-
-                bpy.ops.mesh.primitive_cylinder_add(
-                    vertices = 3,
-                    radius=dovetailSize,
-                    depth=dovetailHeight,
-                    location=pos,
-                    rotation = rotation
+            zobj = objs[0]
+            box = layout.box()
+            if len(objs) == 1:
+                box.label(text=zobj.name, icon="OBJECT_DATA", translate=False)
+            else:
+                box.label(
+                    text=_("{n} selected tiles").format(n=len(objs)),
+                    icon="OBJECT_DATA",
+                    translate=False,
                 )
-                cyl = bpy.context.active_object
-                created_cylinders.append(cyl)
-        
-            #Merge cylinders into one object
-            bpy.ops.object.select_all(action='DESELECT')
-            for cyl in created_cylinders:
-                cyl.select_set(True)
-            bpy.context.view_layer.objects.active = created_cylinders[0]
-            bpy.ops.object.join()
-            merged_cylinders = bpy.context.active_object
 
-            #Select top faces of the Triangles to scale them up slightly
-            utils.selectTopFaces(merged_cylinders)
+            # Place each checkbox where its edge sits in the top view (+X
+            # right, +Y up): one grid row per distinct edge height, and one
+            # of 5 columns from the edge's horizontal direction.
+            angles = dovetail_side_angles(zobj)
+            cells = {}
+            for i, angle in enumerate(angles):
+                row = round(math.sin(angle), 2) + 0.0  # + 0.0 folds -0.0 into 0.0
+                col = round(math.cos(angle) * 2) + 2
+                cells[(row, col)] = i
+            rows = sorted({r for r, _c in cells}, reverse=True)
 
-            mesh = bmesh.from_edit_mesh(merged_cylinders.data)
-            # Scale factor
-            scale_factor = 1.05
+            grid = box.grid_flow(row_major=True, columns=5, even_columns=True, even_rows=True)
+            for row in rows:
+                for col in range(5):
+                    i = cells.get((row, col))
+                    if i is None:
+                        grid.label(text="")
+                        continue
+                    deg = round(math.degrees(angles[i])) % 360
+                    grid.prop(
+                        item,
+                        "sides",
+                        index=i,
+                        text=_("Side {n} ({deg}°)").format(n=i + 1, deg=deg),
+                        translate=False,
+                    )
 
-            # Scale each selected face from its own center
-            for face in mesh.faces:
-                if face.select:
-                    center = face.calc_center_median()
-                    for vert in face.verts:
-                        direction = vert.co - center
-                        vert.co = center + direction * scale_factor
+    def execute(self, context):
 
-            # Update the mesh
-            bmesh.update_edit_mesh(merged_cylinders.data, loop_triangles=False)
+        selected_objects = list(context.selected_objects)
 
-            bpy.ops.object.mode_set(mode='OBJECT')
+        bpy.ops.object.select_all(action="DESELECT")
 
-            #Perform boolean difference
-            bpy.ops.object.select_all(action='DESELECT')
-            zobj.select_set(True)
-            bpy.context.view_layer.objects.active = zobj
+        cut_count = 0
+        for item in self.targets:
+            sides = {i for i in range(item.side_count) if item.sides[i]}
+            if not sides:
+                continue
+            for zobj in self._group_objects(item):
+                if not zobj.get("Dovetail") and dovetail_cutout(zobj, sides=sides):
+                    cut_count += 1
 
-            bool_mod = zobj.modifiers.new(name="DovetailCutout", type='BOOLEAN')
-            bool_mod.operation = 'DIFFERENCE'
-            bool_mod.object = merged_cylinders
-            
-
-            zobj["Dovetail"] = True
-
-            bpy.ops.object.modifier_apply(modifier=bool_mod.name)
-
-            #Cleanup - delete the merged cutter object
-            bpy.data.objects.remove(merged_cylinders, do_unlink=True)
-
-            bpy.ops.object.select_all(action='DESELECT')
-            zobj.select_set(False)
-        
-        bpy.context.view_layer.objects.active = selected_objects[0]
+        if selected_objects:
+            context.view_layer.objects.active = selected_objects[0]
         for zobj in selected_objects:
             zobj.select_set(True)
 
+        if not cut_count:
+            self.report({"WARNING"}, _rpt("No dovetail cutouts were added"))
+            return {"CANCELLED"}
 
         print("Dovetail Added")
 
+        return {"FINISHED"}
 
-        return{"FINISHED"}
 
 class TP3D_OT_bottom_mark(bpy.types.Operator):
     bl_idname = "tp3d.bottom_mark"
-    bl_label = "Bottom Mark"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_label = _("Bottom Mark")
+    bl_options = {"REGISTER", "UNDO"}
+    bl_description = _tip("Add the current title to the bottom of the selected object")
 
-    def execute(self,context):
+    @classmethod
+    def poll(cls, context):
+
+        has_map_obj = any(
+            o.get("Object type") == "MAP" for o in context.selected_objects
+        )
+        has_shell_obj = any(
+            o.get("Object type") == "SHELL" for o in context.selected_objects
+        )
+        has_plate_obj = any(
+            o.get("Object type") == "PLATE" for o in context.selected_objects
+        )
+
+        has_valid_obj = has_map_obj or has_shell_obj or has_plate_obj
+
+        if not has_valid_obj:
+            cls.poll_message_set(_("Select at least one Map, Shell, or Plate object"))
+
+        return has_valid_obj
+
+    def execute(self, context):
 
         selected_objects = context.selected_objects
 
@@ -950,224 +1220,943 @@ class TP3D_OT_bottom_mark(bpy.types.Operator):
 
         if not selected_objects:
             utils.show_message_box("No objects selected")
-            return{'FINISHED'}
-        
-        bpy.ops.object.select_all(action='DESELECT')
+            return {"FINISHED"}
+
+        bpy.ops.object.select_all(action="DESELECT")
         for zobj in selected_objects:
             zobj.select_set(False)
 
-        generated = False
-        for zobj in selected_objects:
-        
-            #Check for selection and custom property
-            if "BottomMark" not in zobj:
-                continue
+        targets = [
+            zobj
+            for zobj in selected_objects
+            if "BottomMark" in zobj
+            and not zobj["BottomMark"]
+            and zobj.type == "MESH"
+            and "objSize" in zobj
+        ]
 
-            if zobj["BottomMark"]:
-                continue
-
-            if zobj.type == "MESH" and "objSize" in zobj:
-
-                zobj.select_set(True)
-                bpy.context.view_layer.objects.active = zobj
-
-                mark = utils.BottomText(zobj)
-                generated = True
-
-                if bottomMarkCutout:
-
-                    mark.scale.z = 2
-
-                    utils.recalculateNormals(mark)
-                    # Add boolean modifier
-                    bool_mod = zobj.modifiers.new(name="Boolean", type='BOOLEAN')
-                    bool_mod.object = mark
-                    bool_mod.operation = 'DIFFERENCE'
-                    bool_mod.solver = 'EXACT'
-
-                    bpy.context.view_layer.objects.active = zobj
-                    bpy.ops.object.modifier_apply(modifier=bool_mod.name)
-
-                    bpy.data.objects.remove(mark, do_unlink=True)
-
-
-
-                bpy.ops.object.select_all(action='DESELECT')
-                zobj.select_set(False)
-
-
-
-        
-        if not generated:
+        if not targets:
             utils.show_message_box("Not a valid Object selected")
+
+        # Marking a whole puzzle (dozens of pieces, two booleans each) takes
+        # a while -- show how many are done instead of a frozen viewport.
+        overlay = None
+        if len(targets) > 1:
+            overlay = _progress.ProgressOverlay.get()
+            overlay.start()
+        try:
+            n_targets = len(targets)
+            for idx, zobj in enumerate(targets):
+                if overlay is not None:
+                    if _progress.SubprocessProgress.get().is_cancel_requested():
+                        break
+                    overlay.update(
+                        idx / n_targets,
+                        "Bottom Mark",
+                        f"{idx}/{n_targets} marked — {zobj.name}…",
+                    )
+                self._mark_tile(context, zobj, bottomMarkCutout)
+                if overlay is not None:
+                    overlay.add_completed_step(
+                        f"{zobj.name} marked ({idx + 1}/{n_targets})"
+                    )
+        finally:
+            if overlay is not None:
+                overlay.finish()
 
         bpy.context.view_layer.objects.active = selected_objects[0]
         for zobj in selected_objects:
             zobj.select_set(True)
 
+        return {"FINISHED"}
 
+    def _mark_tile(self, context, zobj, bottomMarkCutout):
+        zobj.select_set(True)
+        bpy.context.view_layer.objects.active = zobj
 
-        return{'FINISHED'}
+        mark = utils.BottomText(zobj)
+
+        mark.scale.z = 2
+
+        bpy.ops.object.select_all(action="DESELECT")
+        mark.select_set(True)
+        bpy.context.view_layer.objects.active = mark
+        bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+
+        utils.recalculateNormals(mark)
+
+        # Untouched copy of the tile to trim the mark against after
+        # the cut -- the tile itself no longer has any volume where
+        # the mark sits once the cut is applied.
+        trim_obj = None
+        if not bottomMarkCutout:
+            trim_obj = zobj.copy()
+            trim_obj.data = zobj.data.copy()
+            context.scene.collection.objects.link(trim_obj)
+
+        # Add boolean modifier
+        bool_mod = zobj.modifiers.new(name="Boolean", type="BOOLEAN")
+        bool_mod.object = mark
+        bool_mod.operation = "DIFFERENCE"
+        bool_mod.solver = "MANIFOLD"
+
+        bpy.context.view_layer.objects.active = zobj
+        bpy.ops.object.modifier_apply(modifier=bool_mod.name)
+
+        if bottomMarkCutout:
+            bpy.data.objects.remove(mark, do_unlink=True)
+        else:
+            # Trim the mark to the tile's original volume, so where
+            # it runs over a bevel/rounded edge it ends flush with
+            # the tile instead of poking out past it.
+            bpy.context.view_layer.objects.active = mark
+            inter_mod = mark.modifiers.new(name="Intersect", type="BOOLEAN")
+            inter_mod.object = trim_obj
+            inter_mod.operation = "INTERSECT"
+            inter_mod.solver = "MANIFOLD"
+            bpy.ops.object.modifier_apply(modifier=inter_mod.name)
+
+            trim_mesh = trim_obj.data
+            bpy.data.objects.remove(trim_obj, do_unlink=True)
+            bpy.data.meshes.remove(trim_mesh)
+
+            # Texture-painted tiles take every face's 3MF colour from
+            # the paint texture, not from materials -- point the
+            # mark's UVs at a TRAIL-coloured texel so it keeps its
+            # colour once joined.
+            from .utils.texture import material_to_srgb, paint_part_before_join
+
+            painted = paint_part_before_join(
+                zobj, mark, material_to_srgb(bpy.data.materials.get("TRAIL"))
+            )
+
+            # Fill the cutout back in with the trimmed mark and merge
+            # it into the tile -- it keeps its own TRAIL material, so
+            # it still prints as a separate color.
+            bpy.ops.object.select_all(action="DESELECT")
+            mark.select_set(True)
+            zobj.select_set(True)
+            bpy.context.view_layer.objects.active = zobj
+            bpy.ops.object.join()
+
+            if painted:
+                paint_uv = zobj.data.uv_layers.get(const._UV_LAYER_NAME)
+                if paint_uv is not None:
+                    zobj.data.uv_layers.active = paint_uv
+
+        bpy.ops.object.select_all(action="DESELECT")
+        zobj.select_set(False)
+
 
 class TP3D_OT_terrain_dummy(bpy.types.Operator):
     bl_idname = "tp3d.terrain_dummy"
-    bl_label = "Dummy Operator"
-    def execute(self,context):
-        self.report({'INFO'}, "This Feature is Exclusive for Patreon Supporters")
-        return{"FINISHED"}
+    bl_label = _("Premium Feature")
+    bl_description = _tip("Requires the Premium version")
+
+    def invoke(self, context, event):
+        # A small popup instead of a status-bar line nobody notices; it
+        # closes on its own on the next click anywhere.
+        def draw(menu, _context):
+            layout = menu.layout
+            layout.label(text=_("This Feature is Exclusive for Patreon Supporters"))
+            row = layout.row(align=True)
+            row.operator("tp3d.open_website", text=_("Patreon"), icon="URL")
+            row.operator("tp3d.open_thangs", text=_("Thangs"), icon="URL")
+
+        # popup_menu always opens at the mouse -- warp the cursor to the
+        # window centre first so it appears centred. Not warped back: the
+        # popup closes as soon as the mouse moves far away from it.
+        window = context.window
+        if window is not None:
+            window.cursor_warp(window.width // 2, window.height // 2)
+        context.window_manager.popup_menu(draw, title=_("Premium Feature"), icon="LOCKED")
+        return {"FINISHED"}
+
+    def execute(self, context):
+        # Scripts / background runs have no popup to show.
+        self.report({"INFO"}, _rpt("This Feature is Exclusive for Patreon Supporters"))
+        return {"FINISHED"}
+
+
+_HEIGHT_COLOR_MATERIALS_PROP = "heightColorMaterials"
+
+
+def _color_to_srgb255(color):
+    return tuple(
+        max(0, min(255, int(round(max(0.0, min(1.0, c)) * 255.0)))) for c in color[:3]
+    )
+
+
+def _height_color_material(color):
+    """Return the material dedicated to this exact colour.
+
+    Every height layer owns its own material so stacking a second colour on
+    top never recolours the layers applied before it. Grey also gets its own
+    HEIGHT_ material so it never overwrites the configurable MOUNTAIN role.
+    """
+    r, g, b = _color_to_srgb255(color)
+    name = f"HEIGHT_{r:02X}{g:02X}{b:02X}"
+    mat = bpy.data.materials.get(name)
+    if mat is None:
+        mat = bpy.data.materials.new(name=name)
+    mat.use_nodes = True
+    nodes = mat.node_tree.nodes
+    links = mat.node_tree.links
+    bsdf = next((node for node in nodes if node.type == "BSDF_PRINCIPLED"), None)
+    if bsdf is None:
+        bsdf = nodes.new(type="ShaderNodeBsdfPrincipled")
+    output = next((node for node in nodes if node.type == "OUTPUT_MATERIAL"), None)
+    if output is None:
+        output = nodes.new(type="ShaderNodeOutputMaterial")
+    if not bsdf.outputs["BSDF"].is_linked:
+        links.new(bsdf.outputs["BSDF"], output.inputs["Surface"])
+    set_material_srgb(mat, (r, g, b))
+    return mat
+
+
+def _mountain_uniform_material(obj):
+    """Return the single material shared by every face, or None if mixed.
+
+    A fresh map is uniformly BASE and a previously produced height piece is
+    uniformly its own colour, so this one check both keeps painted maps out of
+    Single Extruder Mode and lets an existing piece be split again.
+    """
+    mesh = obj.data
+    face_count = len(mesh.polygons)
+    if not face_count:
+        return None
+    # Called from panel draw, so avoid per-polygon Python iteration. The
+    # attribute is absent when every face uses slot 0.
+    attribute = mesh.attributes.get("material_index")
+    if attribute is None:
+        index = 0
+    else:
+        values = np.empty(face_count, dtype=np.int32)
+        attribute.data.foreach_get("value", values)
+        index = int(values[0])
+        if (values != index).any():
+            return None
+    if index >= len(mesh.materials):
+        return None
+    return mesh.materials[index]
+
+
+def _paint_texture_state(mesh):
+    """"texture" for a map painted via an MMU_Paint texture, "incomplete" when
+    the mesh is flagged as one but its image is gone, else None.
+
+    The mesh flag is what marks a painted map. An image of that name without
+    the flag is a leftover: utils/texture.py only replaces it when a textured
+    map is regenerated, so it outlives a deleted textured map and would
+    otherwise mark an untextured map that reuses its mesh name as painted.
+    """
+    if not mesh.get("3mf_is_paint_texture"):
+        return None
+    return "texture" if bpy.data.images.get(f"{mesh.name}_MMU_Paint") else "incomplete"
+
+
+def _mountain_split_ineligible_reason(obj, tp3d, check_topology=False):
+    if obj.type != "MESH" or obj.get("Object type") != "MAP":
+        return _("Only generated map meshes can be split")
+
+    mesh = obj.data
+    # A textured map can be split: the base keeps its UVs and texture
+    # (_apply_mountain_manifold restores the mesh name the texture image is
+    # keyed on), the piece gets a plain material. Only a broken texture
+    # (flag without image) is refused.
+    if _paint_texture_state(mesh) == "incomplete":
+        return _("The map's paint texture is incomplete")
+
+    element_mode = obj.get("elementMode", tp3d.elementMode)
+    if element_mode == "SINGLECOLORMODE_REMESH":
+        return _("Maps generated with Single Extruder elements cannot be split")
+    if not mesh.polygons:
+        return _("The map has no faces")
+
+    if _mountain_uniform_material(obj) is None:
+        return _("Only single-colored maps or height pieces can be split")
+
+    if check_topology:
+        bm = bmesh.new()
+        try:
+            bm.from_mesh(mesh)
+            if any(not edge.is_manifold for edge in bm.edges):
+                return _("The map must be manifold before it can be split")
+        finally:
+            bm.free()
+    return None
+
+
+def _mountain_selection_split_reason(context, check_topology=False):
+    """Why the selected maps can't be split by height ("Single color" Color
+    by Height), prefixed with the map's name, or None if they all can."""
+    maps = [
+        obj
+        for obj in context.selected_objects
+        if obj.type == "MESH" and obj.get("Object type") == "MAP"
+    ]
+    if not maps:
+        return _("Select at least one Map object")
+    for obj in maps:
+        reason = _mountain_split_ineligible_reason(
+            obj, context.scene.tp3d, check_topology=check_topology
+        )
+        if reason is not None:
+            return f"{obj.name}: {reason}"
+    return None
+
+
+_COLOR_HEIGHT_RANGE_PROP = "colorHeightRange"
+
+
+def _color_height_range(obj):
+    """(low, high) in obj's local Z that Color by Height's 0-100 % threshold
+    spans: the lowest terrain level (underside + Extra Map Height) up to the
+    highest point.
+
+    Measured from the mesh rather than the "lowestZ"/"highestZ" metadata --
+    those hold unshifted elevations (single maps) or a stale scene value plus
+    the extrusion (generator-page tiles), so 100 % landed anywhere between the
+    real top and far above it. Stored on the map the first time, so pieces
+    split off it (which copy its custom properties) keep the same scale even
+    though their own underside sits higher.
+    """
+    stored = obj.get(_COLOR_HEIGHT_RANGE_PROP)
+    if stored is not None and len(stored) == 2:
+        return float(stored[0]), float(stored[1])
+    count = len(obj.data.vertices)
+    if not count:
+        return None
+    co = np.empty(count * 3, dtype=np.float64)
+    obj.data.vertices.foreach_get("co", co)
+    z = co[2::3]
+    bottom, top = float(z.min()), float(z.max())
+    low = min(bottom + float(obj.get("minThickness", 0.0) or 0.0), top)
+    obj[_COLOR_HEIGHT_RANGE_PROP] = (low, top)
+    return low, top
+
+
+def _mountain_noise_offset(x, y, noise_amplitude, noise_scale):
+    if noise_amplitude <= 0:
+        return 0.0
+    value = noise.noise((x * noise_scale, y * noise_scale, 0.0))
+    return (value - 0.5) * 2.0 * noise_amplitude
+
+
+def _build_mountain_element(
+    obj, z_threshold, noise_amplitude, noise_scale, sink_depth=1.0
+):
+    source_bm = bmesh.new()
+    source_bm.from_mesh(obj.data)
+    bm = source_bm.copy()
+    source_bm.free()
+
+    for vertex in bm.verts:
+        vertex.co.z -= _mountain_noise_offset(
+            vertex.co.x, vertex.co.y, noise_amplitude, noise_scale
+        )
+
+    result = bmesh.ops.bisect_plane(
+        bm,
+        geom=bm.verts[:] + bm.edges[:] + bm.faces[:],
+        plane_co=Vector((0.0, 0.0, z_threshold)),
+        plane_no=Vector((0.0, 0.0, 1.0)),
+        clear_outer=False,
+        clear_inner=True,
+    )
+
+    for vertex in bm.verts:
+        vertex.co.z += _mountain_noise_offset(
+            vertex.co.x, vertex.co.y, noise_amplitude, noise_scale
+        )
+
+    cut_edges = [
+        element
+        for element in result.get("geom_cut", ())
+        if isinstance(element, bmesh.types.BMEdge)
+        and element.is_valid
+        and element.is_boundary
+    ]
+    if not bm.faces or not cut_edges:
+        bm.free()
+        return None, None
+
+    mw = obj.matrix_world
+    mw_inv = mw.inverted()
+    # coloring_main() gives normal Single Extruder elements this same 1 mm body.
+    bottom_world_z = min((mw @ vertex.co).z for vertex in bm.verts) - sink_depth
+    extruded = bmesh.ops.extrude_edge_only(bm, edges=cut_edges)
+    bottom_vertices = [
+        element
+        for element in extruded["geom"]
+        if isinstance(element, bmesh.types.BMVert)
+    ]
+    for vertex in bottom_vertices:
+        world_co = mw @ vertex.co
+        world_co.z = bottom_world_z
+        vertex.co = mw_inv @ world_co
+
+    bottom_vertex_set = set(bottom_vertices)
+    bottom_edges = [
+        edge
+        for edge in bm.edges
+        if edge.is_boundary and all(vertex in bottom_vertex_set for vertex in edge.verts)
+    ]
+    if not bottom_edges:
+        bm.free()
+        return None, None
+
+    bmesh.ops.holes_fill(bm, edges=bottom_edges, sides=0)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    if any(not edge.is_manifold for edge in bm.edges):
+        bm.free()
+        return None, None
+    return bm, bottom_world_z
+
+
+def _apply_mountain_manifold(
+    obj,
+    z_threshold,
+    mountain_mat,
+    noise_amplitude,
+    noise_scale,
+    tolerance,
+):
+    # The remainder keeps whatever colour it already had, so splitting a grey
+    # mountain piece for a white snow cap leaves the mountain grey.
+    base_mat = _mountain_uniform_material(obj) or bpy.data.materials.get("BASE")
+
+    mountain_bm, bottom_world_z = _build_mountain_element(
+        obj, z_threshold, noise_amplitude, noise_scale
+    )
+    if mountain_bm is None:
+        return None
+
+    original_mesh = obj.data
+    base_work = None
+    mountain_mesh = None
+    mountain_obj = None
+    cutter = None
+    try:
+        for face in mountain_bm.faces:
+            face.material_index = 0
+
+        mountain_mesh = bpy.data.meshes.new(f"{obj.data.name}_Mountain")
+        mountain_bm.to_mesh(mountain_mesh)
+        mountain_mesh.materials.append(mountain_mat)
+
+        mountain_obj = obj.copy()
+        mountain_obj.data = mountain_mesh
+        mountain_obj.name = f"{obj.name}_Mountain"
+        for collection in obj.users_collection:
+            collection.objects.link(mountain_obj)
+
+        base_work = obj.copy()
+        base_work.data = original_mesh.copy()
+        base_work.name = f"{obj.name}_ColorByHeightWork"
+        bpy.context.collection.objects.link(base_work)
+
+        from .utils.mesh_ops import single_color_mode_mesh_remesh
+
+        cutter = single_color_mode_mesh_remesh(
+            mountain_obj,
+            base_work,
+            tolerance=tolerance,
+            shared_bottom_z=bottom_world_z,
+        )
+        if cutter is None:
+            return None
+
+        for candidate in (base_work, mountain_obj):
+            check_bm = bmesh.new()
+            try:
+                check_bm.from_mesh(candidate.data)
+                if not check_bm.faces or any(
+                    not edge.is_manifold for edge in check_bm.edges
+                ):
+                    return None
+            finally:
+                check_bm.free()
+
+        new_base_mesh = base_work.data
+        # Applying the Boolean drops mesh-level custom properties -- carry the
+        # 3MF paint metadata over so a textured map stays textured (same as
+        # utils/mesh_ops.py does for split terrain pieces).
+        from .utils.texture import copy_paint_metadata
+
+        copy_paint_metadata(original_mesh, new_base_mesh)
+        obj.data = new_base_mesh
+        bpy.data.objects.remove(base_work, do_unlink=True)
+        base_work = None
+        original_name = original_mesh.name
+        if original_mesh.users == 0:
+            bpy.data.meshes.remove(original_mesh)
+            # Keep the mesh name: a painted map's texture image is looked up
+            # as "<mesh name>_MMU_Paint" (utils/texture.py).
+            new_base_mesh.name = original_name
+        obj.data.materials.clear()
+        if base_mat is not None:
+            obj.data.materials.append(base_mat)
+        level = int(obj.get("heightLayerLevel", 0) or 0)
+        # Only the original map is forced into the map export group; a piece
+        # that is being split again keeps its own separate-piece grouping.
+        if not obj.get("IsMountainPiece"):
+            obj["ExportGroup"] = 1
+        obj["lastMountianManifold"] = True
+        obj["mountain_obj_name"] = mountain_obj.name
+        mountain_obj["ExportGroup"] = 0
+        mountain_obj["lastMountianManifold"] = True
+        mountain_obj["IsMountainPiece"] = True
+        mountain_obj["heightLayerLevel"] = level + 1
+        mountain_obj["mountain_base_name"] = obj.name
+        # The piece is a solid single colour, not a map carrying height bands.
+        mountain_obj[_HEIGHT_COLOR_MATERIALS_PROP] = []
+        return mountain_obj
+    finally:
+        mountain_bm.free()
+        if cutter is not None and cutter.name in bpy.data.objects:
+            bpy.data.objects.remove(cutter, do_unlink=True)
+        if base_work is not None and base_work.name in bpy.data.objects:
+            bpy.data.objects.remove(base_work, do_unlink=True)
+        if (
+            mountain_obj is not None
+            and not mountain_obj.get("lastMountianManifold")
+            and mountain_obj.name in bpy.data.objects
+        ):
+            bpy.data.objects.remove(mountain_obj, do_unlink=True)
+        elif (
+            mountain_obj is None
+            and mountain_mesh is not None
+            and mountain_mesh.name in bpy.data.meshes
+        ):
+            bpy.data.meshes.remove(mountain_mesh)
 
 
 class TP3D_OT_color_mountain(bpy.types.Operator):
     bl_idname = "tp3d.color_mountain"
-    bl_label = "Color Mountains"
-    bl_description = "Color Mountains above a certain Threshold"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_label = _("Color by Height")
+    bl_description = _tip("Color terrain above a height threshold")
+    bl_options = {"REGISTER", "UNDO"}
 
-    def execute(self,context):
+    mountain_treshold: bpy.props.IntProperty(
+        name=_("Mountain Threshold"),
+        default=60,
+        min=0,
+        max=100,
+        subtype="PERCENTAGE",
+        description=_tip("Height threshold for Color by Height"),
+    )  # type: ignore
+    mountain_color: bpy.props.FloatVectorProperty(
+        name=_("Mountain Color"),
+        description=_tip("Color used for terrain above the threshold"),
+        subtype="COLOR_GAMMA",
+        size=3,
+        min=0.0,
+        max=1.0,
+        default=(0.5, 0.5, 0.5),
+    )  # type: ignore
+    color_height_SEM: bpy.props.BoolProperty(
+        name=_("Single Extruder Mode"),
+        description=_tip(
+            "Build terrain above the threshold as a one-millimeter-deep element and cut its tolerance gap from the piece below it, using the same construction as normal Single Extruder elements. Select the new piece and run again with a higher threshold to stack another color on top. Reversible with Ctrl-Z"
+        ),
+        default=False,
+    )  # type: ignore
+    mountain_noise: bpy.props.BoolProperty(
+        name=_("Threshold Variation Noise"),
+        default=False,
+        description=_tip(
+            "Makes a more natural looking boundary for the Color by Height threshold."
+        ),
+    )  # type: ignore
+    mountain_noise_amplitude: bpy.props.FloatProperty(
+        name=_("Amplitude"),
+        default=1.0,
+        min=0.0,
+        soft_max=10.0,
+        description=_tip(
+            "How far the Color by Height boundary is allowed to dip below or rise above the flat threshold height, in map units. 0 gives a flat boundary."
+        ),
+    )  # type: ignore
+    mountain_noise_scale: bpy.props.FloatProperty(
+        name=_("Scale"),
+        default=0.5,
+        min=0.005,
+        soft_max=2.0,
+        description=_tip(
+            "Frequency of the Color by Height boundary noise. Lower values give broad, slow-rolling dips and rises; higher values give tight, speckled variation."
+        ),
+    )  # type: ignore
 
-        
-        selected_objects = bpy.context.selected_objects
-        min_treshold = context.scene.tp3d.mountain_treshold
+    @classmethod
+    def poll(cls, context):
+        has_map_obj = any(
+            o.get("Object type") == "MAP" for o in context.selected_objects
+        )
 
-        #Collect min/max from custom properties
-        min_z = None
-        max_z = None
-        minThickness = None
+        if not has_map_obj:
+            cls.poll_message_set(_("Select at least one Map object"))
+
+        return has_map_obj
+
+    def invoke(self, context, event):
+        tp3d = context.scene.tp3d
+        self.mountain_treshold = tp3d.mountain_treshold
+        self.mountain_color = tp3d.mountain_color
+        self.color_height_SEM = tp3d.color_height_SEM
+        self.mountain_noise = tp3d.mountain_noise
+        self.mountain_noise_amplitude = tp3d.mountain_noise_amplitude
+        self.mountain_noise_scale = tp3d.mountain_noise_scale
+        return self.execute(context)
+
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "mountain_treshold")
+        layout.prop(self, "mountain_color")
+        layout.prop(self, "color_height_SEM")
+        layout.prop(self, "mountain_noise")
+        col = layout.column()
+        col.enabled = self.mountain_noise
+        col.prop(self, "mountain_noise_amplitude")
+        col.prop(self, "mountain_noise_scale")
+
+    def execute(self, context):
+
+        tp3d = context.scene.tp3d
+        # Keep scene settings and redo settings in sync.
+        tp3d.mountain_treshold = self.mountain_treshold
+        tp3d.mountain_color = self.mountain_color
+        tp3d.color_height_SEM = self.color_height_SEM
+        tp3d.mountain_noise = self.mountain_noise
+        tp3d.mountain_noise_amplitude = self.mountain_noise_amplitude
+        tp3d.mountain_noise_scale = self.mountain_noise_scale
+
+        selected_objects = context.selected_objects
+        min_treshold = self.mountain_treshold
 
         if not selected_objects:
-            utils.show_message_box("No Object Selected. Please select a Map first")
-            return {'CANCELLED'}
+            self.report({"ERROR"}, _rpt("No object selected. Select a map first."))
+            return {"CANCELLED"}
 
+        map_objects = [
+            obj
+            for obj in selected_objects
+            if obj.type == "MESH" and obj.get("Object type") == "MAP"
+        ]
+        if not map_objects:
+            self.report({"ERROR"}, _rpt("Select at least one generated map."))
+            return {"CANCELLED"}
+
+        if self.color_height_SEM:
+            problems = []
+            for obj in map_objects:
+                reason = _mountain_split_ineligible_reason(
+                    obj, tp3d, check_topology=True
+                )
+                if reason is not None:
+                    problems.append(f"{obj.name}: {reason}")
+            if problems:
+                self.report({"ERROR"}, "; ".join(problems))
+                return {"CANCELLED"}
+
+        # One threshold height for the whole selection (in world Z, so tiles
+        # of one map get the same cut), as a percentage of the combined
+        # lowest-terrain-to-highest-point range -- converted back into each
+        # map's local Z in the loop below.
+        low_world = None
+        high_world = None
+        for obj in map_objects:
+            height_range = _color_height_range(obj)
+            if height_range is None:
+                continue
+            offset = obj.matrix_world.translation.z
+            low = height_range[0] + offset
+            high = height_range[1] + offset
+            low_world = low if low_world is None else min(low_world, low)
+            high_world = high if high_world is None else max(high_world, high)
+
+        if low_world is None or high_world <= low_world:
+            self.report(
+                {"ERROR"},
+                _rpt("No valid map selected. Select a generated map first."),
+            )
+            return {"CANCELLED"}
+
+        tres_world = low_world + (high_world - low_world) * min_treshold / 100
+        noise_amplitude = self.mountain_noise_amplitude if self.mountain_noise else 0.0
+        noise_scale = self.mountain_noise_scale
+
+        mat = _height_color_material(tuple(self.mountain_color))
+
+        def color_mountains_noised(
+            obj, z_threshold, base_mat, mountain_mat, noise_amplitude, noise_scale
+        ):
+            def _noise_offset(x, y):
+                if noise_amplitude <= 0:
+                    return 0.0
+                n = noise.noise((x * noise_scale, y * noise_scale, 0.0))
+                return (n - 0.5) * 2.0 * noise_amplitude  # noise.noise() returns [0, 1]
+
+            bpy.context.view_layer.objects.active = obj
+            bpy.ops.object.mode_set(mode="EDIT")
+            bm = bmesh.from_edit_mesh(obj.data)
+
+            for v in bm.verts:
+                v.co.z -= _noise_offset(v.co.x, v.co.y)
+
+            bmesh.ops.bisect_plane(
+                bm,
+                geom=bm.verts[:] + bm.edges[:] + bm.faces[:],
+                plane_co=Vector((0, 0, z_threshold)),
+                plane_no=Vector((0, 0, 1)),
+                clear_outer=False,
+                clear_inner=False,
+            )
+
+            for v in bm.verts:
+                v.co.z += _noise_offset(v.co.x, v.co.y)
+
+            bmesh.update_edit_mesh(obj.data)
+            bpy.ops.object.mode_set(mode="OBJECT")
+
+            mesh = obj.data
+            # Faces that may still change colour: untouched base terrain plus
+            # any band an earlier "Color by Height" pass already painted.
+            # Element colours (water, forest, ...) are deliberately excluded so
+            # stacking never eats them.
+            recolorable = {mesh.materials.find(base_mat)}
+            uniform = _mountain_uniform_material(obj)
+            if uniform is not None:
+                recolorable.add(mesh.materials.find(uniform.name))
+            for name in obj.get(_HEIGHT_COLOR_MATERIALS_PROP, []):
+                recolorable.add(mesh.materials.find(str(name)))
+            recolorable.discard(-1)
+            mount_index = mesh.materials.find(mountain_mat)
+            recolorable.add(mount_index)
+            for f in mesh.polygons:
+                if f.material_index not in recolorable:
+                    continue
+                avg_z = sum(mesh.vertices[v].co.z for v in f.vertices) / len(f.vertices)
+                cx, cy, _ = f.center
+                local_threshold = z_threshold + _noise_offset(cx, cy)
+                if avg_z > local_threshold:
+                    f.material_index = mount_index
+
+        # Iterate objects and faces
         for obj in selected_objects:
-            if "lowestZ" in obj and "highestZ" in obj and obj["highestZ"] != 0:
-                low = obj["lowestZ"]
-                high = obj["highestZ"]
-                minThickness = obj["minThickness"]
-                min_z = low if min_z is None else min(min_z, low)
-                max_z = high if max_z is None else max(max_z, high)
-
-        #print(f"Lowest Z across objects: {min_z}, Highest Z: {max_z}")
-
-        if min_z is None or max_z is None:
-            utils.show_message_box("No valid Map object selected. Please select a generated Map first.", "INFO", "INFO")
-            return {'CANCELLED'}
-
-        #tres = (max_z-min_z)/100 * min_treshold + minThickness
-        tres = (max_z + minThickness)/100 * min_treshold + 0.2# + minThickness
-    
-
-        #---------------------------------------
-        #Create or get green material
-       
-        #Create or get a gray material
-        mat = bpy.data.materials.get("MOUNTAIN")
-        
-
-        #Iterate objects and faces
-        for obj in selected_objects:
-            if obj.type != 'MESH' or obj["Object type"] != "MAP" or max_z == 0:
+            if obj.type != "MESH" or obj.get("Object type") != "MAP":
                 print("Not Applied")
                 continue
-            if "lastMountianCut" in obj and obj["lastMountianCut"] == tres:
-                utils.show_message_box("Already Applied mountains at this height")
-                return{'FINISHED'}
-                
+            tres = tres_world - obj.matrix_world.translation.z
+
+            mesh = obj.data
+            texture_state = _paint_texture_state(mesh)
+            if texture_state == "incomplete":
+                self.report(
+                    {"ERROR"},
+                    _(
+                        "{name} has incomplete paint-texture data and cannot be processed."
+                    ).format(name=obj.name),
+                )
+                continue
+            # "Single color" splits a textured map too (below) instead of
+            # painting the height band into its texture.
+            is_texture_mode = texture_state == "texture" and not self.color_height_SEM
+
             print("Apply Mountain Color")
 
-            #obj.data.materials.clear()
-            #obj.data.materials.append(matG)  # creates first slot and assigns
+            # Texture mode has no BASE/MOUNTAIN material_index faces to
+            # recolor at all -- it's a baked image -- so paint the height
+            # layer directly into the existing MMU_Paint texture instead.
+            if is_texture_mode:
+                from .utils import texture as _tp3d_texture
 
-            def cut_mesh_at_height(obj, z_height):
-                bpy.context.view_layer.objects.active = obj
-                bpy.ops.object.mode_set(mode='EDIT')
-                bm = bmesh.from_edit_mesh(obj.data)
-
-                plane_co = Vector((0, 0, z_height))
-                plane_no = Vector((0, 0, 1))
-
-                bmesh.ops.bisect_plane(
-                    bm,
-                    geom=bm.verts[:] + bm.edges[:] + bm.faces[:],
-                    plane_co=plane_co,
-                    plane_no=plane_no,
-                    clear_outer=False,
-                    clear_inner=False
+                baked = _tp3d_texture.bake_height_layer_into_texture(
+                    obj,
+                    tres,
+                    material=mat,
+                    noise_amplitude=noise_amplitude,
+                    noise_scale=noise_scale,
                 )
+                if not baked:
+                    self.report(
+                        {"ERROR"},
+                        _("Could not find the paint texture for {name}.").format(
+                            name=obj.name
+                        ),
+                    )
+                    continue
+                obj["lastMountianCut"] = tres
+                obj["lastMountianNoiseAmp"] = noise_amplitude
+                obj["lastMountianNoiseScale"] = noise_scale
+                obj["lastMountianColor"] = tuple(self.mountain_color)
+                continue
 
-                bmesh.update_edit_mesh(obj.data)
-                bpy.ops.object.mode_set(mode='OBJECT')
-                
+            if self.color_height_SEM:
+                # A stacked piece only has terrain above its own cut, so a
+                # lower threshold would carve straight through its 1 mm body.
+                previous_cut = obj.get("lastMountianCut")
+                if (
+                    obj.get("IsMountainPiece")
+                    and previous_cut is not None
+                    and tres <= previous_cut
+                ):
+                    self.report(
+                        {"WARNING"},
+                        _(
+                            "{name} was made at a higher threshold -- raise the threshold to stack another color on it."
+                        ).format(name=obj.name),
+                    )
+                    continue
 
-            def color_mountains(obj, z_threshold, base_mat, mountain_mat):
-                mesh = obj.data
-                base_index = mesh.materials.find(base_mat)
-                mount_index = mesh.materials.find(mountain_mat)
-                print(f"t_treshold: {z_threshold}")
-                for f in mesh.polygons:
-                    if f.material_index not in (base_index, mount_index):
-                        continue  # leave non-BASE/MOUNTAIN faces untouched
-                    avg_z = sum(mesh.vertices[v].co.z for v in f.vertices) / len(f.vertices)
-                    if avg_z > z_threshold:
-                        f.material_index = mount_index
-                    else:
-                        f.material_index = base_index
-                        
+                mountain_obj = _apply_mountain_manifold(
+                    obj,
+                    z_threshold=tres,
+                    mountain_mat=mat,
+                    noise_amplitude=noise_amplitude,
+                    noise_scale=noise_scale,
+                    tolerance=tp3d.toleranceElements,
+                )
+                if mountain_obj is None:
+                    self.report(
+                        {"WARNING"},
+                        _(
+                            "{name} could not produce a valid recessed mountain element at this threshold."
+                        ).format(name=obj.name),
+                    )
+                    continue
+                for piece in (obj, mountain_obj):
+                    piece["lastMountianCut"] = tres
+                    piece["lastMountianNoiseAmp"] = noise_amplitude
+                    piece["lastMountianNoiseScale"] = noise_scale
+                    piece["lastMountianColor"] = tuple(self.mountain_color)
+                continue
 
-            obj = bpy.context.view_layer.objects.active
+            already_applied = (
+                "lastMountianCut" in obj
+                and obj["lastMountianCut"] == tres
+                and obj.get("lastMountianNoiseAmp") == noise_amplitude
+                and obj.get("lastMountianNoiseScale") == noise_scale
+                and obj.get("lastMountianColor") is not None
+                and all(
+                    abs(a - b) < 1e-4
+                    for a, b in zip(
+                        obj["lastMountianColor"], self.mountain_color
+                    )
+                )
+            )
+            if already_applied:
+                self.report(
+                    {"INFO"},
+                    _(
+                        "{name} already uses this height, noise, and color."
+                    ).format(name=obj.name),
+                )
+                continue
 
-            #Ensure MOUNTAIN material exists on the object before coloring
-            mat_index = obj.data.materials.find("MOUNTAIN")
-            if mat_index == -1 and mat is not None:
+            if obj.data.materials.find(mat.name) == -1:
                 obj.data.materials.append(mat)
-                mat_index = len(obj.data.materials) - 1
 
-            cut_mesh_at_height(obj, tres)
-            color_mountains(obj,tres,"BASE","MOUNTAIN")
+            color_mountains_noised(
+                obj, tres, "BASE", mat.name, noise_amplitude, noise_scale
+            )
+            applied = [str(name) for name in obj.get(_HEIGHT_COLOR_MATERIALS_PROP, [])]
+            if mat.name not in applied:
+                applied.append(mat.name)
+            obj[_HEIGHT_COLOR_MATERIALS_PROP] = applied
             obj["lastMountianCut"] = tres
-            
+            obj["lastMountianNoiseAmp"] = noise_amplitude
+            obj["lastMountianNoiseScale"] = noise_scale
+            obj["lastMountianColor"] = tuple(self.mountain_color)
+
+        if context.screen is not None:
+            for area in context.screen.areas:
+                if area.type == "VIEW_3D":
+                    area.tag_redraw()
+        return {"FINISHED"}
 
 
-            #utils.merge_by_distance(obj, distance=0.001)
+class TP3D_OT_undo_mountain_texture(bpy.types.Operator):
+    """Restore the selected object's MMU_Paint texture to its state immediately before its most recent texture bake (Color by Height, or Add SVG / Add Text painted on the surface). Blender's native Ctrl+Z does not track raw Image.pixels writes made through Python, so texture mode maintains its own in-session history instead."""
 
-        return {'FINISHED'}
+    bl_idname = "tp3d.undo_mountain_texture"
+    bl_label = _("Undo Texture Bake")
+    bl_description = _tip(
+        "Undo the most recent texture bake (Color by Height, SVG or Text) for the selected object"
+    )
+    bl_options = {"REGISTER"}
+
+    @classmethod
+    def poll(cls, context):
+        has_map_obj = any(
+            o.get("Object type") == "MAP" for o in context.selected_objects
+        )
+
+        if not has_map_obj:
+            cls.poll_message_set(_("Select at least one Map object"))
+
+        return has_map_obj
+
+    def execute(self, context):
+        from .utils import texture as _tp3d_texture
+
+        restored = 0
+        for obj in context.selected_objects:
+            if obj.type != "MESH":
+                continue
+            if _tp3d_texture.restore_last_height_bake(obj):
+                restored += 1
+        if restored == 0:
+            self.report(
+                {"INFO"},
+                _rpt("Nothing to undo -- no texture bake to restore."),
+            )
+            return {"CANCELLED"}
+        return {"FINISHED"}
+
 
 class TP3D_OT_contour_lines(bpy.types.Operator):
     bl_idname = "tp3d.contour_lines"
     bl_label = _("Contour Lines")
-    bl_description = "Generate contour lines on the map"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_description = _tip("Generate contour lines on the map")
+    bl_options = {"REGISTER", "UNDO"}
 
-    def execute(self,context):
+    @classmethod
+    def poll(cls, context):
+        has_map_obj = any(
+            o.get("Object type") == "MAP" for o in context.selected_objects
+        )
+
+        if not has_map_obj:
+            cls.poll_message_set(_("Select at least one Map object"))
+
+        return has_map_obj
+
+    def execute(self, context):
+        selected_objects = context.selected_objects
+        result = utils.contourLines(selected_objects)
+        return result if result else {"FINISHED"}
 
 
-        selected_objects = bpy.context.selected_objects
-
-        utils.contourLines(selected_objects)
-        #utils.exaggeratedLayers(selected_objects)
-            
-
-        return {'FINISHED'}
-    
 class TP3D_OT_popup_merge(bpy.types.Operator):
     bl_idname = "tp3d.popup_merge"
-    bl_label = "Merge Object with Map"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_label = _("Merge Object with Map")
+    bl_options = {"REGISTER", "UNDO"}
 
     operation: bpy.props.EnumProperty(
-        name="Type",
+        name=_("Type"),
         items=[
-            ("paint", "Paint on Surface", ""),
-            ("separate", "Separate Object", ""),
-            ("singleColorMode_remesh","Single-Color-Mode (Remesh)",""),
-            ("negative","Negative",""),
+            ("paint", _("Paint on Surface"), ""),
+            ("singleColorMode_remesh", _("Single Extruder Mode"), ""),
+            ("negative", _("Negative"), ""),
         ],
         default="paint",
-    ) # type: ignore
+    )  # type: ignore
 
-    xOffset: bpy.props.FloatProperty(name="X Offset", default=0) # type: ignore
-    yOffset: bpy.props.FloatProperty(name="Y Offset", default=0) # type: ignore
-    scaleFac: bpy.props.FloatProperty(name="Scale", default=1) # type: ignore
-    rotation: bpy.props.FloatProperty(name="Rotation", default=0) # type: ignore
+    xOffset: bpy.props.FloatProperty(name=_("X Offset"), default=0)  # type: ignore
+    yOffset: bpy.props.FloatProperty(name=_("Y Offset"), default=0)  # type: ignore
+    scaleFac: bpy.props.FloatProperty(name=_("Scale"), default=1)  # type: ignore
+    rotation: bpy.props.FloatProperty(name=_("Rotation"), default=0)  # type: ignore
 
     # Internal variables to track state
     _start_location = None
@@ -1180,8 +2169,12 @@ class TP3D_OT_popup_merge(bpy.types.Operator):
 
     def check(self, context):
         obj = context.active_object
-        if self._start_location is None or self._start_rotation is None or self._start_scale is None:
-            return False    
+        if (
+            self._start_location is None
+            or self._start_rotation is None
+            or self._start_scale is None
+        ):
+            return False
 
         # Apply transforms
         obj.location.x = self._start_location.x + self.xOffset
@@ -1189,20 +2182,19 @@ class TP3D_OT_popup_merge(bpy.types.Operator):
         obj.rotation_euler.z = self._start_rotation + math.radians(self.rotation)
         obj.scale.x = obj.scale.y = self._start_scale * self.scaleFac
 
-        
         return True
 
     def execute(self, context):
 
         obj = context.active_object
         if not obj:
-            return {'CANCELLED'}
+            return {"CANCELLED"}
 
         # Convert to Mesh and Extrude
-        bpy.ops.object.convert(target='MESH')
-        bpy.ops.object.origin_set(type='ORIGIN_CURSOR', center='MEDIAN')
+        bpy.ops.object.convert(target="MESH")
+        bpy.ops.object.origin_set(type="ORIGIN_CURSOR", center="MEDIAN")
         bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
-        
+
         obj.location.z = -1
 
         # Your custom projection logic
@@ -1211,17 +2203,17 @@ class TP3D_OT_popup_merge(bpy.types.Operator):
 
         # Restore View
         self.restore_view(context)
-        return {'FINISHED'}
+        return {"FINISHED"}
 
     def cancel(self, context):
         # Clean up the text object if user cancels
         if context.active_object:
             bpy.data.objects.remove(context.active_object, do_unlink=True)
         self.restore_view(context)
-        return {'CANCELLED'}
+        return {"CANCELLED"}
 
     def restore_view(self, context):
-        area = next(a for a in context.screen.areas if a.type == 'VIEW_3D')
+        area = next(a for a in context.screen.areas if a.type == "VIEW_3D")
         rv3d = area.spaces.active.region_3d
         rv3d.view_rotation = self.orig_rotation
         rv3d.view_location = self.orig_location
@@ -1236,62 +2228,80 @@ class TP3D_OT_popup_merge(bpy.types.Operator):
 
         if "type" not in obj:
             obj["type"] = "OTHER"
-        #context.scene.cursor.location = obj.location.copy()
-
-
-
+        # context.scene.cursor.location = obj.location.copy()
 
         self._start_location = obj.location.copy()
         self._start_rotation = obj.rotation_euler.z
         self._start_scale = obj.scale.x
 
-
         # Store View State
-        area = next(a for a in context.screen.areas if a.type == 'VIEW_3D')
+        area = next(a for a in context.screen.areas if a.type == "VIEW_3D")
         rv3d = area.spaces.active.region_3d
         self.orig_rotation = rv3d.view_rotation.copy()
         self.orig_location = rv3d.view_location.copy()
         self.orig_distance = rv3d.view_distance
         self.orig_perspective = rv3d.view_perspective
 
-        utils.zoom_camera_to_selected(context.scene.tp3d.currentMap)
-        bpy.ops.object.select_all(action='DESELECT')
+        utils.zoom_camera_to_objects([context.scene.tp3d.currentMap])
+        bpy.ops.object.select_all(action="DESELECT")
         obj.select_set(True)
         bpy.context.view_layer.objects.active = obj
         # Setup Camera view
         rv3d.view_rotation = Quaternion((1, 0, 0, 0))
         rv3d.view_location = obj.location.copy()
-        rv3d.view_perspective = 'ORTHO'
+        rv3d.view_perspective = "ORTHO"
 
         # Group this initial creation with the rest of the operator for UNDO
         bpy.ops.ed.undo_push(message="Add Text Popup")
 
         return context.window_manager.invoke_props_dialog(self)
 
+
 class TP3D_OT_import_text(bpy.types.Operator):
     bl_idname = "tp3d.import_text"
-    bl_label = "Import Text"
-    bl_description = "Import Text to place it on your Map"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_label = _("Import Text")
+    bl_description = _tip("Import Text to place it on your Map")
+    bl_options = {"REGISTER", "UNDO"}
 
-    def execute(self,context):
-        
+    @classmethod
+    def poll(cls, context):
+        # Ensure that at least one Map OR Shell OR Plate object is selected before enabling the operator.
+        has_map_obj = any(
+            o.get("Object type") == "MAP" for o in context.selected_objects
+        )
+        has_shell_obj = any(
+            o.get("Object type") == "SHELL" for o in context.selected_objects
+        )
+        has_plate_obj = any(
+            o.get("Object type") == "PLATE" for o in context.selected_objects
+        )
+
+        has_valid_obj = has_map_obj or has_shell_obj or has_plate_obj
+
+        if not has_valid_obj:
+            cls.poll_message_set(_("Select at least one Map, Shell, or Plate object"))
+
+        return has_valid_obj
+
+    def execute(self, context):
+
         obj = bpy.context.view_layer.objects.active
         if obj is None:
             utils.show_message_box("No Map Selected")
-            return {'FINISHED'}
+            return {"FINISHED"}
 
         if "objSize" not in obj:
             utils.show_message_box("Selected object is not a Map")
-            return {'FINISHED'}
+            return {"FINISHED"}
 
-        bpy.ops.tp3d.popup_text('INVOKE_DEFAULT')
-        return {'FINISHED'}
+        bpy.ops.tp3d.popup_text("INVOKE_DEFAULT")
+        return {"FINISHED"}
+
 
 class TP3D_OT_popup_text(bpy.types.Operator):
     bl_idname = "tp3d.popup_text"
-    bl_label = "Import Text"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_label = _("Import Text")
+    bl_options = {"REGISTER", "UNDO"}
 
     def on_font_change(self, context):
         # Run your font loading logic here
@@ -1307,37 +2317,45 @@ class TP3D_OT_popup_text(bpy.types.Operator):
                         new_fnt = bpy.data.fonts[font_name]
                     else:
                         new_fnt = bpy.data.fonts.load(clean_path)
-                    
+
                     if obj.data.font != new_fnt:
                         obj.data.font = new_fnt
                 except (RuntimeError, OSError) as e:
                     print(f"Font Load Error: {e}")
 
-    text: StringProperty(name="Name", default="Text") # type: ignore
+    text: StringProperty(name=_("Name"), default="Text")  # type: ignore
     textFont: StringProperty(
-        name="Font",
-        description="Select a .ttf or .otf file",
+        name=_("Font"),
+        description=_tip("Select a .ttf or .otf file"),
         default="",
-        subtype='FILE_PATH',
-        update=on_font_change
-    ) # type: ignore
-    xOffset: bpy.props.FloatProperty(name="X Offset", default=0) # type: ignore
-    yOffset: bpy.props.FloatProperty(name="Y Offset", default=0) # type: ignore
-    scaleFac: bpy.props.FloatProperty(name="Scale", default=1) # type: ignore
-    rotation: bpy.props.FloatProperty(name="Rotation", default=0) # type: ignore
+        subtype="FILE_PATH",
+        update=on_font_change,
+    )  # type: ignore
+    xOffset: bpy.props.FloatProperty(name=_("X Offset"), default=0)  # type: ignore
+    yOffset: bpy.props.FloatProperty(name=_("Y Offset"), default=0)  # type: ignore
+    scaleFac: bpy.props.FloatProperty(name=_("Scale"), default=1)  # type: ignore
+    rotation: bpy.props.FloatProperty(name=_("Rotation"), default=0)  # type: ignore
 
-    bottomSide: bpy.props.BoolProperty(name="Bottom Side", default = False) # type: ignore
+    bottomSide: bpy.props.BoolProperty(name=_("Bottom Side"), default=False)  # type: ignore
 
     operation: bpy.props.EnumProperty(
-        name="Type",
+        name=_("Type"),
         items=[
-            ("paint", "Paint on Surface", ""),
-            ("separate", "Separate Object", ""),
-            ("singleColorMode_remesh","Single-Color-Mode (Remesh)",""),
-            ("negative","Negative",""),
+            ("paint", _("Paint on Surface"), ""),
+            ("singleColorMode_remesh", _("Single-Color-Mode (Remesh)"), ""),
+            ("negative", _("Negative"), ""),
         ],
         default="paint",
-    ) # type: ignore
+    )  # type: ignore
+    color: bpy.props.FloatVectorProperty(
+        name=_("Color"),
+        description=_tip("Color the text is painted onto the map with"),
+        subtype="COLOR_GAMMA",
+        size=3,
+        min=0.0,
+        max=1.0,
+        default=(1.0, 1.0, 1.0),
+    )  # type: ignore
 
     # Internal variables to track state
     _start_location = None
@@ -1365,15 +2383,21 @@ class TP3D_OT_popup_text(bpy.types.Operator):
         layout.prop(self, "bottomSide")
         if not self.bottomSide:
             layout.prop(self, "operation")
+            if self.operation == "paint":
+                layout.prop(self, "color")
 
     def check(self, context):
         obj = context.active_object
 
         multi = 1
         if self.bottomSide:
-            multi = -1 
-        
-        if self._start_location is None or self._start_rotation is None or self._start_scale is None:
+            multi = -1
+
+        if (
+            self._start_location is None
+            or self._start_rotation is None
+            or self._start_scale is None
+        ):
             return False
 
         # Apply transforms
@@ -1387,67 +2411,124 @@ class TP3D_OT_popup_text(bpy.types.Operator):
         obj.data.body = self.text
 
         if self.bottomSide and self.rv3d.view_rotation == Quaternion((1, 0, 0, 0)):
-            self.rv3d.view_rotation = Quaternion((0,0,1,0))
-            obj.location.z  = self.bottomZ
-        
-        if not self.bottomSide and self.rv3d.view_rotation == Quaternion((0,0,1,0)):
-            self.rv3d.view_rotation = Quaternion((1,0,0,0))
-            obj.location.z  = self.topZ
-        
+            self.rv3d.view_rotation = Quaternion((0, 0, 1, 0))
+            obj.location.z = self.bottomZ
+
+        if not self.bottomSide and self.rv3d.view_rotation == Quaternion((0, 0, 1, 0)):
+            self.rv3d.view_rotation = Quaternion((1, 0, 0, 0))
+            obj.location.z = self.topZ
+
         return True
 
     def execute(self, context):
 
         obj = context.active_object
         if not obj:
-            return {'CANCELLED'}
+            return {"CANCELLED"}
 
         # Save last used font to scene props
         if self.textFont:
             context.scene.tp3d.textFont = self.textFont
 
-
         # Convert to Mesh and Extrude
-        bpy.ops.object.convert(target='MESH')
+        bpy.ops.object.convert(target="MESH")
         bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
 
-        #bpy.ops.object.mode_set(mode='EDIT')
-        #bpy.ops.mesh.select_all(action='SELECT')
+        # bpy.ops.object.mode_set(mode='EDIT')
+        # bpy.ops.mesh.select_all(action='SELECT')
         # Simplified Extrude
-        #bpy.ops.mesh.extrude_region_move(TRANSFORM_OT_translate={"value":(0, 0, 30)})
-        #bpy.ops.object.mode_set(mode='OBJECT')
+        # bpy.ops.mesh.extrude_region_move(TRANSFORM_OT_translate={"value":(0, 0, 30)})
+        # bpy.ops.object.mode_set(mode='OBJECT')
 
         # Your custom projection logic
         Mapobject = context.scene.tp3d.currentMap
 
-
         if not self.bottomSide:
             obj.location.z = -1
-            utils.projection(self.operation, Mapobject, obj)
+            utils.projection(
+                self.operation,
+                Mapobject,
+                obj,
+                tuple(self.color) if self.operation == "paint" else None,
+            )
         else:
-            obj.location.z = Mapobject.location.z
-
             bpy.ops.object.select_all(action="DESELECT")
 
             if obj.type == "FONT":
                 obj.select_set(True)
                 bpy.context.view_layer.objects.active = obj
-                bpy.ops.object.convert(target='MESH')
+                bpy.ops.object.convert(target="MESH")
 
-            bpy.ops.object.mode_set(mode='EDIT')
-            bpy.ops.mesh.select_all(action='SELECT')
+            bpy.ops.object.mode_set(mode="EDIT")
+            bpy.ops.mesh.select_all(action="SELECT")
             bpy.ops.mesh.extrude_region_move()
-            bpy.ops.transform.translate(value=(0, 0, 0.4))#bpy.ops.mesh.select_all(action='DESELECT')
-            bpy.ops.object.mode_set(mode='OBJECT')
-                
-            utils.intersectWithTile(Mapobject,obj)
+            bpy.ops.transform.translate(
+                value=(0, 0, 0.4)
+            )  # bpy.ops.mesh.select_all(action='DESELECT')
+            bpy.ops.object.mode_set(mode="OBJECT")
 
-            utils.boolean_operation(Mapobject,obj)
+            if not Mapobject.data.vertices or not obj.data.vertices:
+                self.report(
+                    {"ERROR"},
+                    _rpt("Could not align bottom text because the map or text mesh is empty."),
+                )
+                self.restore_view(context)
+                return {"CANCELLED"}
 
+            context.view_layer.update()
+            map_bottom_z = min(
+                (Mapobject.matrix_world @ vertex.co).z
+                for vertex in Mapobject.data.vertices
+            )
+            text_bottom_z = min(
+                (obj.matrix_world @ vertex.co).z for vertex in obj.data.vertices
+            )
+            obj.location.z += map_bottom_z - 0.1 - text_bottom_z
+            context.view_layer.update()
+
+            clipped, clip_message = utils.intersectWithTile(Mapobject, obj)
+            if not clipped:
+                self.report(
+                    {"ERROR"},
+                    _rpt("Could not clip text to the map: {message}").format(
+                        message=clip_message
+                    ),
+                )
+                self.restore_view(context)
+                return {"CANCELLED"}
+
+            from .utils.mesh_ops import is_mesh_manifold
+
+            before_boolean = (
+                len(Mapobject.data.vertices),
+                len(Mapobject.data.edges),
+                len(Mapobject.data.polygons),
+            )
+            solver = (
+                "MANIFOLD"
+                if is_mesh_manifold(Mapobject) and is_mesh_manifold(obj)
+                else "EXACT"
+            )
+            original_text_z = obj.location.z
+            obj.location.z = original_text_z - 0.01
+            context.view_layer.update()
+            try:
+                utils.boolean_operation(Mapobject, obj, solver=solver)
+
+                after_boolean = (
+                    len(Mapobject.data.vertices),
+                    len(Mapobject.data.edges),
+                    len(Mapobject.data.polygons),
+                )
+                if solver == "MANIFOLD" and after_boolean == before_boolean:
+                    utils.boolean_operation(Mapobject, obj, solver="EXACT")
+            finally:
+                obj.location.z = original_text_z
+                context.view_layer.update()
 
         # Restore View
         self.restore_view(context)
-        return {'FINISHED'}
+        return {"FINISHED"}
 
     def cancel(self, context):
         # Clean up the text object if user cancels
@@ -1460,10 +2541,10 @@ class TP3D_OT_popup_text(bpy.types.Operator):
         obj.select_set(True)
         bpy.context.view_layer.objects.active = obj
 
-        return {'CANCELLED'}
+        return {"CANCELLED"}
 
     def restore_view(self, context):
-        area = next(a for a in context.screen.areas if a.type == 'VIEW_3D')
+        area = next(a for a in context.screen.areas if a.type == "VIEW_3D")
         self.rv3d = area.spaces.active.region_3d
         self.rv3d.view_rotation = self.orig_rotation
         self.rv3d.view_location = self.orig_location
@@ -1478,19 +2559,17 @@ class TP3D_OT_popup_text(bpy.types.Operator):
         context.scene.tp3d.currentMap = map
         context.scene.cursor.location = map.location.copy()
 
-
-
         bpy.ops.object.text_add(location=context.scene.cursor.location)
         obj = context.active_object
-        
-        if obj is None:
-            self.report({'WARNING'}, "Failed to create text object, no active object")
-            return {'CANCELLED'}
 
+        if obj is None:
+            self.report(
+                {"WARNING"}, _rpt("Failed to create text object, no active object")
+            )
+            return {"CANCELLED"}
 
         if "type" not in obj:
             obj["type"] = "OTHER"
-
 
         bot, top = utils.getHighestLowest(map)
         print(f"Highest point: {top}")
@@ -1499,26 +2578,26 @@ class TP3D_OT_popup_text(bpy.types.Operator):
         self.topZ = top + 0.2
 
         obj.location.z = self.topZ
-        
+
         # Initial Setup
-        obj.data.align_x = 'CENTER'
-        obj.data.align_y = 'CENTER'
+        obj.data.align_x = "CENTER"
+        obj.data.align_y = "CENTER"
         obj.data.size = 20
-        
+
         self._start_location = obj.location.copy()
         self._start_rotation = obj.rotation_euler.z
         self._start_scale = 1.0
 
         # Store View State
-        area = next(a for a in context.screen.areas if a.type == 'VIEW_3D')
+        area = next(a for a in context.screen.areas if a.type == "VIEW_3D")
         self.rv3d = area.spaces.active.region_3d
         self.orig_rotation = self.rv3d.view_rotation.copy()
         self.orig_location = self.rv3d.view_location.copy()
         self.orig_distance = self.rv3d.view_distance
         self.orig_perspective = self.rv3d.view_perspective
 
-        utils.zoom_camera_to_selected(map)
-        bpy.ops.object.select_all(action='DESELECT')
+        utils.zoom_camera_to_objects([map])
+        bpy.ops.object.select_all(action="DESELECT")
         obj.select_set(True)
         bpy.context.view_layer.objects.active = obj
 
@@ -1526,7 +2605,7 @@ class TP3D_OT_popup_text(bpy.types.Operator):
         self.rv3d.view_rotation = Quaternion((1, 0, 0, 0))
         self.rv3d.view_location = obj.location.copy()
         self.rv3d.view_distance = map["objSize"] * 1.6
-        self.rv3d.view_perspective = 'ORTHO'
+        self.rv3d.view_perspective = "ORTHO"
 
         # Restore last used font
         if context.scene.tp3d.textFont:
@@ -1537,51 +2616,85 @@ class TP3D_OT_popup_text(bpy.types.Operator):
 
         return context.window_manager.invoke_props_dialog(self)
 
+
 class TP3D_OT_import_svg(bpy.types.Operator):
     bl_idname = "tp3d.import_svg"
-    bl_label = "Import SVG"
-    bl_description = "Import an SVG file onto the map"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_label = _("Import SVG")
+    bl_description = _tip("Import an SVG file onto the map")
+    bl_options = {"REGISTER", "UNDO"}
 
-    def execute(self,context):
-        
+    @classmethod
+    def poll(cls, context):
+
+        has_map_obj = any(
+            o.get("Object type") == "MAP" for o in context.selected_objects
+        )
+        has_shell_obj = any(
+            o.get("Object type") == "SHELL" for o in context.selected_objects
+        )
+        has_plate_obj = any(
+            o.get("Object type") == "PLATE" for o in context.selected_objects
+        )
+
+        has_valid_obj = has_map_obj or has_shell_obj or has_plate_obj
+
+        if not has_valid_obj:
+            cls.poll_message_set(_("Select at least one Map, Shell, or Plate object"))
+
+        return has_valid_obj
+
+    def execute(self, context):
+
         obj = bpy.context.view_layer.objects.active
         if obj is None:
             utils.show_message_box("No Map Selected")
-            return {'FINISHED'}
+            return {"FINISHED"}
 
         if "objSize" not in obj:
             utils.show_message_box("Selected object is not a Map")
-            return {'FINISHED'}
+            return {"FINISHED"}
 
-        bpy.ops.tp3d.popup_svg('INVOKE_DEFAULT')
-        return {'FINISHED'}
-    
+        bpy.ops.tp3d.popup_svg("INVOKE_DEFAULT")
+        return {"FINISHED"}
+
+
 class TP3D_OT_popup_svg(bpy.types.Operator):
     bl_idname = "tp3d.popup_svg"
-    bl_label = "Import SVG"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_label = _("Import SVG")
+    bl_options = {"REGISTER", "UNDO"}
 
-    xOffset: bpy.props.FloatProperty(name= _("X Offset"), default = 0) # type: ignore
-    yOffset: bpy.props.FloatProperty(name= _("Y Offset"), default = 0) # type: ignore
-    scaleFac: bpy.props.FloatProperty(name= _("Scale"), default = 1) # type: ignore
-    rotation: bpy.props.FloatProperty(name= _("Rotation"), default = 0) # type: ignore
+    xOffset: bpy.props.FloatProperty(name=_("X Offset"), default=0)  # type: ignore
+    yOffset: bpy.props.FloatProperty(name=_("Y Offset"), default=0)  # type: ignore
+    scaleFac: bpy.props.FloatProperty(name=_("Scale"), default=1)  # type: ignore
+    rotation: bpy.props.FloatProperty(name=_("Rotation"), default=0)  # type: ignore
 
-    bottomSide: bpy.props.BoolProperty(name="Bottom Side", default = False) # type: ignore
+    bottomSide: bpy.props.BoolProperty(name=_("Bottom Side"), default=False)  # type: ignore
 
     operation: bpy.props.EnumProperty(
-        name="Type",
-        description= _("Choose how the SVG should be used"),
+        name=_("Type"),
+        description=_tip("Choose how the SVG should be used"),
         items=[
-            ("paint", "Paint on Surface", "Paints the SVG onto the surface"),
-            ("separate", "Separate Object", "SVG as Separate Object"),
-            ("singleColorMode_remesh","Single-Color-Mode (Remesh)","Creates the SVG as a separate object using the remesh-based algorithm"),
-            ("negative","Negative","Adds the SVG as a negative space"),
+            ("paint", _("Paint on Surface"), _("Paints the SVG onto the surface")),
+            (
+                "singleColorMode_remesh",
+                _("Single Extruder Mode"),
+                _(
+                    "Creates the SVG as a separate object using the remesh-based algorithm"
+                ),
+            ),
+            ("negative", _("Negative"), _("Adds the SVG as a negative space")),
         ],
-        default = "paint",
-        
-    )# type: ignore
-    
+        default="paint",
+    )  # type: ignore
+    color: bpy.props.FloatVectorProperty(
+        name=_("Color"),
+        description=_tip("Color the SVG is painted onto the map with"),
+        subtype="COLOR_GAMMA",
+        size=3,
+        min=0.0,
+        max=1.0,
+        default=(1.0, 1.0, 1.0),
+    )  # type: ignore
 
     _start_location = None
     _start_scale = None
@@ -1607,6 +2720,8 @@ class TP3D_OT_popup_svg(bpy.types.Operator):
         layout.prop(self, "bottomSide")
         if not self.bottomSide:
             layout.prop(self, "operation")
+            if self.operation == "paint":
+                layout.prop(self, "color")
 
     def check(self, context):
         obj = context.active_object
@@ -1619,7 +2734,7 @@ class TP3D_OT_popup_svg(bpy.types.Operator):
             return False
         if self._start_scale is None:
             return False
-        
+
         multi = 1
         if self.bottomSide:
             multi = -1
@@ -1632,17 +2747,16 @@ class TP3D_OT_popup_svg(bpy.types.Operator):
         obj.scale.y = self._start_scale * self.scaleFac
 
         if self.bottomSide and self.rv3d.view_rotation == Quaternion((1, 0, 0, 0)):
-            self.rv3d.view_rotation = Quaternion((0,0,1,0))
-            obj.location.z  = self.bottomZ
-        
-        if not self.bottomSide and self.rv3d.view_rotation == Quaternion((0,0,1,0)):
-            self.rv3d.view_rotation = Quaternion((1,0,0,0))
-            obj.location.z  = self.topZ
+            self.rv3d.view_rotation = Quaternion((0, 0, 1, 0))
+            obj.location.z = self.bottomZ
 
+        if not self.bottomSide and self.rv3d.view_rotation == Quaternion((0, 0, 1, 0)):
+            self.rv3d.view_rotation = Quaternion((1, 0, 0, 0))
+            obj.location.z = self.topZ
 
         return True  # Redraw UI
 
-    def execute(self,context):
+    def execute(self, context):
 
         Mapobject = context.scene.tp3d.currentMap
         obj = bpy.context.view_layer.objects.active
@@ -1652,18 +2766,20 @@ class TP3D_OT_popup_svg(bpy.types.Operator):
 
         obj.scale.z = 200
 
-
         utils.recalculateNormals(Mapobject)
         utils.recalculateNormals(obj)
 
-
         if not self.bottomSide:
             bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
-            bpy.ops.object.origin_set(type='ORIGIN_CURSOR', center='MEDIAN')
+            bpy.ops.object.origin_set(type="ORIGIN_CURSOR", center="MEDIAN")
             obj.location.z = -1
-            utils.projection(self.operation, Mapobject, obj)
+            utils.projection(
+                self.operation,
+                Mapobject,
+                obj,
+                tuple(self.color) if self.operation == "paint" else None,
+            )
         else:
-
             obj.location.z = Mapobject.location.z
             obj.scale.z = 0.8
 
@@ -1672,12 +2788,12 @@ class TP3D_OT_popup_svg(bpy.types.Operator):
             bpy.context.view_layer.objects.active = obj
 
             bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
-                
-            utils.intersectWithTile(Mapobject,obj)
+
+            utils.intersectWithTile(Mapobject, obj)
             obj.location.z -= 0.4
             utils.recalculateNormals(obj)
 
-            utils.boolean_operation(Mapobject,obj)
+            utils.boolean_operation(Mapobject, obj)
             obj.location.z += 0.4
             obj.scale.z *= 0.5
 
@@ -1687,9 +2803,9 @@ class TP3D_OT_popup_svg(bpy.types.Operator):
         if self.orig_perspective is not None:
             self.rv3d.view_perspective = self.orig_perspective
 
-        return {'FINISHED'}
+        return {"FINISHED"}
 
-    def cancel(self,context):
+    def cancel(self, context):
 
         obj = bpy.context.view_layer.objects.active
 
@@ -1706,31 +2822,29 @@ class TP3D_OT_popup_svg(bpy.types.Operator):
         obj.select_set(True)
         bpy.context.view_layer.objects.active = obj
 
-        return {'CANCELLED'}
+        return {"CANCELLED"}
 
-    def invoke(self,context,event):
+    def invoke(self, context, event):
 
         map = bpy.context.view_layer.objects.active
         bpy.context.scene.cursor.location = map.location.copy()
 
         context.scene.tp3d.currentMap = map
-        
+
         svg = utils.importSVGtoMerge(map)
 
         svg.data.materials.clear()
 
         if svg is None:
-            self.report({'WARNING'}, "No Valid object selected")
-            utils.show_message_box("No valid Map selected")
-            return {'CANCELLED'}
+            self.report({"WARNING"}, _rpt("No valid object selected"))
+            return {"CANCELLED"}
 
         obj = context.active_object
         if not obj or obj == 0:
-            self.report({'WARNING'}, "No object selected")
-            return {'CANCELLED'}
-        
-        if "highestZ" in map:
+            self.report({"WARNING"}, _rpt("No valid object selected"))
+            return {"CANCELLED"}
 
+        if "highestZ" in map:
             self.topZ = map["highestZ"] + map["minThickness"] + 0.5 + map.location.z
             self.bottomZ = map.location.z - 0.5
         else:
@@ -1738,15 +2852,15 @@ class TP3D_OT_popup_svg(bpy.types.Operator):
 
             self.bottomZ = bot - 0.2
             self.topZ = top + 0.2
-            
+
         obj.location.z = self.topZ
-    
+
         # Define Startposition of the selected object
         self._start_location = obj.location.copy()
         self._start_rotation = obj.rotation_euler.z
         self._start_scale = 1
 
-        area = next(a for a in bpy.context.screen.areas if a.type == 'VIEW_3D')
+        area = next(a for a in bpy.context.screen.areas if a.type == "VIEW_3D")
         space = area.spaces.active
         self.rv3d = space.region_3d
 
@@ -1755,8 +2869,8 @@ class TP3D_OT_popup_svg(bpy.types.Operator):
         self.orig_distance = self.rv3d.view_distance
         self.orig_perspective = self.rv3d.view_perspective
 
-        utils.zoom_camera_to_selected(map)
-        bpy.ops.object.select_all(action='DESELECT')
+        utils.zoom_camera_to_objects([map])
+        bpy.ops.object.select_all(action="DESELECT")
         obj.select_set(True)
         bpy.context.view_layer.objects.active = obj
 
@@ -1765,39 +2879,39 @@ class TP3D_OT_popup_svg(bpy.types.Operator):
 
         self.rv3d.view_rotation = Quaternion((1, 0, 0, 0))  # identity = top view
         self.rv3d.view_distance = map["objSize"] * 1.6
-        self.rv3d.view_perspective = 'ORTHO'
+        self.rv3d.view_perspective = "ORTHO"
 
         return context.window_manager.invoke_props_dialog(self)
 
+
 class TP3D_OT_import_pin(bpy.types.Operator):
     bl_idname = "tp3d.import_pin"
-    bl_label = "Import Pin"
-    bl_description = "Place a Pin on your Map interactively"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_label = _("Import Pin")
+    bl_description = _tip("Place a Pin on your Map interactively")
+    bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
         obj = bpy.context.view_layer.objects.active
         if obj is None:
             utils.show_message_box("No Map Selected")
-            return {'FINISHED'}
+            return {"FINISHED"}
 
         if "objSize" not in obj:
             utils.show_message_box("Selected object is not a Map")
-            return {'FINISHED'}
+            return {"FINISHED"}
 
-        bpy.ops.tp3d.popup_pin('INVOKE_DEFAULT')
-        return {'FINISHED'}
-
+        bpy.ops.tp3d.popup_pin("INVOKE_DEFAULT")
+        return {"FINISHED"}
 
 
 class TP3D_OT_popup_pin(bpy.types.Operator):
     bl_idname = "tp3d.popup_pin"
-    bl_label = "Place Pin"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_label = _("Place Pin")
+    bl_options = {"REGISTER", "UNDO"}
 
-    xOffset: bpy.props.FloatProperty(name="X Offset", default=0) # type: ignore
-    yOffset: bpy.props.FloatProperty(name="Y Offset", default=0) # type: ignore
-    scaleFac: bpy.props.FloatProperty(name="Scale", default=1) # type: ignore
+    xOffset: bpy.props.FloatProperty(name=_("X Offset"), default=0)  # type: ignore
+    yOffset: bpy.props.FloatProperty(name=_("Y Offset"), default=0)  # type: ignore
+    scaleFac: bpy.props.FloatProperty(name=_("Scale"), default=1)  # type: ignore
 
     _start_location = None
     _start_scale = None
@@ -1833,21 +2947,27 @@ class TP3D_OT_popup_pin(bpy.types.Operator):
         # Snap Z to terrain surface via raycast
         map_obj = context.scene.tp3d.currentMap
         if map_obj:
-            hit_z = utils.RaycastPointToMeshZ((obj.location.x, obj.location.y, 0), map_obj)
+            hit_z = utils.RaycastPointToMeshZ(
+                (obj.location.x, obj.location.y, 0), map_obj
+            )
             if hit_z is not None:
-                obj.location.z = hit_z + 2 * self.scaleFac - 1  # 1mm embedded into surface
+                obj.location.z = (
+                    hit_z + 2 * self.scaleFac - 1
+                )  # 1mm embedded into surface
 
         return True
 
     def execute(self, context):
         obj = bpy.context.view_layer.objects.active
         if not obj:
-            return {'CANCELLED'}
+            return {"CANCELLED"}
 
         # Final raycast snap to terrain surface
         map_obj = context.scene.tp3d.currentMap
         if map_obj:
-            hit_z = utils.RaycastPointToMeshZ((obj.location.x, obj.location.y, 0), map_obj)
+            hit_z = utils.RaycastPointToMeshZ(
+                (obj.location.x, obj.location.y, 0), map_obj
+            )
             if hit_z is not None:
                 obj.location.z = hit_z + 2 * self.scaleFac - 1
             else:
@@ -1864,7 +2984,7 @@ class TP3D_OT_popup_pin(bpy.types.Operator):
         if context.scene.tp3d.pinCutout:
             apply_pin_cutout(context, obj, context.scene.tp3d.pinCutoutClearance)
 
-        return {'FINISHED'}
+        return {"FINISHED"}
 
     def cancel(self, context):
         obj = bpy.context.view_layer.objects.active
@@ -1883,7 +3003,7 @@ class TP3D_OT_popup_pin(bpy.types.Operator):
             map_obj.select_set(True)
             bpy.context.view_layer.objects.active = map_obj
 
-        return {'CANCELLED'}
+        return {"CANCELLED"}
 
     def invoke(self, context, event):
         map = bpy.context.view_layer.objects.active
@@ -1893,16 +3013,12 @@ class TP3D_OT_popup_pin(bpy.types.Operator):
         # Create cone pin at cursor location
         cursor_loc = context.scene.cursor.location
         bpy.ops.mesh.primitive_cone_add(
-            vertices=16,
-            radius1=0.4,
-            radius2=0.8,
-            depth=4,
-            location=cursor_loc
+            vertices=16, radius1=0.4, radius2=0.8, depth=4, location=cursor_loc
         )
         obj = context.active_object
         if not obj:
-            self.report({'WARNING'}, "Failed to create pin object")
-            return {'CANCELLED'}
+            self.report({"WARNING"}, _rpt("Failed to create pin object"))
+            return {"CANCELLED"}
         obj.name = "Pin_Placement"
         mat = bpy.data.materials.get("TRAIL")
         if mat:
@@ -1919,7 +3035,7 @@ class TP3D_OT_popup_pin(bpy.types.Operator):
         self._start_location = obj.location.copy()
         self._start_scale = 1.0
 
-        area = next(a for a in bpy.context.screen.areas if a.type == 'VIEW_3D')
+        area = next(a for a in bpy.context.screen.areas if a.type == "VIEW_3D")
         space = area.spaces.active
         self.rv3d = space.region_3d
 
@@ -1928,231 +3044,397 @@ class TP3D_OT_popup_pin(bpy.types.Operator):
         self.orig_distance = self.rv3d.view_distance
         self.orig_perspective = self.rv3d.view_perspective
 
-        utils.zoom_camera_to_selected(map)
-        bpy.ops.object.select_all(action='DESELECT')
+        utils.zoom_camera_to_objects([map])
+        bpy.ops.object.select_all(action="DESELECT")
         obj.select_set(True)
         bpy.context.view_layer.objects.active = obj
         self.rv3d.view_rotation = Quaternion((1, 0, 0, 0))
         self.rv3d.view_location = obj.location.copy()
         self.rv3d.view_distance = map["objSize"] * 1.6
-        self.rv3d.view_perspective = 'ORTHO'
+        self.rv3d.view_perspective = "ORTHO"
 
         bpy.ops.ed.undo_push(message="Add Pin Popup")
 
         return context.window_manager.invoke_props_dialog(self)
 
+
 class TP3D_OT_install_three_mf(bpy.types.Operator):
     bl_idname = "tp3d.install_three_mf"
-    bl_label = "Install 3MF Extension"
-    bl_description = "Automatically downloads and enables the 3MF extension by Clonephaze"
+    bl_label = _("Install 3MF Extension")
+    bl_description = _tip(
+        "Automatically downloads and enables the 3MF extension by Clonephaze"
+    )
 
     def execute(self, context):
         pkg_idd = "ThreeMF_io"
 
+        # WARNING, not ERROR: the generator modals run this through bpy.ops,
+        # which raises on an ERROR report and would abort the modal.
+        if not bpy.app.online_access:
+            self.report(
+                {"WARNING"},
+                _rpt("Online access is off. Enable Allow Online Access in Preferences > System > Network."),
+            )
+            return {"CANCELLED"}
+
         try:
             bpy.ops.extensions.repo_sync_all()
             bpy.ops.extensions.package_install(repo_index=0, pkg_id=pkg_idd)
-            
-        except RuntimeError as e:
-            print({'ERROR'}, f"Install failed: {e}")
-            utils.show_message_box("Install failed: Online access may be disabled. Please enable it in Blender Preferences > System > Network.", "ERROR", "3MF Install Failed")
 
-        inst=  utils.is_3mf_extension_installed()
-        print(f"Inst {inst}")        
-    
-        return {'FINISHED'}
+        except RuntimeError as e:
+            print({"ERROR"}, f"Install failed: {e}")
+            self.report({"WARNING"}, _rpt("3MF install failed. Check Blender's System Console."))
+            return {"CANCELLED"}
+
+        inst = utils.is_3mf_extension_installed()
+        print(f"Inst {inst}")
+
+        return {"FINISHED"}
+
 
 def _redraw_all_areas():
     """Timer callback: keep redrawing until the update check finishes."""
     import bpy
 
     from . import updater
+
     try:
         for window in bpy.context.window_manager.windows:
             for area in window.screen.areas:
                 area.tag_redraw()
     except (AttributeError, ReferenceError):
         pass
-    return 0.5 if updater.status == "checking" or updater.premium_status == "checking" else None
+    return (
+        0.5
+        if updater.status == "checking" or updater.premium_status == "checking"
+        else None
+    )
 
 
 class TP3D_OT_pick_gpx_file(bpy.types.Operator):
     bl_idname = "tp3d.pick_gpx_file"
-    bl_label = "Use GPX File"
-    bl_description = "Use the selected GPX file"
+    bl_label = _("Select a GPX file")
+    bl_description = _tip("Use the selected GPX file")
 
-    filepath: StringProperty(subtype='FILE_PATH')  # type: ignore
-    filter_glob: StringProperty(default="*.gpx;*.igc", options={'HIDDEN'})  # type: ignore
+    filepath: StringProperty(subtype="FILE_PATH")  # type: ignore
+    filter_glob: StringProperty(default="*.gpx;*.igc", options={"HIDDEN"})  # type: ignore
 
     def execute(self, context):
-        context.scene.tp3d.file_path = self.filepath
-        return {'FINISHED'}
+        from .props import update_map_estimate
+
+        tp3d = context.scene.tp3d
+        tp3d.file_path = self.filepath
+
+        details = utils.compute_gpx_details(self.filepath)
+        if details is not None:
+            bounds, trail_name = details
+            (
+                tp3d.cachedTrailMinLat,
+                tp3d.cachedTrailMaxLat,
+                tp3d.cachedTrailMinLon,
+                tp3d.cachedTrailMaxLon,
+            ) = bounds
+            tp3d.cachedTrailBoundsValid = True
+
+            tp3d.trailName = trail_name
+        else:
+            tp3d.cachedTrailBoundsValid = False
+
+        # Recalculate estimated_km once after picking/clearing the file
+        update_map_estimate(tp3d, context)
+
+        return {"FINISHED"}
 
     def invoke(self, context, event):
         context.window_manager.fileselect_add(self)
-        return {'RUNNING_MODAL'}
+        return {"RUNNING_MODAL"}
+
+
+class TP3D_OT_pick_font_file(bpy.types.Operator):
+    bl_idname = "tp3d.pick_font_file"
+    bl_label = _("Use Font File")
+    bl_description = _tip("Use the selected font file")
+
+    filepath: StringProperty(subtype="FILE_PATH")  # type: ignore
+    filter_glob: StringProperty(
+        default="*.ttf;*.otf;*.woff;*.woff2", options={"HIDDEN"}
+    )  # type: ignore
+
+    def execute(self, context):
+        context.scene.tp3d.textFont = self.filepath
+        return {"FINISHED"}
+
+    def invoke(self, context, event):
+        context.window_manager.fileselect_add(self)
+        return {"RUNNING_MODAL"}
 
 
 class TP3D_OT_pick_svg_file(bpy.types.Operator):
     bl_idname = "tp3d.pick_svg_file"
-    bl_label = "Use SVG File"
-    bl_description = "Use the selected SVG file"
+    bl_label = _("Use SVG File")
+    bl_description = _tip("Use the selected SVG file")
 
-    filepath: StringProperty(subtype='FILE_PATH')  # type: ignore
-    filter_glob: StringProperty(default="*.svg", options={'HIDDEN'})  # type: ignore
+    filepath: StringProperty(subtype="FILE_PATH")  # type: ignore
+    filter_glob: StringProperty(default="*.svg", options={"HIDDEN"})  # type: ignore
 
     def execute(self, context):
         context.scene.tp3d.svg_path = self.filepath
-        return {'FINISHED'}
+        return {"FINISHED"}
 
     def invoke(self, context, event):
         context.window_manager.fileselect_add(self)
-        return {'RUNNING_MODAL'}
+        return {"RUNNING_MODAL"}
+
+
+class TP3D_OT_pick_dem_path(bpy.types.Operator):
+    bl_idname = "tp3d.pick_dem_path"
+    bl_label = _("Use DEM Path")
+    bl_description = _tip("Use the selected DEM GeoTIFF file or folder")
+
+    directory: StringProperty(subtype="DIR_PATH")  # type: ignore
+    files: CollectionProperty(type=bpy.types.OperatorFileListElement)  # type: ignore
+    filepath: StringProperty(subtype="FILE_PATH")  # type: ignore
+    filter_glob: StringProperty(default="*.tif;*.tiff", options={"HIDDEN"})  # type: ignore
+
+    def execute(self, context):
+        # filepath can be stale when the user only selects a folder in the file browser.
+        context.scene.tp3d.demFilePath = (
+            self.filepath if os.path.isfile(self.filepath) else self.directory
+        )
+        return {"FINISHED"}
+
+    def invoke(self, context, event):
+        current = context.scene.tp3d.demFilePath
+        if current:
+            if os.path.isfile(current):
+                self.filepath = current
+            elif os.path.isdir(current):
+                self.directory = current
+        context.window_manager.fileselect_add(self)
+        return {"RUNNING_MODAL"}
+
+
+class TP3D_OT_pick_svg_shape_file(bpy.types.Operator):
+    bl_idname = "tp3d.pick_svg_shape_file"
+    bl_label = _("Use SVG File")
+    bl_description = _tip("Use the selected SVG file as the map's outline shape")
+
+    filepath: StringProperty(subtype="FILE_PATH")  # type: ignore
+    filter_glob: StringProperty(default="*.svg", options={"HIDDEN"})  # type: ignore
+
+    def execute(self, context):
+        context.scene.tp3d.customFilePath = self.filepath
+        return {"FINISHED"}
+
+    def invoke(self, context, event):
+        context.window_manager.fileselect_add(self)
+        return {"RUNNING_MODAL"}
+
+
+class TP3D_OT_pick_geojson_shape_file(bpy.types.Operator):
+    bl_idname = "tp3d.pick_geojson_shape_file"
+    bl_label = _("Use GeoJSON File")
+    bl_description = _tip("Use the selected GeoJSON file as the map's outline shape")
+
+    filepath: StringProperty(subtype="FILE_PATH")  # type: ignore
+    filter_glob: StringProperty(default="*.geojson;*.json", options={"HIDDEN"})  # type: ignore
+
+    def execute(self, context):
+        context.scene.tp3d.geojson_path = self.filepath
+        return {"FINISHED"}
+
+    def invoke(self, context, event):
+        context.window_manager.fileselect_add(self)
+        return {"RUNNING_MODAL"}
 
 
 class TP3D_OT_check_update(bpy.types.Operator):
     bl_idname = "tp3d.check_update"
-    bl_label = "Check for Updates"
-    bl_description = "Check for the latest version of TrailPrint3D"
+    bl_label = _("Check for Updates")
+    bl_description = _tip("Check for Updates")
 
     def execute(self, context):
         from . import temp, updater
+
         if temp.PREMIUMVERSION:
             updater.start_premium_check()
         else:
             updater.start_check()
         bpy.app.timers.register(_redraw_all_areas, first_interval=0.5)
-        return {'FINISHED'}
+        return {"FINISHED"}
 
 
 class TP3D_OT_open_premium_update(bpy.types.Operator):
     bl_idname = "tp3d.open_premium_update"
-    bl_label = "Get Update"
-    bl_description = "Open the Patreon post (or page) for the latest TrailPrint3D Premium update"
+    bl_label = _("Get Update")
+    bl_description = _tip(
+        "Open the Patreon post (or page) for the latest TrailPrint3D Premium update"
+    )
 
     def execute(self, context):
         from . import updater
+
         utils.open_website(self, context, updater.get_premium_update_url())
-        return {'FINISHED'}
+        return {"FINISHED"}
 
 
 class TP3D_OT_dismiss_update(bpy.types.Operator):
     bl_idname = "tp3d.dismiss_update"
-    bl_label = "Dismiss Update Notice"
-    bl_description = "Hide this update notice — it will reappear once a newer version is released"
+    bl_label = _("Dismiss Update Notice")
+    bl_description = _tip(
+        "Hide this update notice — it will reappear once a newer version is released"
+    )
 
     version: StringProperty(default="")  # type: ignore
 
     def execute(self, context):
         addon_preferences.get_prefs().dismissed_update_version = self.version
+        return {"FINISHED"}
+
+
+class TP3D_OT_reset_osm_size_limits(bpy.types.Operator):
+    bl_idname = "tp3d.reset_osm_size_limits"
+    bl_label = _("Reset to Defaults")
+    bl_description = _tip("Reset all OSM map size limits to their default values")
+
+    def execute(self, context):
+        prefs = addon_preferences.get_prefs()
+        for attr in addon_preferences.OSM_SIZE_LIMITS:
+            prefs.property_unset(attr)
+        # property_unset() doesn't fire the update callbacks
+        addon_preferences.sync_osm_size_limits(prefs)
+        return {'FINISHED'}
+
+
+class TP3D_OT_reset_color_style(bpy.types.Operator):
+    bl_idname = "tp3d.reset_color_style"
+    bl_label = _("Reset Colors")
+    bl_description = _tip("Reset the color swatches to the selected color style")
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        tp3d = context.scene.tp3d
+        try:
+            color_styles.set_scene_colors(tp3d, color_styles.style_colors(tp3d.color_style))
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            self.report({'ERROR'}, _rpt("Could not load color style: {}").format(exc))
+            return {'CANCELLED'}
+        return {'FINISHED'}
+
+
+class TP3D_OT_save_color_style(bpy.types.Operator):
+    bl_idname = "tp3d.save_color_style"
+    bl_label = _("Save Color Style")
+    bl_description = _tip("Save the current colors as a reusable style for all Blender files")
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        tp3d = context.scene.tp3d
+        name = tp3d.color_style_name.strip()
+        try:
+            identifier = color_styles.save_user_style(name, color_styles.scene_colors(tp3d))
+        except (OSError, ValueError) as exc:
+            self.report({'ERROR'}, _rpt("Could not save color style: {}").format(exc))
+            return {'CANCELLED'}
+        tp3d.color_style = identifier
+        tp3d.color_style_name = ""
+        self.report({'INFO'}, _rpt("Saved color style: {}").format(name))
+        return {'FINISHED'}
+
+
+class TP3D_OT_delete_color_style(bpy.types.Operator):
+    bl_idname = "tp3d.delete_color_style"
+    bl_label = _("Delete Color Style")
+    bl_description = _tip("Delete the selected saved color style. The current colors are kept")
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return context.scene.tp3d.color_style.startswith(color_styles.USER_STYLE_PREFIX)
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_confirm(self, event)
+
+    def execute(self, context):
+        tp3d = context.scene.tp3d
+        colors = color_styles.scene_colors(tp3d)
+        try:
+            color_styles.delete_user_style(tp3d.color_style)
+        except (OSError, ValueError) as exc:
+            self.report({'ERROR'}, _rpt("Could not delete color style: {}").format(exc))
+            return {'CANCELLED'}
+        tp3d.color_style = color_styles.DEFAULT_STYLE
+        color_styles.set_scene_colors(tp3d, colors)
+        return {'FINISHED'}
+
+
+class TP3D_OT_apply_color_style(bpy.types.Operator):
+    bl_idname = "tp3d.apply_color_style"
+    bl_label = _("Apply to Selected Maps")
+    bl_description = _tip(
+        "Apply the current colors to the selected maps only, recoloring their materials and Paint textures"
+    )
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return any(obj.type == "MESH" for obj in context.selected_objects)
+
+    def execute(self, context):
+        from .utils.texture import recolor_paint_textures
+
+        targets = [obj for obj in context.selected_objects if obj.type == "MESH"]
+        if not targets:
+            self.report({'ERROR'}, _rpt("Select the maps to recolor first."))
+            return {'CANCELLED'}
+
+        new_colors = color_styles.scene_colors(context.scene.tp3d)
+        previous_colors = color_styles.material_role_colors()
+        color_styles.recolor_object_materials(targets, new_colors)
+        stats = recolor_paint_textures(new_colors, previous_colors, targets)
+
+        if stats["collisions"]:
+            self.report(
+                {'WARNING'},
+                _rpt("Some elements shared a color and were recolored together: {}").format(
+                    ", ".join(sorted(stats["collisions"]))
+                ),
+            )
+        if stats["missing"]:
+            print(f"[TP3D colors] Paint texture image missing for: {', '.join(stats['missing'])}")
+        self.report(
+            {'INFO'},
+            _rpt("Applied colors to {} selected object(s) and {} paint texture(s)").format(
+                len(targets), stats["meshes"]
+            ),
+        )
         return {'FINISHED'}
 
 
 class TP3D_OT_install_update(bpy.types.Operator):
     bl_idname = "tp3d.install_update"
-    bl_label = "Install Update"
-    bl_description = "Download and install the latest TrailPrint3D version from GitHub. Blender must be restarted afterward"
+    bl_label = _("Install Update")
+    bl_description = _tip(
+        "Download and install the latest TrailPrint3D version from GitHub. Blender must be restarted afterward"
+    )
 
     def execute(self, context):
         from . import temp
+
         if temp.PREMIUMVERSION:
-            return {'CANCELLED'}
+            return {"CANCELLED"}
         from . import updater
-        self.report({'INFO'}, "Downloading update, please wait...")
+
+        self.report({"INFO"}, _rpt("Downloading update, please wait..."))
         success, err = updater.download_and_install()
         if success:
             updater.status = "installed"
-            self.report({'INFO'}, "Update installed. Please restart Blender to apply.")
+            self.report(
+                {"INFO"}, _rpt("Update installed. Please restart Blender to apply.")
+            )
         else:
-            self.report({'ERROR'}, f"Update failed: {err}")
-        return {'FINISHED'}
-
-
-class TP3D_OT_remake_buildings(bpy.types.Operator):
-    bl_idname = "tp3d.remake_buildings"
-    bl_label = "Remake Buildings"
-    bl_description = "Delete existing buildings and regenerate them from the current settings. Requires Include Buildings to be enabled"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    @classmethod
-    def poll(cls, context):
-        tp3d = context.scene.tp3d
-        m = tp3d.currentMap
-        return m is not None and m.name in bpy.data.objects and tp3d.el_bActive
-
-    def execute(self, context):
-        from .utils.metadata import writeMetadata
-        from .utils.osm.buildings import create_buildings
-
-        tp3d = context.scene.tp3d
-        map_obj = tp3d.currentMap
-
-        # Delete any existing buildings object(s) for this map
-        for obj in list(context.scene.objects):
-            if obj.get("Object type") == "BUILDINGS":
-                bpy.data.objects.remove(obj, do_unlink=True)
-
-        scaleHor = tp3d.sScaleHor
-        buildings = create_buildings(map_obj, 10, scaleHor)
-
-        if buildings is None:
-            self.report({'WARNING'}, "No building data returned.")
-            return {'CANCELLED'}
-
-        buildings.data.materials.clear()
-        mat = bpy.data.materials.get("BUILDINGS")
-        if mat:
-            buildings.data.materials.append(mat)
-        buildings.name = map_obj.name + "_BUILDINGS"
-        writeMetadata(buildings, type="BUILDINGS")
-
-        self.report({'INFO'}, "Buildings regenerated.")
-        return {'FINISHED'}
-
-
-class TP3D_OT_remake_roads(bpy.types.Operator):
-    bl_idname = "tp3d.remake_roads"
-    bl_label = "Remake Roads"
-    bl_description = "Delete existing roads and regenerate them from the current settings. Requires at least one road type to be enabled"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    @classmethod
-    def poll(cls, context):
-        tp3d = context.scene.tp3d
-        m = tp3d.currentMap
-        return (m is not None and m.name in bpy.data.objects
-                and any([tp3d.el_sBigActive, tp3d.el_sMedActive, tp3d.el_sSmallActive, tp3d.el_sServiceActive, tp3d.el_sFootwaysActive]))
-
-    def execute(self, context):
-        from .utils.metadata import writeMetadata
-        from .utils.osm.roads import create_roads
-
-        tp3d = context.scene.tp3d
-        map_obj = tp3d.currentMap
-
-        # Delete any existing roads object(s) for this map
-        for obj in list(context.scene.objects):
-            if obj.get("Object type") == "ROADS":
-                bpy.data.objects.remove(obj, do_unlink=True)
-
-        scaleHor = tp3d.sScaleHor
-        map_km   = tp3d.get("sMapInKm", 1)
-        roads = create_roads(map_obj, tp3d.el_sHeight, scaleHor, map_km)
-
-        if roads is None:
-            self.report({'WARNING'}, "No road data returned.")
-            return {'CANCELLED'}
-
-        roads = bpy.context.active_object
-        roads.data.materials.clear()
-        mat = bpy.data.materials.get("BLACK")
-        if mat:
-            roads.data.materials.append(mat)
-        roads.name = map_obj.name + "_ROADS"
-        writeMetadata(roads, type="ROADS")
-
-        self.report({'INFO'}, "Roads regenerated.")
-        return {'FINISHED'}
+            self.report({"ERROR"}, _rpt("Update failed: {err}").format(err=err))
+        return {"FINISHED"}
 
 
 # ---------------------------------------------------------------------------
@@ -2162,6 +3444,7 @@ class TP3D_OT_remake_roads(bpy.types.Operator):
 # operators_pe.py (premium) -- kept here so the free puzzle generator doesn't
 # need to import anything from the premium-only module.
 # ---------------------------------------------------------------------------
+
 
 def _collect_existing_maps():
     """Gather geographic bounds of MAP objects already in the scene, so the
@@ -2176,6 +3459,8 @@ def _collect_existing_maps():
     for obj in bpy.context.scene.objects:
         if obj.get("Object type") != "MAP" and obj.get("objType") != "MAP":
             continue
+        if "PuzzleRow" in obj or "PuzzleCol" in obj:
+            continue
 
         if obj.get("Shape") == "CUSTOM":
             shape = "custom"
@@ -2184,10 +3469,14 @@ def _collect_existing_maps():
         else:
             shape = "rectangle"
 
-        if all(k in obj for k in ("edge_south", "edge_north", "edge_west", "edge_east")):
+        if all(
+            k in obj for k in ("edge_south", "edge_north", "edge_west", "edge_east")
+        ):
             bounds = {
-                "north": obj["edge_north"], "south": obj["edge_south"],
-                "east": obj["edge_east"], "west": obj["edge_west"],
+                "north": obj["edge_north"],
+                "south": obj["edge_south"],
+                "east": obj["edge_east"],
+                "west": obj["edge_west"],
             }
         else:
             scale_hor = obj.get("Horizontal Scale") or bpy.context.scene.tp3d.sScaleHor
@@ -2211,15 +3500,22 @@ def _collect_existing_maps():
                 return math.degrees(x / (_R * _s))
 
             def lat_of(y, _R=R, _s=scale_hor):
-                return math.degrees(2 * math.atan(math.exp(y / (_R * _s))) - math.pi / 2)
+                return math.degrees(
+                    2 * math.atan(math.exp(y / (_R * _s))) - math.pi / 2
+                )
 
             bounds = {
-                "north": lat_of(cy + half_h), "south": lat_of(cy - half_h),
-                "east": lon_of(cx + half_w), "west": lon_of(cx - half_w),
+                "north": lat_of(cy + half_h),
+                "south": lat_of(cy - half_h),
+                "east": lon_of(cx + half_w),
+                "west": lon_of(cx - half_w),
             }
 
         entry = {
-            "shape": shape, "bounds": bounds, "name": obj.name,
+            "shape": shape,
+            "bounds": bounds,
+            "name": obj.name,
+            "rotation": float(obj.get("shapeRotation", 0) or 0),
             "scaleHor": obj.get("Horizontal Scale"),
             "additionalExtrusion": obj.get("AdditionalExtrusion"),
         }
@@ -2228,8 +3524,27 @@ def _collect_existing_maps():
                 entry["polygon"] = json.loads(obj["BoundaryPolygon"])
             except (json.JSONDecodeError, TypeError):
                 pass
+        if obj.get("TilePolygon"):
+            try:
+                entry["polygon"] = json.loads(obj["TilePolygon"])
+                if obj.get("GridSourceBounds") and obj.get("GridTransform"):
+                    entry["grid_source_bounds"] = json.loads(obj["GridSourceBounds"])
+                    entry["grid_transform"] = json.loads(obj["GridTransform"])
+            except (json.JSONDecodeError, TypeError) as exc:
+                print(f"[TrailPrint3D] Could not read grid outline for {obj.name}: {exc}")
         maps.append(entry)
     return maps
+
+
+def _dem_coverage_overlay():
+    """Return Local DEM coverage polygons for picker overlay, or None."""
+    tp3d = bpy.context.scene.tp3d
+    if tp3d.api != "LOCAL_DEM" or not tp3d.demFilePath:
+        return None
+
+    from .utils.geotiff import dem_coverage
+
+    return dem_coverage(bpy.path.abspath(tp3d.demFilePath))
 
 
 def _collect_existing_trails():
@@ -2243,7 +3558,7 @@ def _collect_existing_trails():
     """
     trails = []
     for obj in bpy.context.scene.objects:
-        if obj.type != 'CURVE' or "_Trail" not in obj.name:
+        if obj.type != "CURVE" or "_Trail" not in obj.name:
             continue
         mat = obj.matrix_world
         pts = []
@@ -2261,13 +3576,20 @@ def _collect_existing_trails():
 def _bounds_adjacent(a, b, eps=1e-6):
     """True if AABBs *a* and *b* (each {north, south, east, west}) overlap or
     merely share an edge/corner, within a small float tolerance."""
-    return (a["west"] <= b["east"] + eps and a["east"] >= b["west"] - eps and
-            a["south"] <= b["north"] + eps and a["north"] >= b["south"] - eps)
+    return (
+        a["west"] <= b["east"] + eps
+        and a["east"] >= b["west"] - eps
+        and a["south"] <= b["north"] + eps
+        and a["north"] >= b["south"] - eps
+    )
 
 
-def _generate_trails(context, gpx_paths, overlay, progress_start, progress_end):
+def _generate_trails(
+    context, gpx_paths, overlay, progress_start, progress_end, raycast=True
+):
     """Generate one trail curve per GPX path, using whatever map setup
     (scale, position, extrusion) is already active in the scene.
+    raycast: forwarded to generateJustTrail.
 
     Returns the list of created trail objects (GPX paths that failed to
     produce a curve are skipped). Module-level (not a method) since it
@@ -2276,7 +3598,9 @@ def _generate_trails(context, gpx_paths, overlay, progress_start, progress_end):
     """
     props = context.scene.tp3d
     n_trails = len(gpx_paths)
-    overlay.update(progress_start, "Generating trails…", f"{n_trails} trail(s) to process…")
+    overlay.update(
+        progress_start, "Generating trails…", f"{n_trails} trail(s) to process…"
+    )
     initial_gpx = props.file_path
     props.file_path = gpx_paths[0]
 
@@ -2286,7 +3610,7 @@ def _generate_trails(context, gpx_paths, overlay, progress_start, progress_end):
         trail_pct = progress_start + (i / n_trails) * (progress_end - progress_start)
         overlay.update(trail_pct, "Generating trails…", f"Trail {i + 1}/{n_trails}…")
         bpy.context.scene.tp3d.file_path = paths
-        trail_obj = utils.generateJustTrail(material=materials[i % 2])
+        trail_obj = utils.generateJustTrail(material=materials[i % 2], raycast=raycast)
         if trail_obj is not None:
             trails.append(trail_obj)
         overlay.add_completed_step(f"Trail {i + 1}/{n_trails} — done")
@@ -2297,40 +3621,91 @@ def _generate_trails(context, gpx_paths, overlay, progress_start, progress_end):
 
 class TP3D_OT_puzzle_configurator(bpy.types.Operator):
     bl_idname = "tp3d.puzzle_configurator"
-    bl_label = "Puzzle Generator"
-    bl_description = (
-        "Open an interactive map — draw a rectangle and choose rows/columns, "
-        "then Send to Blender to generate an interlocking jigsaw puzzle map"
+    bl_label = _("Jigsaw Puzzle Generator")
+    bl_description = _tip(
+        "Open an interactive map — draw a rectangle and choose rows/columns, then Send to Blender to generate an interlocking jigsaw puzzle map"
     )
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_options = {"REGISTER", "UNDO"}
 
     _timer = None
     _result_path: str = ""
     _server = None
 
     def modal(self, context, event):
-        if event.type != 'TIMER':
-            return {'PASS_THROUGH'}
+        if event.type != "TIMER":
+            return {"PASS_THROUGH"}
+
+        from . import picker_server as mp
+
+        if not mp.is_active_server(self._server):  # another generator page took over
+            self._cleanup(context)
+            return {"CANCELLED"}
+        for key in mp.drain_pending_toggles():
+            utils.apply_element_toggle(context.scene.tp3d, key)
+        for key, value in mp.drain_pending_settings():
+            utils.apply_setting_update(context.scene.tp3d, key, value)
+        for key, value in mp.drain_pending_advanced_settings():
+            utils.apply_advanced_setting_update(context.scene.tp3d, key, value)
+        color_updates = mp.drain_pending_color_styles()
+        for update in color_updates:
+            utils.apply_color_update(context.scene.tp3d, update)
+        for request in mp.drain_pending_prefetch():
+            self._start_prefetch(context, request)
+        if mp.drain_pending_3mf_install():
+            bpy.ops.tp3d.install_three_mf()
+        mp.refresh_state_snapshots(
+            element_states=utils.build_element_toggle_states(context.scene.tp3d),
+            settings_state=utils.build_settings_row_state(context.scene.tp3d),
+            advanced_settings=utils.build_advanced_settings_state(context.scene.tp3d),
+            element_source=context.scene.tp3d.elementSource,
+        )
+        mp.finish_color_style_updates(color_updates, context.scene.tp3d)
+        mp.process_slicer_profile_requests(context.scene.tp3d)
 
         rp = pathlib.Path(self._result_path)
         if not (rp.exists() and rp.stat().st_size > 0):
-            return {'PASS_THROUGH'}
+            return {"PASS_THROUGH"}
+
+        from .utils.osm import exclusions
 
         try:
-            data = json.loads(rp.read_text(encoding='utf-8'))
+            data = json.loads(rp.read_text(encoding="utf-8"))
+            # OSM elements switched off in the picker's prefetch preview --
+            # dropped from every fetched tile for this one generation only.
+            exclusions.set_excluded(data.get("excluded_ids"))
+            # Jigsaw pieces use whatever minThickness the user already has
+            # set in the sidebar, same as every other generator -- no longer
+            # forced to 0 (or, with "Terrain on Frame" on, to a small
+            # positive override) here. minThickness's own FloatProperty
+            # already enforces min=0.5 (props.py), so the holder's own
+            # frame-cap boolean can't hit the zero-thickness pinch that
+            # forcing 0 used to risk either -- that only happens at exactly
+            # minThickness=0.
             self._apply_puzzle_result(context, data)
-        except Exception as exc:  # noqa: BLE001 - Wide exception catch for puzzle result application
+        except Exception as exc:
             import traceback
+
             traceback.print_exc()
-            self.report({'ERROR'}, f"Puzzle generator: {exc}")
+            _progress.WarningsOverlay.add_warning(
+                _rpt("There was an error, see console for details."),
+                "error",
+            )
+            print(f"Puzzle generator: {exc}")
         finally:
+            exclusions.clear_excluded()
             try:
                 rp.unlink()
             except OSError:
                 pass
             self._cleanup(context)
 
-        return {'FINISHED'}
+        return {"FINISHED"}
+
+    def _start_prefetch(self, context, request):
+        from . import picker_server as mp
+        from .utils.osm import prefetch
+
+        prefetch.start_prefetch_job(context.scene.tp3d, request, mp.prefetch_job())
 
     def invoke(self, context, event):
         import tempfile
@@ -2339,7 +3714,7 @@ class TP3D_OT_puzzle_configurator(bpy.types.Operator):
         from . import temp
 
         self._result_path = str(
-            pathlib.Path(tempfile.gettempdir()) / 'trailprint_puzzlepicker.json'
+            pathlib.Path(tempfile.gettempdir()) / "trailprint_puzzlepicker.json"
         )
         rp = pathlib.Path(self._result_path)
         if rp.exists():
@@ -2349,21 +3724,34 @@ class TP3D_OT_puzzle_configurator(bpy.types.Operator):
         # actual generation code only exists in the Premium build's own
         # picker page, not this one, so there's nothing to unlock by
         # tampering with a served free page.
-        html_filename = 'premium/puzzleGenerator_pe.html' if temp.PREMIUMVERSION else 'puzzleGenerator.html'
+        html_filename = (
+            "premium/generators/puzzleGenerator_pe.html"
+            if temp.PREMIUMVERSION
+            else "generators/puzzleGenerator.html"
+        )
         html_path = pathlib.Path(__file__).parent / html_filename
+        utils.restore_generator_settings(context.scene.tp3d, "puzzle")
         self._server = mp.start_picker(
             self._result_path,
             existing_maps=_collect_existing_maps(),
             existing_trails=_collect_existing_trails(),
             obj_size=context.scene.tp3d.objSize,
             html_path=html_path,
+            element_states=utils.build_element_toggle_states(context.scene.tp3d),
+            settings_state=utils.build_settings_row_state(context.scene.tp3d),
+            advanced_settings=utils.build_advanced_settings_state(context.scene.tp3d),
+            dem_bounds=_dem_coverage_overlay(),
+            element_source=context.scene.tp3d.elementSource,
         )
 
         wm = context.window_manager
         self._timer = wm.event_timer_add(0.5, window=context.window)
         wm.modal_handler_add(self)
-        self.report({'INFO'}, "Puzzle generator open — draw a rectangle then click Send to Blender")
-        return {'RUNNING_MODAL'}
+        self.report(
+            {"INFO"},
+            _rpt("Generator open in browser."),
+        )
+        return {"RUNNING_MODAL"}
 
     def _apply_puzzle_result(self, context, data):
         """Build the puzzle's base terrain tile, merge any trails into it,
@@ -2376,13 +3764,25 @@ class TP3D_OT_puzzle_configurator(bpy.types.Operator):
         _generate_trails, merge_active_with_map) directly rather than
         refactoring that larger, already-working method.
         """
+        overlay = _progress.ProgressOverlay.get()
+        overlay.start()
+        _progress.WarningsOverlay.clear()
+        # Mirrors runGeneration's own try/finally -- guarantees the overlay
+        # always closes, even if something below raises an exception type
+        # this method doesn't explicitly handle (the modal's own outer
+        # except/finally reports the error but never touches the overlay).
+        try:
+            self._apply_puzzle_result_body(context, data)
+        finally:
+            overlay.finish()
+            _progress.WarningsOverlay.get().show()
+
+    def _apply_puzzle_result_body(self, context, data):
         from . import temp
         from .utils.geo import convert_to_neutral_coordinates
 
         props = context.scene.tp3d
         overlay = _progress.ProgressOverlay.get()
-        overlay.start()
-        _progress.WarningsOverlay.clear()
         start_time = time.time()
 
         # The puzzle cutter only knows how to cut terrain_obj itself apart --
@@ -2391,10 +3791,13 @@ class TP3D_OT_puzzle_configurator(bpy.types.Operator):
         # never get sliced along the jigsaw lines. Roads and Buildings are
         # handled separately: cut_into_puzzle_pieces re-clips their generated
         # geometry per piece after terrain cutting.
-        if props.elementMode != 'PAINT':
-            props.elementMode = 'PAINT'
+        if props.elementMode != "PAINT":
+            props.elementMode = "PAINT"
             _progress.WarningsOverlay.add_warning(
-                "Puzzles only support the \"Paint on Map\" element mode — switched automatically.", "warn"
+                _rpt(
+                    "Puzzles only support the \"Paint on Map\" element mode — switched automatically."
+                ),
+                "warn",
             )
         if props.singleColorMode:
             # Single-Color Mode builds each trail decal as its own standalone
@@ -2406,47 +3809,64 @@ class TP3D_OT_puzzle_configurator(bpy.types.Operator):
             # the regular merge_with_map path puzzles are actually built for.
             props.singleColorMode = False
             _progress.WarningsOverlay.add_warning(
-                "Single-Color Mode isn't supported in puzzles — disabled automatically.", "warn"
+                _rpt(
+                    "Single Extruder Mode isn't supported in puzzles — disabled automatically."
+                ),
+                "warn",
             )
 
-        bbox = data.get('bbox')
-        pieces = data.get('pieces') or []
-        gpx_paths = data.get('gpx_paths', [])
-        tolerance = float(data.get('tolerance', 0.3) or 0.3)
-        puzzle_corner_radius = float(data.get('puzzleCornerRadius') or 0)
-        rows_n = int(data.get('rows') or 0)
-        cols_n = int(data.get('cols') or 0)
-        shape_name = data.get('shape')
-        if shape_name in ('hex', 'radial') and not temp.PREMIUMVERSION:
+        bbox = data.get("bbox")
+        scale_bbox = data.get("scale_bbox") or bbox
+        pieces = data.get("pieces") or []
+        gpx_paths = data.get("gpx_paths", [])
+        tolerance = float(data.get("tolerance", 0.3) or 0.3)
+        puzzle_corner_radius = float(data.get("puzzleCornerRadius") or 0)
+        # Read early (normally read just before the holder is actually built,
+        # much later below) -- frame_terrain_requested/frame_margin are
+        # needed BEFORE `blank` itself is created, to size its fetch tile
+        # large enough to also cover the holder's own outer margin.
+        holder_data = data.get("holder") or {}
+        frame_terrain_requested = bool(holder_data.get("frameTerrain"))
+        frame_margin = float(holder_data.get("wallWidth") or 4.0) + tolerance / 2
+        puzzle_rotation = float(data.get("shapeRotation") or 0)
+        # bbox already covers the rotated puzzle, but a rotated rim's corners
+        # stick out past that bbox by more than frame_margin itself.
+        _rot = math.radians(puzzle_rotation)
+        frame_margin *= abs(math.cos(_rot)) + abs(math.sin(_rot))
+        rows_n = int(data.get("rows") or 0)
+        cols_n = int(data.get("cols") or 0)
+        shape_name = data.get("shape")
+        if shape_name in ("hex", "radial") and not temp.PREMIUMVERSION:
             # Defensive fallback only -- the free picker page has no code
             # path that can produce this in the first place (the hex/radial
             # generation JS lives solely in the Premium build's own picker
             # page), but a hand-crafted result file shouldn't be able to
             # trigger the Premium-only circular holder below either.
             shape_name = None
-        if shape_name == 'hex':
+        if shape_name == "hex":
             default_name = f"Hex_{cols_n}-{rows_n}_Puzzle"
-        elif shape_name == 'radial':
+        elif shape_name == "radial":
             default_name = f"Radial_{cols_n}-{rows_n}_Puzzle"
         else:
             default_name = f"{rows_n}-{cols_n}_Puzzle"
-        puzzle_name = (data.get('name') or '').strip() or default_name
+        puzzle_name = (data.get("name") or "").strip() or default_name
 
         if not bbox or not pieces:
-            self.report({'WARNING'}, "Nothing to generate — draw a rectangle first")
-            overlay.finish()
-            return
+            _progress.WarningsOverlay.add_warning(
+                _rpt("Nothing to generate — draw an area to generate first."), "warn"
+            )
+            raise GenerationError
 
-        south, north = bbox['south'], bbox['north']
-        west, east = bbox['west'], bbox['east']
+        south, north = bbox["south"], bbox["north"]
+        west, east = bbox["west"], bbox["east"]
 
-        props.shape = 'SQUARE'
-        if data.get('resolution') is not None:
+        props.shape = "SQUARE"
+        if data.get("resolution") is not None:
             # Mirrors the scene's own "Resolution" sidebar property (used by
             # create_rectangle below) so the picker's own Resolution field
             # actually controls the generated terrain instead of silently
             # falling back to whatever was last set in the Blender sidebar.
-            props.num_subdivisions = max(1, min(10, int(data['resolution'])))
+            props.num_subdivisions = max(1, min(10, int(data["resolution"])))
 
         overlay.update(0.05, "Creating base tile…", "Building terrain…")
         # sScaleHor must be set BEFORE the convert_to_blender_coordinates calls
@@ -2457,27 +3877,113 @@ class TP3D_OT_puzzle_configurator(bpy.types.Operator):
         # whatever sScaleHor was left over from a previous generation, then
         # fixing sScaleHor afterward) is what put the tile in the wrong place.
         #
-        # The drawn rectangle (bbox) is always used exactly as drawn -- the
-        # picker's Length/Width only confine which sub-area of it the jigsaw
-        # GRID covers (baked into each piece's normalized points client-side),
-        # they don't affect the actual generated tile's size/scale at all.
-        nx1, ny1, _ = convert_to_neutral_coordinates(south, west, 0, 0)
-        nx2, ny2, _ = convert_to_neutral_coordinates(north, east, 0, 0)
-        neutral_extent = max(abs(nx2 - nx1), abs(ny2 - ny1))
-        fixed_scale = props.objSize / neutral_extent if neutral_extent > 0 else 1.0
+        # bbox covers the rotated footprint, while scale_bbox preserves the
+        # original puzzle dimensions so rotation cannot shrink the model.
+        # Both bounds come from the picker's Length/Width cover-fit, not the
+        # Blender sidebar's unrelated Object Size when those fields are set.
+        scale_nx1, scale_ny1, _unused = convert_to_neutral_coordinates(
+            scale_bbox["south"], scale_bbox["west"], 0, 0
+        )
+        scale_nx2, scale_ny2, _unused = convert_to_neutral_coordinates(
+            scale_bbox["north"], scale_bbox["east"], 0, 0
+        )
+        neutral_extent = max(abs(scale_nx2 - scale_nx1), abs(scale_ny2 - scale_ny1))
+        length_mm = float(data.get("length") or 0)
+        width_mm = float(data.get("width") or 0)
+        target_mm = (
+            max(length_mm, width_mm)
+            if length_mm > 0 and width_mm > 0
+            else props.objSize
+        )
+        fixed_scale = target_mm / neutral_extent if neutral_extent > 0 else 1.0
         bpy.context.scene.tp3d["sScaleHor"] = fixed_scale
 
-        x1, y1, _ = utils.convert_to_blender_coordinates(south, west, 0, 0)
-        x2, y2, _ = utils.convert_to_blender_coordinates(north, east, 0, 0)
+        x1, y1, _unused = utils.convert_to_blender_coordinates(south, west, 0, 0)
+        x2, y2, _unused = utils.convert_to_blender_coordinates(north, east, 0, 0)
         tile_w, tile_h = abs(x2 - x1), abs(y2 - y1)
         center_x, center_y = (x1 + x2) / 2, (y1 + y2) / 2
+        # Keep the scene center in step with the new sScaleHor (writeMetadata
+        # converts it back to lat/lon with it).
+        bpy.context.scene.tp3d["o_centerx"] = center_x
+        bpy.context.scene.tp3d["o_centery"] = center_y
+        # The puzzle's own true world bounds -- BEFORE `blank` below is
+        # possibly enlarged to also cover the holder's own outer margin --
+        # passed as cut_into_puzzle_pieces' own piece_bounds so pieces' [0, 1]
+        # points keep mapping against the puzzle's real footprint rather than
+        # the (possibly bigger) blank.
+        puzzle_min_x, puzzle_max_x = min(x1, x2), max(x1, x2)
+        puzzle_min_y, puzzle_max_y = min(y1, y2), max(y1, y2)
+        # bbox is the ROTATED footprint's bounds; scale_bbox is the puzzle's
+        # own unrotated footprint, which piece origins are laid out in.
+        sx1, sy1, _unused = utils.convert_to_blender_coordinates(
+            scale_bbox["south"], scale_bbox["west"], 0, 0
+        )
+        sx2, sy2, _unused = utils.convert_to_blender_coordinates(
+            scale_bbox["north"], scale_bbox["east"], 0, 0
+        )
+        puzzle_size = (abs(sx2 - sx1), abs(sy2 - sy1))
 
-        blank = utils.create_rectangle(tile_w, tile_h, props.num_subdivisions)
+        # Clear whatever previously-generated content already occupies this
+        # spot first, same reasoning as runGeneration's own "Phase 7" (
+        # utils/generation.py) -- otherwise regenerating a puzzle at the
+        # same location leaves the old tile/pieces/holder sitting underneath
+        # the new one instead of being replaced. runGeneration's own check
+        # is a tight 0.2-unit point-proximity test with no object-type
+        # filter at all (it'll happily remove a light or camera sitting
+        # exactly on the target center); a puzzle's footprint is a whole
+        # grid area rather than one point, so this uses a bounding-box
+        # overlap against that area instead -- but, precisely because that
+        # area can be large, it's scoped to objects this addon itself
+        # generated (anything carrying objType/"Object type" metadata --
+        # MAP tiles, HOLDER objects, trails, pins, ...) rather than matching
+        # runGeneration's own unfiltered blast radius. Same pattern the
+        # premium sliding puzzle generator's own operator uses.
+        for obs in list(bpy.data.objects):
+            if obs.get("objType") is None and obs.get("Object type") is None:
+                continue
+            if (
+                puzzle_min_x <= obs.location.x <= puzzle_max_x
+                and puzzle_min_y <= obs.location.y <= puzzle_max_y
+            ):
+                bpy.data.objects.remove(obs, do_unlink=True)
+        # Removing an object above (or the user deleting old pieces by hand
+        # before regenerating) only drops that object's own reference -- the
+        # underlying mesh stays in bpy.data as a 0-user orphan under its old
+        # name until the file is saved/reloaded or purged by hand. Piece
+        # names are now short and reused every generation rather than unique
+        # per-puzzle (see piece_grid_label), so without this, a leftover
+        # orphan mesh still named e.g. "A1" collides with the new one
+        # cut_into_puzzle_pieces is about to create and gets suffixed
+        # "A1.001", then "A1.002" next time, and so on.
+        bpy.data.orphans_purge(do_local_ids=True, do_recursive=True)
+
+        # blank_w/h stay equal to tile_w/h unless a holder with "Terrain on
+        # Frame" was requested -- one shared tile/elevation-fetch/paint pass
+        # then covers both the puzzle AND the holder's own outer footprint,
+        # instead of a second, independently-fetched tile whose OSM/elevation
+        # data (and therefore element colors) isn't guaranteed to agree with
+        # the first (same reasoning the premium sliding puzzle generator's
+        # own frame_margin uses).
+        blank_w = tile_w + (2 * frame_margin if frame_terrain_requested else 0)
+        blank_h = tile_h + (2 * frame_margin if frame_terrain_requested else 0)
+        blank = utils.create_rectangle(blank_w, blank_h, props.num_subdivisions)
+        if blank is None:
+            raise RuntimeError(_rpt("Failed to create {} shape.").format(_rpt("Rectangle")))
         # cut_into_puzzle_pieces names every piece "{terrain_obj.name}_piece_{row}_{col}" --
         # renaming the blank here is what gets the puzzle's chosen name onto
         # every generated piece without touching that naming logic itself.
         blank.name = puzzle_name
-        blank["objSize"] = max(tile_w, tile_h)
+        # Captured now (not read back off `blank` itself later) -- once
+        # build_puzzle_holder consumes/removes frame_terrain_obj (=blank),
+        # the Python `blank` reference becomes a dangling RNA pointer and
+        # even reading blank.name off it raises ReferenceError, not just
+        # returning something stale.
+        blank_name = blank.name
+        # The puzzle's OWN size, not the (possibly enlarged) blank's actual
+        # size -- this metadata gets copied verbatim onto every piece by
+        # cut_into_puzzle_pieces, so it needs to describe the puzzle, not the
+        # fetch tile.
+        blank["objSize"] = target_mm
         blank["Shape"] = "SQUARE"
         blank["objType"] = "MAP"
         blank["edge_south"], blank["edge_north"] = south, north
@@ -2494,7 +4000,6 @@ class TP3D_OT_puzzle_configurator(bpy.types.Operator):
         bpy.context.view_layer.objects.active = blank
         bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
         overlay.update(0.06, "Fetching Elevation", "Querying elevation API…")
-        overlay.set_fetch_progress('elevation', 0.0)
 
         # This fetch (not createTerrainFromSelected's later one) is where the
         # real API querying happens -- it runs at full target resolution, not
@@ -2505,17 +4010,39 @@ class TP3D_OT_puzzle_configurator(bpy.types.Operator):
         # count, not object identity) and returns instantly without ever calling
         # its own progress_cb -- so without this, all the real wait time sat behind
         # a static "Analyzing terrain…" message instead of moving progress.
-        def _puzzle_elev_progress(pct):
+        def _puzzle_elev_progress(pct, segments=None):
             t = pct / 100.0
-            overlay.update(0.06 + t * (0.20 - 0.06), "Fetching Elevation", f"{pct}% complete…",
-                           sub_percent=t, sub_label="Elevation tiles")
-            overlay.set_fetch_progress('elevation', t)
+            overlay.update(
+                0.06 + t * (0.20 - 0.06),
+                "Fetching Elevation",
+                f"{pct}% complete…",
+                sub_percent=t,
+                sub_label=utils.elevation_sub_label("Elevation tiles", segments),
+            )
+            overlay.set_fetch_progress("elevation", t)
 
-        preview_elevations, preview_diff = utils.get_tile_elevation(blank, progress_cb=_puzzle_elev_progress)
+        # Route through a real gen rather than a bare object: get_tile_elevation()
+        # supports both, but only a real gen gets buggyData/tileVerts/elDiff
+        # bookkeeping, and every other preview-fetch call site follows this pattern.
+        gen = utils._rg_validate_inputs(frozenset(), gen_type=0)
+        gen.runtime.mapObject = blank
+        utils.compute_and_store_tile_bounds(gen)
+        # set_fetch_progress is a no-op for an unregistered key -- the fetch
+        # strip has to exist before this (the real) elevation download.
+        overlay.set_fetch_items(utils.build_fetch_items(round(gen.runtime.mapKm or 0, 1)))
+        overlay.set_fetch_progress("elevation", 0.0)
+        preview_elevations, preview_diff = utils.get_tile_elevation(
+            gen, progress_cb=_puzzle_elev_progress
+        )
         overlay.sub_percent = None
+        overlay.set_fetch_done("elevation", success=True)
 
-        if props.fixedElevationScale:
-            auto_scale = 10 / (preview_diff / 1000) if preview_diff > 0 else 10
+        if props.elevationMode == "FIXED":
+            auto_scale = (
+                props.fixedHeightMM / (preview_diff / 1000)
+                if preview_diff > 0
+                else props.fixedHeightMM
+            )
         else:
             auto_scale = fixed_scale
         props.sAutoScale = auto_scale
@@ -2526,16 +4053,20 @@ class TP3D_OT_puzzle_configurator(bpy.types.Operator):
         obj_matrix = blank.matrix_world
         for i, vert in enumerate(blank.data.vertices):
             world_co = obj_matrix @ vert.co
-            vert_lat, _ = utils.convert_to_geo(world_co.x, world_co.y)
+            vert_lat, _unused = utils.convert_to_geo(world_co.x, world_co.y)
             merc = 1 / math.cos(math.radians(vert_lat))
-            val = preview_elevations[i] / 1000 * props.scaleElevation * auto_scale * merc
+            val = (
+                preview_elevations[i] / 1000 * props.scaleElevation * auto_scale * merc
+            )
             lowest_z = min(lowest_z, val)
             highest_z = max(highest_z, val)
         props.sAdditionalExtrusion = lowest_z
 
-        overlay.add_completed_step(f"Preview elevation — z {lowest_z:.1f}-{highest_z:.1f}")
+        overlay.add_completed_step(
+            f"Preview elevation — z {lowest_z:.1f}-{highest_z:.1f}"
+        )
 
-        bpy.ops.object.select_all(action='DESELECT')
+        bpy.ops.object.select_all(action="DESELECT")
         blank.select_set(True)
         bpy.context.view_layer.objects.active = blank
         # skip_bottom_recess: a puzzle blank is always a fresh single tile
@@ -2544,15 +4075,27 @@ class TP3D_OT_puzzle_configurator(bpy.types.Operator):
         # any shortfall the recess check would catch is just float-precision
         # noise between this step's lowest_z and createTerrainFromSelected's
         # own re-derived one, not a real need to dig into the bottom.
-        utils.createTerrainFromSelected(manage_overlay=False, skip_bottom_recess=True)
+        utils.runTileGeneration(
+            manage_overlay=False,
+            skip_bottom_recess=True,
+            progress_start=0.23,
+            progress_end=0.6,
+        )
 
         # roads_obj was used as a boolean cutter during generation; delete it
         # now — per-piece road geometry is rebuilt from the polygon cache below.
         roads_obj = bpy.data.objects.get(f"{puzzle_name}_ROADS")
         if roads_obj is not None:
             bpy.data.objects.remove(roads_obj, do_unlink=True)
-        from .utils import generation as _gen_utils
-        roads_data = getattr(_gen_utils, '_puzzle_roads_data', None)
+        from .utils.generation import elements as _gen_utils
+
+        # In CREATE_TEXTURE mode roads are already baked into the UV texture
+        # by createTerrainFromSelected above; skip the 3D per-piece rebuild.
+        # (Trail handling is separate -- see the gpx_paths block below.)
+        _texture_mode = props.elementMode == "CREATE_TEXTURE"
+        roads_data = (
+            None if _texture_mode else getattr(_gen_utils, "_puzzle_roads_data", None)
+        )
 
         # buildings_obj was only needed as an intermediate whole-map mesh;
         # per-piece building geometry is rebuilt from the footprint cache below.
@@ -2560,17 +4103,47 @@ class TP3D_OT_puzzle_configurator(bpy.types.Operator):
         if buildings_obj is not None:
             bpy.data.objects.remove(buildings_obj, do_unlink=True)
         from .utils.osm import buildings as _bld_utils
-        buildings_data = getattr(_bld_utils, '_puzzle_buildings_data', None)
+
+        buildings_data = getattr(_bld_utils, "_puzzle_buildings_data", None)
+        from .utils.osm import gen as _osm_gen
 
         # Snap trails against the continuous tile before cutting — avoids raycasting misses in the inter-piece gaps.
+        # Always run this, even in CREATE_TEXTURE mode: generateJustTrail()
+        # itself detects tex_include_trail and, when on, bakes the trail onto
+        # blank's already-baked MMU_Paint texture right here (before the cut
+        # below splits blank into pieces that each inherit their own UV-mapped
+        # slice of that same shared image) instead of returning a mergeable
+        # curve — trails then comes back empty and the per-piece merge loop
+        # below simply no-ops. With tex_include_trail off, curveObjs come back
+        # as normal and fall through to that same merge loop like PAINT mode.
         trails = []
         if gpx_paths:
             overlay.update(0.6, "Generating trails…", f"{len(gpx_paths)} trail(s)…")
             trails = _generate_trails(context, gpx_paths, overlay, 0.6, 0.75)
 
-        overlay.update(0.75, "Cutting puzzle pieces…", f"{len(pieces)} piece(s)…")
+        # `blank` may be larger than the puzzle itself (enlarged above to
+        # also cover the holder's own outer margin) -- piece_bounds keeps the
+        # pieces' own normalized points mapped against the PUZZLE's true
+        # sub-region rather than blank's full (bigger) extent, and
+        # keep_terrain_obj leaves `blank` around afterward so the holder's
+        # own terrain rim can still be cut from this SAME object/paint pass
+        # below instead of a second, independently-generated tile.
+        overlay.update(0.75, f"Create Puzzle Piece 0/{len(pieces)}", "")
         piece_objs, piece_seam_polys = utils.cut_into_puzzle_pieces(
-            blank, pieces, tolerance, roads_data=roads_data, buildings_data=buildings_data
+            blank,
+            pieces,
+            tolerance,
+            roads_data=roads_data,
+            buildings_data=buildings_data,
+            piece_bounds=(puzzle_min_x, puzzle_max_x, puzzle_min_y, puzzle_max_y)
+            if frame_terrain_requested
+            else None,
+            keep_terrain_obj=frame_terrain_requested,
+            overlay=overlay,
+            progress_start=0.75,
+            progress_end=0.85,
+            rotation_deg=puzzle_rotation,
+            puzzle_size=puzzle_size,
         )
 
         if trails:
@@ -2583,10 +4156,12 @@ class TP3D_OT_puzzle_configurator(bpy.types.Operator):
             # decal. Same bbox-overlap-per-tile pattern the regular multi-tile
             # map picker uses, so a trail spanning several pieces correctly
             # gets merged into each one it crosses.
-            overlay.update(0.85, "Merging trails into pieces…", f"{len(trails)} trail(s)…")
+            overlay.update(
+                0.85, "Merging trails into pieces…", f"{len(trails)} trail(s)…"
+            )
             for trail_obj in trails:
                 for piece_obj in piece_objs:
-                    if utils.osm.gen.is_bbox_overlapping(trail_obj, piece_obj):
+                    if _osm_gen.is_bbox_overlapping(trail_obj, piece_obj):
                         utils.merge_active_with_map(piece_obj, trail_obj)
             # merge_active_with_map only hides each original whole trail (hide_set(True))
             # rather than removing it -- fine for the regular single-tile flow where that
@@ -2596,10 +4171,9 @@ class TP3D_OT_puzzle_configurator(bpy.types.Operator):
             utils.remove_objects(trails)
 
         holder_obj = None
-        holder_data = data.get('holder') or {}
-        if holder_data.get('enabled'):
+        if holder_data.get("enabled"):
             overlay.update(0.97, "Generating holder…", "")
-            if shape_name in ('hex', 'radial'):
+            if shape_name in ("hex", "radial"):
                 # Both shapes' assembled outer boundary is a true circle
                 # (the hex shape via its warp+clip to an exact target
                 # circle, the radial shape by construction) -- a round
@@ -2609,54 +4183,77 @@ class TP3D_OT_puzzle_configurator(bpy.types.Operator):
                 # the shape_name fallback above, which guarantees this
                 # branch is unreachable without temp.PREMIUMVERSION.
                 from .premium import utils_pe
+
                 holder_obj = utils_pe.build_circular_puzzle_holder(
                     piece_objs,
-                    text=holder_data.get('text', ''),
-                    wall_width=float(holder_data.get('wallWidth') or 4.0),
-                    font=holder_data.get('font', ''),
-                    text_size_mm=float(holder_data.get('textSize') or 0) or None,
-                    piece_seam_polys=piece_seam_polys if holder_data.get('seamEngraving', True) else None,
+                    text=holder_data.get("text", ""),
+                    wall_width=float(holder_data.get("wallWidth") or 4.0),
+                    font=holder_data.get("font", ""),
+                    text_size_mm=float(holder_data.get("textSize") or 0) or None,
+                    piece_seam_polys=piece_seam_polys
+                    if holder_data.get("seamEngraving", True)
+                    else None,
                 )
             else:
                 holder_obj = utils.build_puzzle_holder(
                     piece_objs,
-                    text=holder_data.get('text', ''),
-                    wall_width=float(holder_data.get('wallWidth') or 4.0),
-                    corner_radius=float(holder_data.get('cornerRadius') or 0),
+                    text=holder_data.get("text", ""),
+                    wall_width=float(holder_data.get("wallWidth") or 4.0),
+                    corner_radius=float(holder_data.get("cornerRadius") or 0),
                     pocket_corner_radius=puzzle_corner_radius,
-                    font=holder_data.get('font', ''),
-                    text_size_mm=float(holder_data.get('textSize') or 0) or None,
-                    piece_seam_polys=piece_seam_polys if holder_data.get('seamEngraving', True) else None,
+                    font=holder_data.get("font", ""),
+                    text_size_mm=float(holder_data.get("textSize") or 0) or None,
+                    piece_seam_polys=piece_seam_polys
+                    if holder_data.get("seamEngraving", True)
+                    else None,
+                    # The SAME blank cut_into_puzzle_pieces just left alone
+                    # (keep_terrain_obj above) -- its elevation AND per-face
+                    # element colors come from the exact same generation pass
+                    # as the pieces. build_circular_puzzle_holder (hex/radial,
+                    # above) isn't extended with this yet, so frame_terrain_
+                    # requested is only ever actually consumed here.
+                    frame_terrain_obj=blank if frame_terrain_requested else None,
+                    rotation_deg=puzzle_rotation,
                 )
             if holder_obj is not None:
                 holder_obj.name = f"{puzzle_name}_Holder"
 
+        # Safety net, not the normal path -- build_puzzle_holder above
+        # already consumes (removes) `blank` itself whenever frame_terrain_obj
+        # was actually passed to it. This only fires if frame_terrain_requested
+        # was set but the holder ended up NOT built that way regardless (the
+        # holder disabled entirely, or the hex/radial circular holder branch,
+        # which doesn't accept frame_terrain_obj) -- keep_terrain_obj above
+        # left `blank` alive expecting a consumer that, in that case, never
+        # ran, so it would otherwise leak as an orphaned MAP-tagged tile.
+        if frame_terrain_requested and blank_name in bpy.data.objects:
+            bpy.data.objects.remove(bpy.data.objects[blank_name], do_unlink=True)
+
+        finished_objs = piece_objs + ([holder_obj] if holder_obj is not None else [])
+        total_time = time.time() - start_time
+        bpy.context.scene.tp3d["o_time"] = (
+            "Script ran for {:.0f} seconds".format(total_time)
+        )
+        export.save_history_thumbnail(data.get("history_id"), finished_objs)
+        # Re-zoom LAST, after the thumbnail render -- customThumbnail swaps in
+        # its own temp top-down camera view for the screenshot and then tries
+        # to restore the previous one, but a direct RegionView3D.view_matrix
+        # assignment isn't reliable enough to trust as the final on-screen
+        # state, so explicitly re-focus on the actual finished puzzle
+        # afterward rather than before it (a zoom done before the thumbnail
+        # render could otherwise get clobbered by that restore).
         try:
-            # Leaves the 3D cursor exactly where the user put it -- every piece
-            # (and every trail decal merged into one above) ends up sharing that
-            # same point as its origin, matching normal Blender "Set Origin ->
-            # Origin to 3D Cursor" behaviour for a multi-object selection.
-            utils.set_origin_to_3d_cursor_objects(piece_objs)
+            utils.zoom_camera_to_objects(
+                piece_objs + ([holder_obj] if holder_obj is not None else [])
+            )
         except (ReferenceError, AttributeError, IndexError):
             pass
 
-        try:
-            utils.zoom_camera_to_objects(piece_objs + ([holder_obj] if holder_obj is not None else []))
-        except (ReferenceError, AttributeError, IndexError):
-            pass
-
-        # Material preview mode -- mirrors runGeneration's own finishing step
-        # (generation.py), which the puzzle flow doesn't go through at all.
-        for area in bpy.context.screen.areas:
-            if area.type == 'VIEW_3D':
-                for space in area.spaces:
-                    if space.type == 'VIEW_3D':
-                        space.shading.type = 'MATERIAL'
-
-        bpy.context.scene.tp3d["o_time"] = f"Script ran for {time.time() - start_time:.0f} seconds"
-        overlay.finish()
-        _progress.WarningsOverlay.get().show()
-        self.report({'INFO'}, f"Generated {len(piece_objs)} puzzle piece(s)" + (" + holder" if holder_obj is not None else ""))
+        self.report(
+            {"INFO"},
+            f"Generated {len(piece_objs)} puzzle piece(s)"
+            + (" + holder" if holder_obj is not None else ""),
+        )
 
     def _cleanup(self, context):
         wm = context.window_manager
@@ -2668,67 +4265,1238 @@ class TP3D_OT_puzzle_configurator(bpy.types.Operator):
             self._server = None
 
     def execute(self, context):
-        return {'FINISHED'}
+        return {"FINISHED"}
+
+
+class TP3D_OT_map_generator(bpy.types.Operator):
+    bl_idname = "tp3d.map_generator"
+    bl_label = _("Map Generator")
+    bl_description = _tip(
+        "Open an interactive map — draw a rectangle, square, circle, or octagon area (or import an SVG shape), then Send to Blender to generate a single map tile"
+    )
+    bl_options = {"REGISTER", "UNDO"}
+
+    _timer = None
+    _result_path: str = ""
+    _server = None
+    _processing = False
+
+    _TYPE_MAP = {
+        "rectangle": "SQUARE",
+        "square": "SQUARE",
+        "circle": "CIRCLE",
+        "octagon": "OCTAGON",
+        "hexagon": "HEXAGON",
+        "svg": "SVG",
+    }
+
+    def modal(self, context, event):
+        if self._processing or event.type != "TIMER":
+            return {"PASS_THROUGH"}
+
+        from . import picker_server as mp
+
+        if not mp.is_active_server(self._server):  # another generator page took over
+            self._cleanup(context)
+            return {"CANCELLED"}
+        for key in mp.drain_pending_toggles():
+            utils.apply_element_toggle(context.scene.tp3d, key)
+        for key, value in mp.drain_pending_settings():
+            utils.apply_setting_update(context.scene.tp3d, key, value)
+        for key, value in mp.drain_pending_advanced_settings():
+            utils.apply_advanced_setting_update(context.scene.tp3d, key, value)
+        color_updates = mp.drain_pending_color_styles()
+        for update in color_updates:
+            utils.apply_color_update(context.scene.tp3d, update)
+        for request in mp.drain_pending_prefetch():
+            self._start_prefetch(context, request)
+        if mp.drain_pending_3mf_install():
+            bpy.ops.tp3d.install_three_mf()
+        # Keeps a later page reload (the OSM/ESA WorldCover switch,
+        # settings_modal.js) in sync with whatever was just applied above --
+        # see refresh_state_snapshots' own docstring.
+        mp.refresh_state_snapshots(
+            element_states=utils.build_element_toggle_states(context.scene.tp3d),
+            settings_state=utils.build_settings_row_state(context.scene.tp3d),
+            advanced_settings=utils.build_advanced_settings_state(context.scene.tp3d),
+            element_source=context.scene.tp3d.elementSource,
+        )
+        mp.finish_color_style_updates(color_updates, context.scene.tp3d)
+        mp.process_slicer_profile_requests(context.scene.tp3d)
+
+        rp = pathlib.Path(self._result_path)
+        if not (rp.exists() and rp.stat().st_size > 0):
+            return {"PASS_THROUGH"}
+
+        self._processing = True
+        try:
+            data = json.loads(rp.read_text(encoding="utf-8"))
+            try:
+                rp.unlink()
+            except OSError:
+                pass
+            self._apply_result(context, data)
+        except Exception as exc:
+            import traceback
+
+            traceback.print_exc()
+            _progress.WarningsOverlay.add_warning(
+                _rpt("There was an error, see console for details."),
+                "error",
+            )
+            print(f"Map generator: {exc}")
+        finally:
+            self._processing = False
+            self._cleanup(context)
+
+        return {"FINISHED"}
+
+    def _start_prefetch(self, context, request):
+        from . import picker_server as mp
+        from .utils.osm import prefetch
+
+        prefetch.start_prefetch_job(context.scene.tp3d, request, mp.prefetch_job())
+
+    def invoke(self, context, event):
+        import tempfile
+
+        from . import picker_server as mp
+        from . import temp
+
+        self._result_path = str(
+            pathlib.Path(tempfile.gettempdir()) / "trailprint_mapgenerator.json"
+        )
+        rp = pathlib.Path(self._result_path)
+        if rp.exists():
+            rp.unlink()
+
+        # Multi-GPX import is a Premium feature -- the free page's own input
+        # element is capped to a single file (see map_generator.html);
+        # premium/map_generator_pe.html is the Premium counterpart with a
+        # multi-file GPX input (see its gpxInput element).
+        html_filename = (
+            "premium/generators/map_generator_pe.html"
+            if temp.PREMIUMVERSION
+            else "generators/map_generator.html"
+        )
+        html_path = pathlib.Path(__file__).parent / html_filename
+        utils.restore_generator_settings(context.scene.tp3d, "map")
+        self._server = mp.start_picker(
+            self._result_path,
+            existing_maps=_collect_existing_maps(),
+            existing_trails=_collect_existing_trails(),
+            obj_size=context.scene.tp3d.objSize,
+            html_path=html_path,
+            element_states=utils.build_element_toggle_states(context.scene.tp3d),
+            settings_state=utils.build_settings_row_state(context.scene.tp3d),
+            advanced_settings=utils.build_advanced_settings_state(context.scene.tp3d),
+            dem_bounds=_dem_coverage_overlay(),
+            element_source=context.scene.tp3d.elementSource,
+        )
+
+        wm = context.window_manager
+        self._timer = wm.event_timer_add(0.5, window=context.window)
+        wm.modal_handler_add(self)
+        self.report({"INFO"}, _rpt("Generator open in browser."))
+        return {"RUNNING_MODAL"}
+
+    def _apply_result(self, context, data):
+        """Build a single rectangle/circle/octagon map tile from the picker's
+        drawn area, optionally merging in any imported GPX trail(s).
+
+        Deliberately mirrors TP3D_OT_puzzle_configurator's single-tile
+        approach (create blank, fetch elevation, createTerrainFromSelected)
+        rather than the Premium multitile picker's grid/tile-spacing/extend
+        logic -- this picker only ever produces exactly one fresh tile.
+        """
+        overlay = _progress.ProgressOverlay.get()
+        overlay.start()
+        _progress.WarningsOverlay.clear()
+        # Mirrors runGeneration's own try/finally -- guarantees the overlay
+        # always closes, even if something below raises an exception type
+        # this method doesn't explicitly handle (the modal's own outer
+        # except/finally reports the error but never touches the overlay).
+        from .utils.osm import exclusions
+
+        # OSM elements the user switched off in the picker's prefetch preview
+        # -- dropped from every fetched tile for this one generation only.
+        exclusions.set_excluded(data.get("excluded_ids"))
+        try:
+            self._apply_result_body(context, data)
+        finally:
+            exclusions.clear_excluded()
+            overlay.finish()
+            _progress.WarningsOverlay.get().show()
+
+    @staticmethod
+    def _apply_shape_extra(props, data):
+        """The picker's Plate/Shell + Text Layout dropdowns (assets/
+        shape_extras.js) -- called after props.shape is set, since both item
+        lists depend on it. Anything the shape (or current plate mode)
+        doesn't offer -- or Shell on a free build -- falls back to None, same
+        as props.plate_mode_update/text_layout_update. Setting plateMode/
+        textLayout runs those update callbacks, so cache-syncing is handled
+        there; shapeExtrasActive is inferred since the web picker has no
+        separate master toggle."""
+        from . import temp
+        from .utils.shape_capabilities import PLATE_MODES_BY_SHAPE, valid_layouts
+
+        plate_mode = data.get("plate_mode") or "NONE"
+        valid_plates = PLATE_MODES_BY_SHAPE.get(props.shape, ("NONE",))
+        if plate_mode not in valid_plates or (
+            plate_mode == "SHELL" and not temp.PREMIUMVERSION
+        ):
+            plate_mode = "NONE"
+        props.plateMode = plate_mode
+
+        text_layout = data.get("text_layout") or "NONE"
+        if text_layout not in valid_layouts(props.shape, props.plateMode):
+            text_layout = "NONE"
+        props.textLayout = text_layout
+
+        props.shapeExtrasActive = plate_mode != "NONE" or text_layout != "NONE"
+
+    @staticmethod
+    def _cut_riders_to_outline(riders, cutter_obj, outline_ws):
+        """INTERSECT each element/trail object with the rotated-shape cutter.
+        outline_ws is the cutter's footprint in world space -- objects whose
+        XY bounding box lies fully inside it are skipped, ones fully outside
+        it are removed. Curves (trail tubes) are baked to meshes first."""
+        from mathutils import Vector
+        from shapely.geometry import box
+
+        from .utils.mesh_ops import boolean_operation
+
+        for obj in riders:
+            if obj.type not in {"MESH", "CURVE"}:
+                continue
+            corners = [obj.matrix_world @ Vector(c) for c in obj.bound_box]
+            footprint = box(
+                min(c.x for c in corners),
+                min(c.y for c in corners),
+                max(c.x for c in corners),
+                max(c.y for c in corners),
+            )
+            if outline_ws.contains(footprint):
+                continue
+            if outline_ws.disjoint(footprint):
+                utils.remove_objects(obj)
+                continue
+            if obj.type == "CURVE":
+                bpy.ops.object.select_all(action="DESELECT")
+                obj.select_set(True)
+                bpy.context.view_layer.objects.active = obj
+                bpy.ops.object.convert(target="MESH")
+            # EXACT: OSM element meshes aren't guaranteed watertight.
+            boolean_operation(obj, cutter_obj, "INTERSECT", solver="EXACT")
+            if not obj.data.vertices:
+                utils.remove_objects(obj)
+
+    @staticmethod
+    def _apply_trail_stats(props, gpx_paths, gpx_names):
+        """Fill in what the Shape Extras text codes read ({name}, {length},
+        {elevation}, {duration}, {date}, {speed} -- see
+        text_objects.replaceShapeText). runGeneration gets these from its
+        own GPX load (input._rg_compute_trail_stats + the file-name default
+        for modelname), which this picker's tile flow never runs -- without
+        this they'd show the last sidebar-generated trail's values and
+        "Terrain". Several GPX files are summed, like one long trail."""
+        import os
+
+        from .utils.geo import (
+            calculate_date,
+            calculate_total_elevation,
+            calculate_total_length,
+            calculate_total_time,
+        )
+        from .utils.io_gpx import read_gpx_file
+
+        if not props.trailName and gpx_names:
+            props.modelname = os.path.splitext(os.path.basename(gpx_names[0]))[0]
+
+        per_file = []
+        saved_path = props.file_path
+        try:
+            for path in gpx_paths:
+                props.file_path = path
+                try:
+                    per_file.append([pt for seg in read_gpx_file() for pt in seg])
+                except Exception:  # noqa: BLE001 - GPX parsing can raise many types; stats are best-effort
+                    print("Failed to fetch stats from GPX/IGC file.")
+        finally:
+            props.file_path = saved_path
+        per_file = [pts for pts in per_file if len(pts) >= 2]
+        if not per_file:
+            return
+
+        length = sum(calculate_total_length(pts) for pts in per_file)
+        elevation = sum(calculate_total_elevation(pts) for pts in per_file)
+        hours = sum(calculate_total_time(pts) or 0 for pts in per_file)
+        props.total_length = length
+        props.total_elevation = elevation
+        props.total_time = hours
+        props.sTime_str = f"{int(hours)}h {int((hours - int(hours)) * 60)}m"
+        props.average_speed = length / hours if hours > 0 else 0
+        props.trail_date = calculate_date(per_file[0])
+
+    def _apply_result_body(self, context, data):
+        props = context.scene.tp3d
+        overlay = _progress.ProgressOverlay.get()
+        start_time = time.time()
+
+        bounds = data.get("bounds")
+        gpx_paths = data.get("gpx_paths", [])
+        geojson_paths = data.get("geojson_paths", [])
+
+        if not bounds and not gpx_paths and not geojson_paths:
+            _progress.WarningsOverlay.add_warning(
+                _rpt("Nothing to generate — draw an area to generate first."), "warn"
+            )
+            raise GenerationError
+
+        if not bounds and not geojson_paths and gpx_paths:
+            # Trail-only: no area was drawn — just add the trail(s) using
+            # whatever map setup (scale, position) is already active in the
+            # scene, same as the sidebar's "Generate Just Trail" button.
+            from .props import single_extruder_active  # deferred
+
+            trails = _generate_trails(context, gpx_paths, overlay, 0.1, 0.95)
+            if single_extruder_active(props):
+                _progress.WarningsOverlay.add_warning(
+                    _rpt(
+                        "Single Extruder Mode is not applied automatically due to performance reasons."
+                    ),
+                    "warn",
+                )
+                _progress.WarningsOverlay.add_warning(
+                    _rpt("Use 'Merge with Map' to apply it manually."), "warn"
+                )
+            self.report(
+                {"INFO"},
+                _("Generated {num_trails} trail(s)").format(num_trails=len(gpx_paths)),
+            )
+            return
+
+        if data.get("resolution") is not None:
+            # Mirrors the scene's own "Resolution" sidebar property so the
+            # picker's own Resolution slider actually controls the generated
+            # terrain instead of silently falling back to whatever was last
+            # set in the sidebar.
+            props.num_subdivisions = max(1, min(10, int(data["resolution"])))
+        if data.get("objSize") is not None:
+            _picked_size = max(5, min(10000, int(data["objSize"])))
+            props.objSize = _picked_size
+            # This picker only has one Size field (every tile is objSize x
+            # objSize) -- keep the sidebar's separate Height property
+            # (rectangleHeight, used by Shape=Square elsewhere e.g. Create
+            # Blank) in sync too, mirroring the Multi Tile Generator picker.
+            props.rectangleHeight = _picked_size
+
+        # Only the drawn-shape branch below sets this True -- an imported
+        # GeoJSON boundary is already a specific, user-supplied outline, not
+        # one of the regular shapes shapeRotation is meant to spin, so it's
+        # left untouched here regardless of shapeRotation.
+        needs_shape_cut = False
+
+        # A GeoJSON boundary (if any) always wins over a drawn shape -- this
+        # picker only ever produces one tile, so the two are mutually
+        # exclusive rather than combined the way the Multi Tile Generator's
+        # picker can send both a grid batch and a GeoJSON batch together.
+        if geojson_paths:
+            from .utils import io_geojson
+
+            overlay.update(
+                0.02, "Parsing GeoJSON…", f"Reading {len(geojson_paths)} file(s)…"
+            )
+            try:
+                polygon = io_geojson.read_geojson_files(geojson_paths)
+            except Exception as exc:
+                print(f"Could not parse GeoJSON: {exc}")
+                _progress.WarningsOverlay.add_warning(
+                    _rpt("Could not parse GeoJSON, see console for details."), "error"
+                )
+                raise GenerationError
+
+            overlay.update(0.06, "Creating base tile…", "Building terrain…")
+            blank = io_geojson.build_tile_from_polygon(
+                polygon,
+                props.objSize,
+                props.num_subdivisions,
+                name="GeoJSON_Boundary",
+                simplify_tolerance=props.geojsonSimplifyTolerance,
+            )
+            if blank is None:
+                print("GeoJSON boundary produced an empty/degenerate shape.")
+                _progress.WarningsOverlay.add_warning(
+                    _rpt("GeoJSON boundary produced an empty/degenerate shape."),
+                    "error",
+                )
+                raise GenerationError
+            # Replace an earlier map generated on this exact spot instead of
+            # stacking on it (also keeps its old _Trail curves out of
+            # runTileGeneration's trail pickup).
+            utils.remove_generated_objects_at(blank)
+            # Keeps the sidebar's own Shape field in sync with what this tile
+            # actually is, same as the SVG branch below does.
+            props.shape = "GEOJSON"
+            # geojson_path, not customFilePath (that's the SVG shape's file)
+            # -- Shape=GEOJSON reads geojson_path on the next sidebar Generate.
+            props.geojson_path = geojson_paths[0]
+            self._apply_shape_extra(props, data)
+        else:
+            if data.get("shapeRotation") is not None:
+                props.shapeRotation = max(
+                    -360, min(360, int(data["shapeRotation"]))
+                )
+            shape_name = data.get("type", "rectangle")
+            props.shape = self._TYPE_MAP.get(shape_name, "SQUARE")
+            self._apply_shape_extra(props, data)
+
+            south, north = bounds["south"], bounds["north"]
+            west, east = bounds["west"], bounds["east"]
+
+            overlay.update(0.02, "Creating base tile…", "Building terrain…")
+            # sScaleHor must be set BEFORE the convert_to_blender_coordinates
+            # calls below, since that function reads it -- derive the scale from
+            # the unscaled convert_to_neutral_coordinates extent first, then set
+            # sScaleHor, and only then compute actual placement.
+            nx1, ny1, _unused = utils.convert_to_neutral_coordinates(south, west, 0, 0)
+            nx2, ny2, _unused = utils.convert_to_neutral_coordinates(north, east, 0, 0)
+            neutral_extent = max(abs(nx2 - nx1), abs(ny2 - ny1))
+            fixed_scale = props.objSize / neutral_extent if neutral_extent > 0 else 1.0
+            bpy.context.scene.tp3d["sScaleHor"] = fixed_scale
+
+            x1, y1, _unused = utils.convert_to_blender_coordinates(south, west, 0, 0)
+            x2, y2, _unused = utils.convert_to_blender_coordinates(north, east, 0, 0)
+            tile_w, tile_h = abs(x2 - x1), abs(y2 - y1)
+            center_x, center_y = (x1 + x2) / 2, (y1 + y2) / 2
+            # Keep the scene center in step with the new sScaleHor (writeMetadata
+            # converts it back to lat/lon with it).
+            bpy.context.scene.tp3d["o_centerx"] = center_x
+            bpy.context.scene.tp3d["o_centery"] = center_y
+            diameter = max(tile_w, tile_h)
+
+            needs_shape_cut = props.shapeRotation % 360 != 0 and shape_name != "circle"
+            rotation_poly = None
+            rotated_poly = None
+            svg_path = data.get("svg_path")
+            if shape_name == "svg":
+                if not svg_path:
+                    print("No SVG file selected.")
+                    _progress.WarningsOverlay.add_warning(
+                        _rpt("No SVG file selected."), "error"
+                    )
+                    raise GenerationError
+                props.customFilePath = svg_path
+
+            if needs_shape_cut:
+                from shapely.affinity import rotate as _shp_rotate
+
+                from .utils.primitives import (
+                    hexagon_polygon,
+                    octagon_polygon,
+                    polygon_from_svg,
+                    rectangle_polygon,
+                )
+
+                if shape_name == "octagon":
+                    rotation_poly = octagon_polygon(diameter / 2)
+                elif shape_name == "hexagon":
+                    rotation_poly = hexagon_polygon(diameter / 2)
+                elif shape_name == "svg":
+                    rotation_poly = polygon_from_svg(svg_path, diameter)
+                elif shape_name == "square":
+                    rotation_poly = rectangle_polygon(diameter, diameter)
+                else:
+                    rotation_poly = rectangle_polygon(tile_w, tile_h)
+
+                if rotation_poly is None or rotation_poly.is_empty:
+                    _progress.WarningsOverlay.add_warning(
+                        _rpt("Could not create the rotated shape cutter."), "error"
+                    )
+                    raise GenerationError
+                rotated_poly = _shp_rotate(
+                    rotation_poly, props.shapeRotation, origin=(0, 0)
+                )
+                min_x, min_y, max_x, max_y = rotated_poly.bounds
+                if max_x <= min_x or max_y <= min_y:
+                    _progress.WarningsOverlay.add_warning(
+                        _rpt("Could not create the rotated shape cutter."), "error"
+                    )
+                    raise GenerationError
+                blank = utils.create_rectangle(
+                    (max_x - min_x) * 1.002,
+                    (max_y - min_y) * 1.002,
+                    props.num_subdivisions,
+                )
+                if blank is None:
+                    print("Failed to create map data area.")
+                    _progress.WarningsOverlay.add_warning(
+                        _rpt("Failed to create rectangle shape."), "error"
+                    )
+                    raise GenerationError
+                blank["Shape"] = "SQUARE"
+            elif shape_name == "circle":
+                blank = utils.create_circle(diameter / 2, props.num_subdivisions)
+                if blank is None:
+                    print("Failed to create circle shape.")
+                    _progress.WarningsOverlay.add_warning(
+                        _rpt("Failed to create {} shape.").format(_rpt("Circle")), "error"
+                    )
+                    raise GenerationError
+                blank["Shape"] = "CIRCLE"
+            elif shape_name == "octagon":
+                blank = utils.create_octagon(diameter / 2, props.num_subdivisions)
+                if blank is None:
+                    print("Failed to create octagon shape.")
+                    _progress.WarningsOverlay.add_warning(
+                        _rpt("Failed to create {} shape.").format(_rpt("Octagon")), "error"
+                    )
+                    raise GenerationError
+                blank["Shape"] = "OCTAGON"
+            elif shape_name == "hexagon":
+                blank = utils.create_hexagon(diameter / 2, props.num_subdivisions)
+                if blank is None:
+                    print("Failed to create hexagon shape.")
+                    _progress.WarningsOverlay.add_warning(
+                        _rpt("Failed to create {} shape.").format(_rpt("Hexagon")), "error"
+                    )
+                    raise GenerationError
+                blank["Shape"] = "HEXAGON"
+            elif shape_name == "svg":
+                # Same helper (and the same uniform, aspect-preserving
+                # target_size scaling) the sidebar's Shape="SVG" option uses
+                # -- see primitives.create_custom_svg/polygon_from_svg.
+                blank = utils.create_custom_svg(
+                    svg_path, diameter, props.num_subdivisions
+                )
+                if blank is None:
+                    print("SVG file produced an empty/degenerate shape.")
+                    _progress.WarningsOverlay.add_warning(
+                        _rpt("SVG file produced an empty/degenerate shape."), "error"
+                    )
+                    raise GenerationError
+                blank["Shape"] = "SVG"
+            elif shape_name == "square":
+                # Unlike 'rectangle' below, width and height are forced equal here
+                # -- the picker already squares the drawn area for every shape but
+                # Rectangle (see map_generator.html's effectiveBounds), this just
+                # doesn't additionally trust that to already be exact.
+                blank = utils.create_rectangle(
+                    diameter, diameter, props.num_subdivisions
+                )
+                if blank is None:
+                    print("Failed to create square shape.")
+                    _progress.WarningsOverlay.add_warning(
+                        _rpt("Failed to create {} shape.").format(_rpt("Square")), "error"
+                    )
+                    raise GenerationError
+                blank["Shape"] = "SQUARE"
+            else:
+                blank = utils.create_rectangle(
+                    tile_w, tile_h, props.num_subdivisions
+                )
+                if blank is None:
+                    print("Failed to create rectangle shape.")
+                    _progress.WarningsOverlay.add_warning(
+                        _rpt("Failed to create {} shape.").format(_rpt("Rectangle")), "error"
+                    )
+                    raise GenerationError
+                blank["Shape"] = "SQUARE"
+            blank["objSize"] = diameter
+            blank["objType"] = "MAP"
+            blank["edge_south"], blank["edge_north"] = south, north
+            blank["edge_west"], blank["edge_east"] = west, east
+            blank.location = (center_x, center_y, 0)
+            # See the GeoJSON branch above.
+            utils.remove_generated_objects_at(blank)
+
+            bpy.context.view_layer.objects.active = blank
+            bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
+            overlay.update(0.06, "Fetching Elevation", "Querying elevation API…")
+
+            def _elev_progress(pct, segments=None):
+                t = pct / 100.0
+                overlay.update(
+                    0.06 + t * (0.30 - 0.06),
+                    "Fetching Elevation",
+                    f"{pct}% complete…",
+                    sub_percent=t,
+                    sub_label=utils.elevation_sub_label("Elevation tiles", segments),
+                )
+                overlay.set_fetch_progress("elevation", t)
+
+            # Route through a real gen rather than a bare object: get_tile_elevation()
+            # supports both, but only a real gen gets buggyData/tileVerts/elDiff
+            # bookkeeping, and every other preview-fetch call site follows this pattern.
+            gen = utils._rg_validate_inputs(frozenset(), gen_type=0)
+            gen.runtime.mapObject = blank
+            utils.compute_and_store_tile_bounds(gen)
+            # This is the real elevation download (runTileGeneration's later
+            # fetch is a cache hit), so the fetch strip has to exist now --
+            # set_fetch_progress is a no-op for an unregistered key.
+            overlay.set_fetch_items(utils.build_fetch_items(round(gen.runtime.mapKm or 0, 1)))
+            overlay.set_fetch_progress("elevation", 0.0)
+            preview_elevations, preview_diff = utils.get_tile_elevation(
+                gen, progress_cb=_elev_progress
+            )
+            overlay.sub_percent = None
+            overlay.set_fetch_done("elevation", success=True)
+
+            if props.elevationMode == "FIXED":
+                auto_scale = (
+                    props.fixedHeightMM / (preview_diff / 1000)
+                    if preview_diff > 0
+                    else props.fixedHeightMM
+                )
+            else:
+                auto_scale = fixed_scale
+            props.sAutoScale = auto_scale
+
+            overlay.update(0.32, "Analyzing terrain…", "Calculating elevation range…")
+            lowest_z = 1000
+            highest_z = 0
+            obj_matrix = blank.matrix_world
+            for i, vert in enumerate(blank.data.vertices):
+                world_co = obj_matrix @ vert.co
+                vert_lat, _unused = utils.convert_to_geo(world_co.x, world_co.y)
+                merc = 1 / math.cos(math.radians(vert_lat))
+                val = (
+                    preview_elevations[i]
+                    / 1000
+                    * props.scaleElevation
+                    * auto_scale
+                    * merc
+                )
+                lowest_z = min(lowest_z, val)
+                highest_z = max(highest_z, val)
+            props.sAdditionalExtrusion = lowest_z
+
+            overlay.add_completed_step(
+                f"Preview elevation — z {lowest_z:.1f}-{highest_z:.1f}"
+            )
+
+        from .props import single_extruder_active  # deferred
+
+        # Single Extruder Mode: build the trails BEFORE the tile so
+        # runTileGeneration picks them up (_rtg_handle_trail) and runs them
+        # through the same pipeline as runGeneration -- the trail is then cut
+        # out of the roads in 2D (_finalise_roads). Merging them afterwards
+        # instead intersects the trail with terrain the roads have already
+        # cut into, leaving the road's gap in the trail. They're snapped onto
+        # the terrain inside runTileGeneration (snap_trails), since the tile
+        # is still flat here.
+        early_trails = []
+        if gpx_paths and single_extruder_active(props):
+            early_trails = _generate_trails(
+                context, gpx_paths, overlay, 0.32, 0.33, raycast=False
+            )
+
+        bpy.ops.object.select_all(action="DESELECT")
+        blank.select_set(True)
+        bpy.context.view_layer.objects.active = blank
+        # Everything generated from here on (element meshes, trail pieces)
+        # sits on this tile -- the Shape Extras step below lifts it together
+        # with the map when a plate raises the map.
+        objs_before = set(bpy.data.objects)
+        # skip_bottom_recess: this blank is always a fresh single tile with
+        # additionalExtrusion locked to its OWN lowest point (set just
+        # above, either from the elevation-preview loop or, for a GeoJSON
+        # boundary, internally by build_tile_from_polygon), not an older
+        # neighbor's -- there's no seam to protect.
+        requested_shape_rotation = props.shapeRotation
+        props.shapeRotation = 0
+        try:
+            tile_gen = utils.runTileGeneration(
+                manage_overlay=False,
+                skip_bottom_recess=True,
+                progress_start=0.33,
+                progress_end=0.92,
+                snap_trails=bool(early_trails),
+            )
+        finally:
+            props.shapeRotation = requested_shape_rotation
+            # runTileGeneration worked on its own copies of these.
+            if early_trails and not bpy.app.debug:
+                utils.remove_objects(early_trails)
+        blank["shapeRotation"] = requested_shape_rotation
+        # runTileGeneration only warns about a failed tile and still returns
+        # its gen -- don't merge the trail into / export a half-built map
+        # (no MAP metadata, so it doesn't even group with its trail).
+        if tile_gen is not None and blank.get("Object type") != "MAP":
+            raise GenerationError
+
+        if gpx_paths and not early_trails:
+            from .utils.osm import gen as _osm_gen
+
+            trails = _generate_trails(context, gpx_paths, overlay, 0.92, 0.96)
+            objs_before_merge = set(bpy.data.objects)
+            for trail_obj in trails:
+                if _osm_gen.is_bbox_overlapping(trail_obj, blank):
+                    utils.merge_active_with_map(blank, trail_obj)
+            if not bpy.app.debug:
+                utils.remove_objects(trails)
+            # These trail pieces were merged after runTileGeneration returned,
+            # so tile_gen doesn't know about them yet -- without this
+            # _rg_export only selects the map and the trail is left out of
+            # the 3MF (and its thumbnail).
+            if tile_gen is not None:
+                merged_trails = [
+                    o
+                    for o in bpy.data.objects
+                    if o not in objs_before_merge and o.get("Object type") == "TRAIL"
+                ]
+                if merged_trails:
+                    if tile_gen.runtime.curveObjs is None:
+                        tile_gen.runtime.curveObjs = []
+                    tile_gen.runtime.curveObjs.extend(merged_trails)
+
+        # Terrain and elements were generated with shapeRotation temporarily
+        # disabled so they keep their geographic orientation. The data mesh
+        # covers the full rotated footprint; the cutter preserves the shape's
+        # drawn size instead of shrinking it to fit the original box.
+        if needs_shape_cut:
+            from shapely.affinity import translate as _shp_translate
+
+            from .utils import geometry2d as _g2d
+            from .utils.mesh_ops import (
+                _clean_solid_mesh,
+                _extrude_flat_polygon,
+                boolean_operation,
+            )
+
+            shape_name = data.get("type", "rectangle")
+            props.shape = self._TYPE_MAP.get(shape_name, "SQUARE")
+            self._apply_shape_extra(props, data)
+
+            south, north = bounds["south"], bounds["north"]
+            west, east = bounds["west"], bounds["east"]
+
+            overlay.update(0.97, "Cutting shape…", "Trimming map to its rotated outline…")
+            # sScaleHor must be set BEFORE the convert_to_blender_coordinates
+            # calls below, since that function reads it -- derive the scale from
+            # the unscaled convert_to_neutral_coordinates extent first, then set
+            # sScaleHor, and only then compute actual placement.
+            nx1, ny1, _unused = utils.convert_to_neutral_coordinates(south, west, 0, 0)
+            nx2, ny2, _unused = utils.convert_to_neutral_coordinates(north, east, 0, 0)
+            neutral_extent = max(abs(nx2 - nx1), abs(ny2 - ny1))
+            fixed_scale = props.objSize / neutral_extent if neutral_extent > 0 else 1.0
+            bpy.context.scene.tp3d["sScaleHor"] = fixed_scale
+
+            x1, y1, _unused = utils.convert_to_blender_coordinates(south, west, 0, 0)
+            x2, y2, _unused = utils.convert_to_blender_coordinates(north, east, 0, 0)
+            center_x, center_y = (x1 + x2) / 2, (y1 + y2) / 2
+            blank["map_polygon_wkt"] = rotation_poly.wkt
+
+            verts, faces = [], []
+            # An SVG can parse to a MultiPolygon (several separate shapes).
+            for poly in _g2d.iter_polygons(rotated_poly):
+                _extrude_flat_polygon(_g2d, poly, -1e4, 1e4, verts, faces)
+            if not verts:
+                _progress.WarningsOverlay.add_warning(
+                    _rpt("Could not create the rotated shape cutter."), "error"
+                )
+                raise GenerationError
+            cutter_mesh = bpy.data.meshes.new("ShapeRotationCutter")
+            cutter_mesh.from_pydata(verts, [], faces)
+            cutter_mesh.update()
+            _clean_solid_mesh(cutter_mesh)
+            cutter_obj = bpy.data.objects.new("ShapeRotationCutter", cutter_mesh)
+            bpy.context.collection.objects.link(cutter_obj)
+            cutter_obj.location = (center_x, center_y, 0)
+            try:
+                boolean_operation(blank, cutter_obj, "INTERSECT")
+                # Roads, buildings, water etc. are separate objects that
+                # runTileGeneration only clipped to the unrotated bounding
+                # rectangle -- trim them to the rotated outline too.
+                self._cut_riders_to_outline(
+                    [
+                        o
+                        for o in bpy.data.objects
+                        if o not in objs_before and o not in (blank, cutter_obj)
+                    ],
+                    cutter_obj,
+                    _shp_translate(rotated_poly, xoff=center_x, yoff=center_y),
+                )
+            finally:
+                bpy.data.objects.remove(cutter_obj, do_unlink=True)
+            blank["Shape"] = {
+                "octagon": "OCTAGON",
+                "hexagon": "HEXAGON",
+                "svg": "SVG",
+                "square": "SQUARE",
+            }.get(shape_name, "SQUARE")
+
+        # Shape Extras (text/plate/shell) -- only now, once the tile has its
+        # final outline (see _rtg_add_shape_extras for why this can't run
+        # inside runTileGeneration the way runGeneration does it).
+        if tile_gen is not None:
+            overlay.update(0.98, "Shape Overlays", "Adding text and plate elements…")
+            riders = [
+                o for o in bpy.data.objects if o not in objs_before and o is not blank
+            ]
+            try:
+                tile_gen.settings.shapeRotation = requested_shape_rotation
+                if tile_gen.settings.shape.endswith(" TEXT") and gpx_paths:
+                    self._apply_trail_stats(
+                        props, gpx_paths, data.get("gpx_names") or []
+                    )
+                utils._rtg_add_shape_extras(tile_gen, blank, riders)
+            except Exception:  # noqa: BLE001 - the tile itself is done; still export it
+                import traceback
+
+                traceback.print_exc()
+                _progress.WarningsOverlay.add_warning(
+                    _rpt("Shape Extras failed, check console for details"), "error"
+                )
+
+        # The map picker always produces a single, finished map tile (never
+        # a multi-tile result awaiting manual arrangement/export like the
+        # puzzle generator's blank), so it's safe to export it here -- after
+        # any imported GPX trail above has already been merged in, so the
+        # exported file reflects the final result. _rg_export itself still
+        # honors the "Don't automatically export" preference.
+        if tile_gen is not None:
+            bpy.ops.object.select_all(action="DESELECT")
+            blank.select_set(True)
+            bpy.context.view_layer.objects.active = blank
+            utils._rg_export(tile_gen)
+
+        _total_time = time.time() - start_time
+        bpy.context.scene.tp3d["o_time"] = _(
+            "Script ran for {:.0f} seconds"
+        ).format(_total_time)
+        export.save_history_thumbnail(data.get("history_id"), [blank])
+        # Re-zoom LAST, after the thumbnail render -- customThumbnail swaps
+        # in its own temp top-down camera view for the screenshot and then
+        # tries to restore the previous one, but a direct RegionView3D.view_matrix
+        # assignment isn't reliable enough to trust as the final on-screen
+        # state, so explicitly re-focus on the actual finished map afterward
+        # rather than before it (a zoom done before the thumbnail render
+        # could otherwise get clobbered by that restore).
+        try:
+            utils.zoom_camera_to_objects([blank])
+        except (ReferenceError, AttributeError):
+            pass
+
+    def _cleanup(self, context):
+        wm = context.window_manager
+        if self._timer:
+            wm.event_timer_remove(self._timer)
+            self._timer = None
+        if self._server:
+            threading.Thread(target=self._server.shutdown, daemon=True).start()
+            self._server = None
+
+    def execute(self, context):
+        return {"FINISHED"}
+
+
+class TP3D_OT_medal_holder_generator(bpy.types.Operator):
+    bl_idname = "tp3d.medal_holder_generator"
+    bl_label = _("Medal Holder Generator")
+    bl_description = (
+        _tip("Open the medal holder configurator — pick a shape and sizes with a live 3D preview, then Send to Blender to create the plate")
+    )
+    bl_options = {"REGISTER", "UNDO"}
+
+    _timer = None
+    _result_path: str = ""
+    _server = None
+
+    def modal(self, context, event):
+        if event.type != "TIMER":
+            return {"PASS_THROUGH"}
+
+        from . import picker_server as mp
+
+        if not mp.is_active_server(self._server):  # another generator page took over
+            self._cleanup(context)
+            return {"CANCELLED"}
+        # This page only sends the export-folder button's 'exportFolder'.
+        for key, value in mp.drain_pending_settings():
+            utils.apply_setting_update(context.scene.tp3d, key, value)
+        if mp.drain_pending_3mf_install():
+            from . import temp
+
+            bpy.ops.tp3d.install_three_mf()
+            mp.merge_settings_snapshot({"has3mf": temp.has3mf})
+        mp.merge_settings_snapshot(utils.build_online_access_state())
+        request = mp.drain_latest_model_preview()
+        if request is not None:
+            self._build_preview(context, request)
+
+        rp = pathlib.Path(self._result_path)
+        if not (rp.exists() and rp.stat().st_size > 0):
+            return {"PASS_THROUGH"}
+
+        try:
+            data = json.loads(rp.read_text(encoding="utf-8"))
+            self._apply_result(context, data)
+        except Exception:  # noqa: BLE001 - Wide exception catch for medal holder result application
+            import traceback
+
+            traceback.print_exc()
+            self.report({"ERROR"}, _rpt("There was an error, see console for details."))
+        finally:
+            try:
+                rp.unlink()
+            except OSError:
+                pass
+            self._cleanup(context)
+
+        return {"FINISHED"}
+
+    def _build_preview(self, context, request):
+        from . import picker_server as mp
+        from .utils.accessories import medal_holder
+
+        # 'seq' is the page's own request counter -- echoed back so it can
+        # tell "my latest request is built" apart from "an older one just
+        # finished while my newer one is still queued".
+        seq = request.get("seq")
+        job = mp.model_preview_job()
+        job.update(status="running", message="")
+        try:
+            params = medal_holder.sanitize_params(request)
+            medal_holder.write_preview_glb(
+                params, str(mp.model_preview_path()), context.scene.collection
+            )
+        except Exception as exc:  # noqa: BLE001 - surfaced to the page instead of killing the modal
+            import traceback
+
+            traceback.print_exc()
+            job.update(status="error", message=str(exc), seq=seq)
+            return
+        job.update(
+            status="done",
+            version=job.get("version", 0) + 1,
+            message="",
+            seq=seq,
+            **medal_holder.preview_info(params),
+        )
+
+    def invoke(self, context, event):
+        import tempfile
+
+        from . import picker_server as mp
+        from . import temp
+
+        self._result_path = str(
+            pathlib.Path(tempfile.gettempdir()) / "trailprint_medalholder.json"
+        )
+        rp = pathlib.Path(self._result_path)
+        if rp.exists():
+            rp.unlink()
+
+        html_path = (
+            pathlib.Path(__file__).parent / "generators" / "medalHolderGenerator.html"
+        )
+        utils.restore_generator_settings(context.scene.tp3d, "medal_holder")
+        tp3d = context.scene.tp3d
+        self._server = mp.start_picker(
+            self._result_path,
+            html_path=html_path,
+            # The page's magnet-hole fields start from the scene's own
+            # Magnet Diameter/Height, same as the map tiles' Magnet Holes.
+            # has3mf and the online access keys: read by threemf_promo.js.
+            settings_state={
+                "magnetDiameter": tp3d.magnetDiameter,
+                "magnetHeight": tp3d.magnetHeight,
+                "has3mf": temp.has3mf,
+                **utils.build_online_access_state(),
+            },
+        )
+
+        wm = context.window_manager
+        # Shorter than the map pickers' 0.5 s -- this timer also drives the
+        # live preview, so it's what the user feels as input lag.
+        self._timer = wm.event_timer_add(0.1, window=context.window)
+        wm.modal_handler_add(self)
+        self.report(
+            {"INFO"},
+            _rpt(
+                "Medal holder generator open — adjust the model then click Send to Blender"
+            ),
+        )
+        return {"RUNNING_MODAL"}
+
+    def _apply_result(self, context, data):
+        from .utils.accessories import medal_holder
+
+        params = medal_holder.sanitize_params(data)
+        name = str(data.get("name") or "").strip()[:60] or "MedalHolder"
+        plate, texts = medal_holder.build_objects(params, context.collection, name=name)
+        medal_holder.assign_scene_materials(plate, texts)
+
+        for obj in context.selected_objects:
+            obj.select_set(False)
+        cursor = context.scene.cursor.location.copy()
+        for obj in [plate] + [obj for _slot, obj in texts]:
+            obj.location = cursor
+            obj["Object type"] = "MEDAL_HOLDER"
+            obj["Addon"] = const.ADDON_NAME
+            obj["Version"] = const.ADDON_VERSION
+            obj.select_set(True)
+        context.view_layer.objects.active = plate
+        # The holder is already built: a zoom that can't run (no 3D viewport
+        # on screen, not in Object Mode) mustn't report as a failed generation.
+        try:
+            utils.zoom_camera_to_objects([plate] + [obj for _slot, obj in texts])
+        except (ReferenceError, AttributeError, StopIteration, RuntimeError):
+            pass
+        self.report(
+            {"INFO"}, _rpt('Created medal holder "{name}"').format(name=plate.name)
+        )
+
+    def _cleanup(self, context):
+        wm = context.window_manager
+        if self._timer:
+            wm.event_timer_remove(self._timer)
+            self._timer = None
+        if self._server:
+            threading.Thread(target=self._server.shutdown, daemon=True).start()
+            self._server = None
+
+    def execute(self, context):
+        return {"FINISHED"}
+
+
+class TP3D_OT_backplate_generator(bpy.types.Operator):
+    bl_idname = "tp3d.backplate_generator"
+    bl_label = _("Backplate Generator")
+    bl_description = (
+        _tip("Open the backplate configurator — a Shape Extras solid plate with a map inset, text and dovetails, with a live 3D preview, then Send to Blender to create it")
+    )
+    bl_options = {"REGISTER", "UNDO"}
+
+    _timer = None
+    _result_path: str = ""
+    _server = None
+
+    def modal(self, context, event):
+        if event.type != "TIMER":
+            return {"PASS_THROUGH"}
+
+        from . import picker_server as mp
+
+        if not mp.is_active_server(self._server):  # another generator page took over
+            self._cleanup(context)
+            return {"CANCELLED"}
+        # This page only sends the export-folder button's 'exportFolder'.
+        for key, value in mp.drain_pending_settings():
+            utils.apply_setting_update(context.scene.tp3d, key, value)
+        if mp.drain_pending_3mf_install():
+            from . import temp
+
+            bpy.ops.tp3d.install_three_mf()
+            mp.merge_settings_snapshot({"has3mf": temp.has3mf})
+        mp.merge_settings_snapshot(utils.build_online_access_state())
+        request = mp.drain_latest_model_preview()
+        if request is not None:
+            self._build_preview(context, request)
+
+        rp = pathlib.Path(self._result_path)
+        if not (rp.exists() and rp.stat().st_size > 0):
+            return {"PASS_THROUGH"}
+
+        try:
+            data = json.loads(rp.read_text(encoding="utf-8"))
+            self._apply_result(context, data)
+        except Exception:  # noqa: BLE001 - Wide exception catch for backplate result application
+            import traceback
+
+            traceback.print_exc()
+            self.report({"ERROR"}, _rpt("There was an error, see console for details."))
+        finally:
+            try:
+                rp.unlink()
+            except OSError:
+                pass
+            self._cleanup(context)
+
+        return {"FINISHED"}
+
+    def _build_preview(self, context, request):
+        from . import picker_server as mp
+        from .utils.accessories import backplate
+
+        # 'seq': see TP3D_OT_medal_holder_generator._build_preview.
+        seq = request.get("seq")
+        job = mp.model_preview_job()
+        job.update(status="running", message="")
+        try:
+            params = backplate.sanitize_params(request, context.scene.tp3d.textFont)
+            backplate.write_preview_glb(params, str(mp.model_preview_path()))
+        except Exception as exc:  # noqa: BLE001 - surfaced to the page instead of killing the modal
+            import traceback
+
+            traceback.print_exc()
+            job.update(status="error", message=str(exc), seq=seq)
+            return
+        job.update(
+            status="done",
+            version=job.get("version", 0) + 1,
+            message="",
+            seq=seq,
+            **backplate.preview_info(params),
+        )
+
+    def invoke(self, context, event):
+        import tempfile
+
+        from . import picker_server as mp
+        from . import temp
+        from .utils.accessories import backplate
+
+        self._result_path = str(
+            pathlib.Path(tempfile.gettempdir()) / "trailprint_backplate.json"
+        )
+        rp = pathlib.Path(self._result_path)
+        if rp.exists():
+            rp.unlink()
+
+        html_path = (
+            pathlib.Path(__file__).parent / "generators" / "backplateGenerator.html"
+        )
+        utils.restore_generator_settings(context.scene.tp3d, "backplate")
+        tp3d = context.scene.tp3d
+        # The page starts from the scene's own Shape Extras settings (a
+        # restored page state overrides them).
+        settings_state = {
+            key: getattr(tp3d, key)
+            for key in (
+                "objSize", "plateThickness", "outerBorderSize", "plateInsertValue",
+                "plateBevel", "tolerance", "textSize", "textSizeTitle", "textFont",
+                "textPlacement", "handleStyle",
+            )
+        }
+        settings_state["shape"] = tp3d.shape if tp3d.shape in backplate.SHAPES else "HEXAGON"
+        if tp3d.textLayout in backplate.LAYOUTS and tp3d.textLayout != "NONE":
+            settings_state["textLayout"] = tp3d.textLayout
+        settings_state["premium"] = bool(temp.PREMIUMVERSION)
+        settings_state["has3mf"] = temp.has3mf  # read by threemf_promo.js
+        settings_state.update(utils.build_online_access_state())
+        self._server = mp.start_picker(
+            self._result_path, html_path=html_path, settings_state=settings_state
+        )
+
+        wm = context.window_manager
+        # Same short timer as the medal holder -- it also drives the preview.
+        self._timer = wm.event_timer_add(0.1, window=context.window)
+        wm.modal_handler_add(self)
+        self.report(
+            {"INFO"},
+            _rpt("Backplate generator open — adjust the model then click Send to Blender"),
+        )
+        return {"RUNNING_MODAL"}
+
+    def _apply_result(self, context, data):
+        from .utils.accessories import backplate
+
+        params = backplate.sanitize_params(data, context.scene.tp3d.textFont)
+        name = str(data.get("name") or "").strip()[:60] or "Backplate"
+        cursor = context.scene.cursor.location.copy()
+        plate, text = backplate.build_objects(params, name=name)
+        objs = [plate] + ([text] if text is not None else [])
+        backplate.place_at(objs, cursor)
+
+        for obj in context.selected_objects:
+            obj.select_set(False)
+        for obj in objs:
+            # "Object type" stays what the Shape Extras builders set (PLATE/TEXT).
+            obj["Addon"] = const.ADDON_NAME
+            obj["Version"] = const.ADDON_VERSION
+            obj.select_set(True)
+        context.view_layer.objects.active = plate
+        # See TP3D_OT_medal_holder_generator._apply_result.
+        try:
+            utils.zoom_camera_to_objects(objs)
+        except (ReferenceError, AttributeError, StopIteration, RuntimeError):
+            pass
+        self.report(
+            {"INFO"}, _rpt('Created backplate "{name}"').format(name=plate.name)
+        )
+
+    def _cleanup(self, context):
+        wm = context.window_manager
+        if self._timer:
+            wm.event_timer_remove(self._timer)
+            self._timer = None
+        if self._server:
+            threading.Thread(target=self._server.shutdown, daemon=True).start()
+            self._server = None
+
+    def execute(self, context):
+        return {"FINISHED"}
 
 
 class TP3D_OT_special_collection(bpy.types.Operator):
     bl_idname = "tp3d.special_collection"
-    bl_label = "Update"
-    bl_description = "Update the Special Collection"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_label = _("Update")
+    bl_description = _tip("Update the Special Collection")
+    bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
 
+        utils.loadCollections(self, context)
 
-        utils.loadCollections(self,context)
-
-        return {'FINISHED'}
+        return {"FINISHED"}
 
 
 class TP3D_OT_append_collection(bpy.types.Operator):
     bl_idname = "tp3d.append_collection"
-    bl_label = "import"
-    bl_description = "Import the object from the Collection"
-    bl_options = {'REGISTER', 'UNDO'}
-
+    bl_label = _("Import")
+    bl_description = _tip("Import the object from the Collection")
+    bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
 
         overlay = _progress.ProgressOverlay.get()
         overlay.start()
         _progress.WarningsOverlay.clear()
+        # Mirrors runGeneration's own try/finally -- guarantees the overlay
+        # always closes even if a step below (coordinate loading, scene
+        # cleanup, etc.) raises before reaching runGeneration's own
+        # self-contained finally.
+        try:
+            return self._execute_body(context)
+        finally:
+            overlay.finish()
+            _progress.WarningsOverlay.get().show()
 
-        #Set the Mapsize to the Size in the Collection name
+    def _execute_body(self, context):
+        overlay = _progress.ProgressOverlay.get()
+
+        # Set the Mapsize to the Size in the Collection name
         collection_name = bpy.context.scene.tp3d.specialCollectionName
         parts = collection_name.split("_")
-        for part in parts[1:]:          # everything after a "_"
-            num = part.split("mm")[0]   # take what's before "mm"
+        for part in parts[1:]:  # everything after a "_"
+            num = part.split("mm")[0]  # take what's before "mm"
             if "mm" in part and num.replace(".", "", 1).isdigit():
                 bpy.context.scene.tp3d.objSize = int(num)
                 break
 
-        #Set flags depending on Multi_generation value
+        # Set flags depending on Multi_generation value
         multi = bpy.context.scene.tp3d.use_multi_generation
         if multi == False:
             flags = utils._GEN_FLAGS[10]
         else:
             flags = utils._GEN_FLAGS[11]
 
-        props = utils._rg_validate_inputs(flags)
-        if props is None:
-            self.report({'WARNING'}, "Invalid input properties")
-            return {'CANCELLED'}
+        gen = utils._rg_validate_inputs(flags)
+        if gen is None:
+            self.report({"WARNING"}, _rpt("Invalid input properties"))
+            return {"CANCELLED"}
 
-        coord_data = utils._rg_load_coordinates(flags, props)
-
-        coordinates, *_ = coord_data
+        utils._rg_load_coordinates(gen)
+        coordinates = gen.runtime.pathCoordinates
 
         print(f"Coord data: {coordinates}")
-        scaleHor = utils.calculate_scale(props['size'], coordinates, 10)
+        scaleHor = utils.calculate_scale(gen.settings.size, coordinates, 10)
         bpy.context.scene.tp3d["sScaleHor"] = scaleHor
 
-
-        #Convert to Blender coordinates and find map center ---
+        # Convert to Blender coordinates and find map center ---
         overlay.update(0.24, "Coordinate Conversion", "Converting to Blender space…")
         blender_coords = [
             utils.convert_to_blender_coordinates(lat, lon, ele, timestamp)
@@ -2745,44 +5513,48 @@ class TP3D_OT_append_collection(bpy.types.Operator):
 
         # --- Phase 7: Remove previously generated objects at the same location ---
         overlay.update(0.28, "Scene Cleanup", "Removing previous objects…")
-        xOff = props['xTerrainOffset']
-        yOff = props['yTerrainOffset']
-        target_2d        = Vector((centerx, centery))
+        xOff = gen.settings.xTerrainOffset
+        yOff = gen.settings.yTerrainOffset
+        target_2d = Vector((centerx, centery))
         target_2d_offset = Vector((centerx + xOff, centery + yOff))
         for obs in bpy.data.objects:
-            obj_2d        = Vector((obs.location.x, obs.location.y))
+            obj_2d = Vector((obs.location.x, obs.location.y))
             obj_2d_offset = obj_2d
             if "xTerrainOffset" in obs or "yTerrainOffset" in obs:
-                obj_2d_offset = Vector((obs.location.x - obs["xTerrainOffset"], obs.location.y - obs["yTerrainOffset"]))
-            if ((obj_2d - target_2d).length <= 0.1 or (obj_2d - target_2d_offset).length <= 0.1
-                    or (obj_2d_offset - target_2d).length <= 0.1 or (obj_2d_offset - target_2d_offset).length <= 0.1):
+                obj_2d_offset = Vector(
+                    (
+                        obs.location.x - obs["xTerrainOffset"],
+                        obs.location.y - obs["yTerrainOffset"],
+                    )
+                )
+            if (
+                (obj_2d - target_2d).length <= 0.1
+                or (obj_2d - target_2d_offset).length <= 0.1
+                or (obj_2d_offset - target_2d).length <= 0.1
+                or (obj_2d_offset - target_2d_offset).length <= 0.1
+            ):
                 bpy.data.objects.remove(obs, do_unlink=True)
-        bpy.ops.object.select_all(action='DESELECT')
+        bpy.ops.object.select_all(action="DESELECT")
 
-        #utils.appendCollection()
-        if bpy.context.scene.tp3d.generation_mode == 'GENERATION':
+        # utils.appendCollection()
+        if bpy.context.scene.tp3d.generation_mode == "GENERATION":
             utils.runGeneration(20)
-        elif bpy.context.scene.tp3d.generation_mode == 'MULTI':
+        elif bpy.context.scene.tp3d.generation_mode == "MULTI":
             utils.runGeneration(21)
 
-        #utils.merge_with_map(currentMap, currentTrail, False, False)
+        # utils.merge_with_map(currentMap, currentTrail, False, False)
 
-        #utils.remove_objects(currentTrail)
+        # utils.remove_objects(currentTrail)
 
-
-
-
-
-
-        return {'FINISHED'}
+        return {"FINISHED"}
 
 
 class TP3D_OT_append_collection_blank(bpy.types.Operator):
     bl_idname = "tp3d.append_collection_blank"
-    bl_label = "import blank"
-    bl_description = "Import the collection without generating the map"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_label = _("Import Blank")
+    bl_description = _tip("Import the collection without generating the map")
+    bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
         utils.appendCollection()
-        return {'FINISHED'}
+        return {"FINISHED"}

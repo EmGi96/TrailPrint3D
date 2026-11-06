@@ -184,7 +184,6 @@ select option{background:#2e2e2e}
       <option value="MAPTERHORN" selected>Mapterhorn</option>
       <option value="TERRAIN-TILES">Terrain Tiles (fastest)</option>
       <option value="OPENTOPODATA">OpenTopoData</option>
-      <option value="OPEN-ELEVATION">Open-Elevation</option>
       <option value="OPENTOPOGRAPHY">OpenTopography (needs API key)</option>
     </select>
   </div>

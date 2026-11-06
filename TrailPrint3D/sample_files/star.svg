@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- TrailPrint3D sample map shape: regular five-pointed star, point up
+     (outer radius 30, inner radius 0.382 x outer) with rounded corners.
+     Each corner is a quadratic curve controlled by the original sharp
+     vertex, starting 4 units along each edge at the outer points and 1.6 at
+     the inner ones. viewBox cropped to the rounded outline. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="535" height="509" viewBox="0 0 53.486 50.915">
+  <path fill="#000000" d="M25.507,1.902 Q26.743,-1.902 27.979,1.902 L32.984,17.306 Q33.478,18.827 35.078,18.827 L51.274,18.827 Q55.274,18.827 52.038,21.179 L38.935,30.698 Q37.641,31.639 38.135,33.161 L43.14,48.564 Q44.376,52.368 41.14,50.017 L28.037,40.497 Q26.743,39.557 25.448,40.497 L12.345,50.017 Q9.109,52.368 10.345,48.564 L15.35,33.161 Q15.845,31.639 14.55,30.698 L1.447,21.179 Q-1.789,18.827 2.211,18.827 L18.407,18.827 Q20.007,18.827 20.502,17.306 Z"/>
+</svg>

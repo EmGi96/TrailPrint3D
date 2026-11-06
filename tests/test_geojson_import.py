@@ -132,6 +132,33 @@ def test_feature_collection_keeps_all_parts():
         os.unlink(tmp_path)
 
 
+def test_antimeridian_boundary_is_unwrapped():
+    # Russia-style split at +/-180: the eastern tip (lon -180..-170) must be
+    # shifted to 180..190 and fuse with the 170..180 part, instead of leaving
+    # a bbox that spans the whole globe.
+    from TrailPrint3D.utils.io_geojson import _extract_polygons_from_geojson, _finalize_polygons
+    mp = {"type": "MultiPolygon", "coordinates": [
+        [[[30, 60], [180, 60], [180, 70], [30, 70], [30, 60]]],
+        [[[-180, 60], [-170, 60], [-170, 70], [-180, 70], [-180, 60]]],
+    ]}
+    result = _finalize_polygons(_extract_polygons_from_geojson(mp))
+    west, _south, east, _north = result.bounds
+    assert abs(west - 30) < 1e-9 and abs(east - 190) < 1e-9, f"expected lon 30..190, got {west}..{east}"
+    assert result.geom_type == "Polygon", f"split halves should fuse into one Polygon, got {result.geom_type}"
+
+
+def test_non_crossing_boundary_is_not_shifted():
+    # A western-hemisphere-only shape spanning < 180 degrees stays put.
+    from TrailPrint3D.utils.io_geojson import _extract_polygons_from_geojson, _finalize_polygons
+    mp = {"type": "MultiPolygon", "coordinates": [
+        [[[-120, 30], [-70, 30], [-70, 45], [-120, 45], [-120, 30]]],
+        [[[-10, 40], [10, 40], [10, 50], [-10, 50], [-10, 40]]],
+    ]}
+    result = _finalize_polygons(_extract_polygons_from_geojson(mp))
+    west, _south, east, _north = result.bounds
+    assert abs(west + 120) < 1e-9 and abs(east - 10) < 1e-9, f"expected lon -120..10, got {west}..{east}"
+
+
 def test_read_geojson_files_fuses_adjacent_boundaries():
     # Two files sharing an exact edge (like two neighbouring departements)
     # must merge into ONE seamless Polygon, not stay as two separate parts.
@@ -303,6 +330,9 @@ if __name__ == "__main__":
     _run("top-level: bare Polygon geometry",                  test_bare_geometry_top_level)
     _run("top-level: FeatureCollection keeps all parts",      test_feature_collection_keeps_all_parts)
     _run("top-level: MultiPolygon parts are individually valid", test_multipolygon_parts_are_individually_valid)
+
+    _run("antimeridian: split boundary is unwrapped and fused", test_antimeridian_boundary_is_unwrapped)
+    _run("antimeridian: non-crossing boundary is not shifted",  test_non_crossing_boundary_is_not_shifted)
 
     _run("multi-file: adjacent boundaries fuse into one",     test_read_geojson_files_fuses_adjacent_boundaries)
     _run("multi-file: single file matches read_geojson_file", test_read_geojson_files_single_file_matches_read_geojson_file)
