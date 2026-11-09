@@ -1409,8 +1409,11 @@ def _draw_api_box(layout, props, context):
     box.separator(factor=0.5)
     box.label(text=_("Elements (Water, forest, ...) runs on the Overpass API"))
     box.prop(props, "apiRetries")
-    cache_size = utils.elevation.get_cache_dir_size(const.cache_dir)
-    box.label(text=_("Cache size: {size}").format(size=utils.elevation.format_cache_size(cache_size)))
+    # Non-blocking: scanning the cache tree inline here froze the sidebar on
+    # every redraw once the cache held tens of thousands of tiles.
+    cache_size = utils.elevation.get_cached_cache_dir_size(const.cache_dir)
+    size_text = "…" if cache_size is None else utils.elevation.format_cache_size(cache_size)
+    box.label(text=_("Cache size: {size}").format(size=size_text))
     box.separator(factor=0.5)
     box.operator("tp3d.clear_cache", icon="BRUSH_DATA")
 

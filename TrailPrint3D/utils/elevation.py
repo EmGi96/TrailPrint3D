@@ -107,6 +107,65 @@ def get_cache_dir_size(path=None):
     return total
 
 
+# Cache-size display state for the sidebar panel. Walking the cache tree can
+# take minutes once it holds tens of thousands of tiles, and Panel.draw() runs
+# on every sidebar redraw -- so the walk happens on a worker thread, at most
+# once per _CACHE_SIZE_TTL seconds, and draw() only ever reads the last result.
+_CACHE_SIZE_TTL = 60.0
+_cache_size_lock = threading.Lock()
+_cache_size_state = {"value": None, "time": 0.0, "running": False, "gen": 0}
+
+
+def _cache_size_worker(path, gen):
+    size = get_cache_dir_size(path)
+    with _cache_size_lock:
+        _cache_size_state["running"] = False
+        if gen != _cache_size_state["gen"]:
+            return  # cache was cleared mid-scan -- drop the outdated total
+        _cache_size_state["value"] = size
+        _cache_size_state["time"] = time.monotonic()
+
+
+def _redraw_after_cache_size():
+    """Main-thread timer: once the worker is done, redraw the sidebars."""
+    with _cache_size_lock:
+        if _cache_size_state["running"]:
+            return 0.5
+    wm = getattr(bpy.context, "window_manager", None)
+    for window in getattr(wm, "windows", ()):
+        for area in window.screen.areas:
+            if area.type == "VIEW_3D":
+                area.tag_redraw()
+    return None
+
+
+def get_cached_cache_dir_size(path=None):
+    """Last known cache size in bytes (None until the first scan finishes).
+
+    Never blocks: starts a background rescan when the value is missing or
+    older than _CACHE_SIZE_TTL. Must be called from the main thread.
+    """
+    with _cache_size_lock:
+        value = _cache_size_state["value"]
+        stale = value is None or time.monotonic() - _cache_size_state["time"] > _CACHE_SIZE_TTL
+        if not stale or _cache_size_state["running"]:
+            return value
+        _cache_size_state["running"] = True
+        gen = _cache_size_state["gen"]
+    threading.Thread(target=_cache_size_worker, args=(path, gen), daemon=True).start()
+    if not bpy.app.timers.is_registered(_redraw_after_cache_size):
+        bpy.app.timers.register(_redraw_after_cache_size, first_interval=0.5)
+    return value
+
+
+def invalidate_cached_cache_dir_size():
+    """Force a rescan on the next panel draw (e.g. after clearing the cache)."""
+    with _cache_size_lock:
+        _cache_size_state["value"] = None
+        _cache_size_state["time"] = 0.0
+        _cache_size_state["gen"] += 1
+
+
 def format_api_error(service, exc=None, *, status_code=None, extra=None):
     """Return a compact user-facing error summary for API/network failures."""
     details = []

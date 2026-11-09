@@ -463,6 +463,7 @@ class TP3D_OT_clear_cache(bpy.types.Operator):
 
     def execute(self, context):
         utils.clear_api_cache()
+        utils.elevation.invalidate_cached_cache_dir_size()
         return {"FINISHED"}
 
 
