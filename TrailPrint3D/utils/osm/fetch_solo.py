@@ -240,11 +240,9 @@ def fetch_osm_data(
                 'relation["water"~"river|lake|stream|canal"]',
             ]
 
-        if big_rivers:
-            filters.append('way["waterway"~"river|canal"]')
-
-        if small_rivers:
-            filters.append('way["waterway"~"stream|ditch|drain"]')
+        if big_rivers or small_rivers:
+            # One combined waterway request for either river toggle.
+            filters.append('way["waterway"~"river|canal|stream|ditch|drain"]')
 
         if not filters:
             # Fallback: return an empty result query

@@ -106,13 +106,10 @@ def _build_union_query(south, west, north, east, kinds, settings=None):
                 'relation["water"~"river|lake|stream|canal"]',
             ]
             
-        if water_big_rivers:
-            # 1D Lines: Major waterways only
-            filters.append('way["waterway"~"river|canal"]')
-            
-        if water_small_rivers:
-            # 1D Lines: Minor waterways only
-            filters.append('way["waterway"~"stream|ditch|drain"]')
+        if water_big_rivers or water_small_rivers:
+            # 1D Lines: one combined waterway request for either river toggle;
+            # the big/small split is made per feature afterwards.
+            filters.append('way["waterway"~"river|canal|stream|ditch|drain"]')
 
     if "SCREE" in kinds:
         filters += [
