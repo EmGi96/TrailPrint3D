@@ -94,6 +94,7 @@ var SETTINGS_MODAL_MAP_FIELDS = [
     // Normal / Single Extruder Mode / Paint Trail -- one switch over
     // singleColorMode and texIncludeTrail (tp3dBuildTrailAppearanceSwitch).
     { type: 'custom', build: tp3dBuildTrailAppearanceSwitch },
+    { type: 'custom', build: tp3dBuild3mfDisabledNote },
     { key: 'pathThickness', source: 'SETTINGS_STATE', endpoint: 'update_setting',
       label: 'Trail Thickness', type: 'number', step: 0.01, min: 0.1, decimals: 2,
       title: 'Thickness of the path in mm',
@@ -118,13 +119,22 @@ var SETTINGS_MODAL_MAP_FIELDS = [
 // Other tab -- rarely changed settings that don't fit the other tabs.
 // The section title is now supplied by tp3dBuildOtherTab's "Appearance" card.
 var SETTINGS_MODAL_OTHER_FIELDS = [
+    { key: 'texUseTexture', source: 'SETTINGS_STATE', endpoint: 'update_setting',
+      label: 'Create a Texture', type: 'checkbox', default: true,
+      title: 'Paint the map with a texture instead of coloring individual faces',
+      previewCaption: [
+          'Paint mode colors the map either with a texture or by coloring the mesh faces themselves.',
+          'The texture gives smoother, more detailed borders between colors, and makes Paint Trail and Paint Roads possible. It needs the 3MF add-on and 3MF export.'
+      ],
+      enabledWhen: tp3dTextureAvailable,
+      lockedTitle: tp3dTextureLockedTitle },
     { key: 'texResolution', source: 'SETTINGS_STATE', endpoint: 'update_setting',
       label: 'Texture Resolution', type: 'number', step: 1024, min: 1024, max: 8192,
       title: 'Image resolution of the texture (px)',
       preview: 'https://trailprint3d.com/images/howto/TextureResolution.webp',
       previewCaption: 'Resolution of the texture the map is painted with in Paint mode — used for both OSM and ESA WorldCover.',
-      enabledWhen: tp3dTextureAvailable,
-      lockedTitle: tp3dNo3mfTitle },
+      enabledWhen: tp3dTextureOn,
+      lockedTitle: tp3dTextureOnLockedTitle },
     { key: 'overwritePathElevation', source: 'SETTINGS_STATE', endpoint: 'update_setting',
       label: 'Snap Trail to Terrain', type: 'checkbox',
       title: 'Cast each point of the trail onto the Terrain Mesh — should usually always be enabled',
@@ -149,17 +159,69 @@ function tp3dTexturePaintMode() {
 function tp3dHas3mf() {
     return !!SETTINGS_STATE.has3mf;
 }
+// The texture also needs 3MF export on (Export tab): it only reaches the
+// print through a 3MF, and props._get_tex_use_texture reads False otherwise.
+function tp3dTextureExportable() {
+    return tp3dHas3mf() && !TP3D_3MF_EXPORT_DISABLED;
+}
 function tp3dTextureAvailable() {
-    return tp3dHas3mf() && tp3dTexturePaintMode();
+    return tp3dTextureExportable() && tp3dTexturePaintMode();
 }
 var TP3D_NO_3MF_TITLE = 'Requires the free 3MF addon';
+var TP3D_3MF_DISABLED_TITLE = '3MF export is disabled (Export tab)';
 function tp3dNo3mfTitle() {
     return tp3dHas3mf() ? '' : TP3D_NO_3MF_TITLE;
 }
+// Why a texture row is locked: no add-on, or 3MF export switched off.
+function tp3dTextureLockedTitle() {
+    if (!tp3dHas3mf()) return TP3D_NO_3MF_TITLE;
+    return TP3D_3MF_EXPORT_DISABLED ? TP3D_3MF_DISABLED_TITLE : '';
+}
+// "Create a Texture" (Other tab) is checked. Read from SETTINGS_STATE until
+// the Other tab's own row exists -- the Elements and Map tabs are built first.
+function tp3dTextureChecked() {
+    var v = MAP_TAB_CONTROL_VALUES.texUseTexture;
+    if (v === undefined) v = SETTINGS_STATE.texUseTexture;
+    return v !== false;
+}
+// The rows that only mean something with an actual texture: Texture
+// Resolution, Paint Trail, Paint Roads -- mirrors panels.py's
+// `props.tex_use_texture` conditions.
+function tp3dTextureOn() {
+    return tp3dTextureAvailable() && tp3dTextureChecked();
+}
+var TP3D_TEXTURE_OFF_TITLE = 'Turn on "Create a Texture" (Other tab)';
+function tp3dTextureOnLockedTitle() {
+    var why = tp3dTextureLockedTitle();
+    if (why) return why;
+    return tp3dTexturePaintMode() && !tp3dTextureChecked() ? TP3D_TEXTURE_OFF_TITLE : '';
+}
+// Visible info line under each texture control, shown only while the 3MF
+// add-on is there but 3MF export is switched off (Export tab) -- the
+// tooltip alone was too easy to miss. Shown/hidden by
+// tp3dRefreshMapTabVisibility like API_SETUP_NOTES. *text* overrides the
+// wording (the Export tab's own copy, next to the switch itself).
+function tp3dBuild3mfDisabledNote(text) {
+    var note = document.createElement('div');
+    note.className = 'adv-field-row warning-text api-setup-note';
+    note.textContent = text || 'ⓘ Texture painting needs 3MF export, which is disabled in the Export tab';
+    MAP_TAB_ROWS.push({
+        field: {
+            text: note.textContent,
+            enabledWhen: function() { return tp3dHas3mf() && TP3D_3MF_EXPORT_DISABLED; }
+        },
+        row: note
+    });
+    return note;
+}
 // Single Extruder elements force a Single Extruder trail too -- panels.py
 // shows singleColorMode checked and locked then, with Height/Tolerance live.
+// Multi Extruder elements leave the trail free (like Paint).
+function tp3dElementsForceScmTrail() {
+    return SETTINGS_STATE.elementMode === 'SINGLECOLORMODE_REMESH';
+}
 function tp3dTrailIsSingleExtruder() {
-    return MAP_TAB_CONTROL_VALUES.singleColorMode === true || !tp3dTexturePaintMode();
+    return MAP_TAB_CONTROL_VALUES.singleColorMode === true || tp3dElementsForceScmTrail();
 }
 
 // "Trail Appearance": Normal / Single Extruder Mode / Paint Trail, writing
@@ -251,19 +313,25 @@ function tp3dBuildTrailAppearanceSwitch() {
     // Paint Trail alone also locks without the 3MF addon (no texture to
     // paint into), showing Normal -- what Blender then actually builds.
     var paintTitle = buttons.PAINT.title;
+    // Multi Extruder elements keep Normal / Single Extruder open, but Paint
+    // Trail needs the Paint-mode texture, so it locks (showing Normal).
     MAP_TAB_ROWS.push({ field: { apply: function() {
-        var forcedScm = !tp3dTexturePaintMode();
-        var noPaint = !tp3dHas3mf();
+        var forcedScm = tp3dElementsForceScmTrail();
+        var noPaint = !tp3dTextureExportable();
+        var textureOff = !tp3dTextureChecked();
+        var noTexture = !tp3dTexturePaintMode();
         var shown = forcedScm ? 'SCM' : current();
-        if (shown === 'PAINT' && noPaint) shown = 'NORMAL';
+        if (shown === 'PAINT' && (noPaint || noTexture || textureOff)) shown = 'NORMAL';
         Object.keys(buttons).forEach(function(mode) {
-            var locked = forcedScm || (mode === 'PAINT' && noPaint);
+            var locked = forcedScm || (mode === 'PAINT' && (noPaint || noTexture || textureOff));
             options[mode].classList.toggle('active', mode === shown);
             options[mode].classList.toggle('disabled', locked);
-            options[mode].classList.toggle('no-3mf', mode === 'PAINT' && noPaint);
+            options[mode].classList.toggle('no-3mf', mode === 'PAINT' && !tp3dHas3mf());
             buttons[mode].disabled = locked;
         });
-        buttons.PAINT.title = noPaint ? TP3D_NO_3MF_TITLE : paintTitle;
+        buttons.PAINT.title = noPaint ? tp3dTextureLockedTitle()
+            : (noTexture ? 'Requires the elements in Paint mode (Elements tab)'
+            : (textureOff ? TP3D_TEXTURE_OFF_TITLE : paintTitle));
         wrap.title = forcedScm ? 'Locked: the elements are in Single Extruder mode (Elements tab)' : '';
     } }, row: row });
     return row;
@@ -412,6 +480,13 @@ var ELEMENT_TOLERANCE_FIELD = {
     preview: 'https://trailprint3d.com/images/howto/ElementTolerance.webp',
     previewCaption: 'Tolerance between the elements.',
     enabledWhen: function() { return SETTINGS_STATE.elementMode === 'SINGLECOLORMODE_REMESH'; }
+};
+// Multi Extruder Mode only: how thick each terrain-following element shell is.
+var ELEMENT_SHELL_THICKNESS_FIELD = {
+    key: 'elementShellThickness', source: 'ADVANCED_SETTINGS_STATE', endpoint: 'update_advanced_setting',
+    label: 'Element Thickness', type: 'number', step: 0.1, min: 0.2, decimals: 2,
+    title: "Vertical thickness (mm) of each element in Multi Extruder Mode. The element's bottom follows the terrain this far below its top surface",
+    enabledWhen: function() { return SETTINGS_STATE.elementMode === 'MULTI_EXTRUDER'; }
 };
 var COASTLINE_SIMPLIFY_FIELD = {
     key: 'elORdpEpsilon', source: 'ADVANCED_SETTINGS_STATE', endpoint: 'update_advanced_setting',
@@ -802,9 +877,9 @@ function tp3dBuildNumberField(field, contextLabel) {
 
 // Fields flagged singleExtruderOnly (e.g. the Roads cut tolerance, which
 // panels.py hides in Paint mode) are greyed out rather than hidden while
-// elementMode isn't SINGLECOLORMODE_REMESH.
+// elementMode is PAINT (Single and Multi Extruder both cut roads in).
 function tp3dApplySingleExtruderLock(wrap) {
-    var locked = SETTINGS_STATE.elementMode !== 'SINGLECOLORMODE_REMESH';
+    var locked = SETTINGS_STATE.elementMode === 'PAINT';
     wrap.classList.toggle('locked', locked);
     wrap.querySelector('input').disabled = locked;
 }
@@ -979,8 +1054,8 @@ function tp3dBuildRoadsPaintField() {
         title: 'Paint the roads into the texture (terrain under roads coloured black)',
         preview: 'https://trailprint3d.com/images/howto/PaintRoads.webp',
         previewCaption: 'Paint the roads onto the map instead of creating a separate object.',
-        enabledWhen: tp3dTextureAvailable,
-        lockedTitle: tp3dNo3mfTitle
+        enabledWhen: tp3dTextureOn,
+        lockedTitle: tp3dTextureOnLockedTitle
     };
     // With a preview this is a .preview-wrap around the <label> -- lock the
     // label itself so the checklist's `label.locked` styling still applies.
@@ -990,6 +1065,7 @@ function tp3dBuildRoadsPaintField() {
     var checklist = document.createElement('div');
     checklist.className = 'card-checklist';
     checklist.appendChild(checkbox);
+    checklist.appendChild(tp3dBuild3mfDisabledNote());
     return checklist;
 }
 // The Elements tab gets rebuilt in place (tp3dRebuildElementsTab), so one
@@ -1184,7 +1260,10 @@ function tp3dBuildFieldRow(field) {
         if (field.max != null) input.max = field.max;
         input.value = tp3dRoundForDisplay(stateObj[field.key], field.decimals);
     } else {
-        input.checked = !!stateObj[field.key];
+        // `default` covers a state saved before the field existed (an
+        // older page state or history entry without this key).
+        input.checked = stateObj[field.key] === undefined && field.default !== undefined
+            ? !!field.default : !!stateObj[field.key];
     }
     MAP_TAB_CONTROL_VALUES[field.key] = field.type === 'checkbox' ? input.checked : input.value;
 
@@ -1733,6 +1812,7 @@ function tp3dBuildOtherTab() {
     SETTINGS_MODAL_OTHER_FIELDS.forEach(function(field) {
         if (field.type === 'section') return; // heading now comes from the Appearance card
         appearance.grid.appendChild(tp3dBuildFieldRow(field));
+        if (field.key === 'texResolution') appearance.grid.appendChild(tp3dBuild3mfDisabledNote());
     });
     wrap.appendChild(appearance.card);
 
@@ -1741,23 +1821,62 @@ function tp3dBuildOtherTab() {
     advancedSection.grid.appendChild(tp3dBuildFieldRow(ROAD_MIN_WIDTH_FIELD));
     wrap.appendChild(advancedSection.card);
 
-    wrap.appendChild(tp3dBuildSlicerProfileSection());
-
     tp3dRefreshMapTabVisibility();
     return wrap;
 }
 
-// "3MF Print Profile" card -- the sidebar's 3MF Export Profile dropdown
-// (props.slicer_profile_name) plus the 3MF add-on's own "Load Profile from
+// Export tab -- the 3MF export switch and print profile (one card).
+function tp3dBuildExportTab() {
+    var wrap = document.createElement('div');
+    wrap.className = 'settings-sections';
+    wrap.appendChild(tp3dBuild3mfExportSection());
+    tp3dRefreshMapTabVisibility();
+    return wrap;
+}
+
+// "3MF Export" card (Export tab) -- the sidebar's Disable 3MF Export
+// checkbox (props.disable_3mf_export) and 3MF Export Profile dropdown
+// (props.slicer_profile_name), plus the 3MF add-on's own "Load Profile from
 // 3MF" (Preferences → Add-ons → 3MF Format → Advanced). Locked, red, without
 // the 3MF add-on (SETTINGS_STATE.has3mf, which flips live after
-// threemf_promo.js's install). Profiles come from picker_server's
-// /slicer_profiles snapshot, kept out of SETTINGS_STATE like the export
-// folder so a history restore doesn't switch printers. Every request is
-// answered once Blender has handled it, with the fresh list as `state`.
-function tp3dBuildSlicerProfileSection() {
-    var section = tp3dBuildSection('3MF Print Profile', 'settings-grid-2');
+// threemf_promo.js's install); the profile also locks while 3MF export is
+// off. Both come from picker_server's /slicer_profiles snapshot, kept out of
+// SETTINGS_STATE like the export folder so a history restore doesn't switch
+// printers or export format. Every request is answered once Blender has
+// handled it, with the fresh snapshot as `state`.
+var TP3D_3MF_EXPORT_DISABLED = false;
+function tp3d3mfExportOn() {
+    return tp3dHas3mf() && !TP3D_3MF_EXPORT_DISABLED;
+}
+function tp3d3mfProfileLockedTitle() {
+    if (!tp3dHas3mf()) return TP3D_NO_3MF_TITLE;
+    return TP3D_3MF_EXPORT_DISABLED ? '3MF export is disabled' : '';
+}
+function tp3dBuild3mfExportSection() {
+    var section = tp3dBuildSection('3MF Export', 'settings-grid-2');
     var card = section.card;
+
+    // Disable 3MF Export: exports fall back to STL/OBJ.
+    var toggleRow = document.createElement('div');
+    toggleRow.className = 'adv-field-row';
+    toggleRow.style.gridColumn = '1 / -1';
+    toggleRow.title = 'Don\'t use the 3MF format even though the 3MF add-on is installed -- exports fall back to STL/OBJ';
+    var toggleLabel = document.createElement('label');
+    toggleLabel.textContent = 'Disable 3MF Export';
+    toggleLabel.htmlFor = 'disable3mfExportToggle';
+    toggleRow.appendChild(toggleLabel);
+    var toggleControls = document.createElement('div');
+    toggleControls.className = 'adv-field-controls';
+    var toggle = document.createElement('input');
+    toggle.type = 'checkbox';
+    toggle.className = 'tp3d-switch';
+    toggle.id = 'disable3mfExportToggle';
+    toggleControls.appendChild(toggle);
+    toggleRow.appendChild(toggleControls);
+    section.grid.appendChild(toggleRow);
+    MAP_TAB_ROWS.push({ field: { enabledWhen: tp3dHas3mf, lockedTitle: tp3dNo3mfTitle }, row: toggleRow });
+    section.grid.appendChild(tp3dBuild3mfDisabledNote(
+        'ⓘ Texture painting is off too while 3MF export is disabled — Paint mode colors faces instead'));
 
     // Full card width, the import button on the dropdown's own line.
     var row = document.createElement('div');
@@ -1786,7 +1905,7 @@ function tp3dBuildSlicerProfileSection() {
     controls.appendChild(fileInput);
     row.appendChild(controls);
     section.grid.appendChild(row);
-    MAP_TAB_ROWS.push({ field: { enabledWhen: tp3dHas3mf, lockedTitle: tp3dNo3mfTitle }, row: row });
+    MAP_TAB_ROWS.push({ field: { enabledWhen: tp3d3mfExportOn, lockedTitle: tp3d3mfProfileLockedTitle }, row: row });
 
     // Name row shown after a file was picked, like the color styles' one.
     var nameRow = document.createElement('div');
@@ -1831,6 +1950,12 @@ function tp3dBuildSlicerProfileSection() {
             select.appendChild(opt);
         });
         select.value = state.current;
+        var disabled = !!state.disable3mf;
+        toggle.checked = disabled;
+        if (disabled !== TP3D_3MF_EXPORT_DISABLED) {
+            TP3D_3MF_EXPORT_DISABLED = disabled;
+            tp3dRefreshMapTabVisibility();
+        }
     }
 
     function showStatus(reply) {
@@ -1857,6 +1982,10 @@ function tp3dBuildSlicerProfileSection() {
 
     select.addEventListener('change', function() {
         post('/select_slicer_profile', JSON.stringify({ name: select.value }))
+            .then(showStatus).catch(function() {});
+    });
+    toggle.addEventListener('change', function() {
+        post('/set_3mf_export', JSON.stringify({ disabled: toggle.checked }))
             .then(showStatus).catch(function() {});
     });
     importBtn.addEventListener('click', function() { fileInput.click(); });
@@ -2226,16 +2355,19 @@ var ELEMENT_MODE_PREVIEW = 'https://trailprint3d.com/images/howto/PaintVsSingleE
 function tp3dBuildElementModeSwitch() {
     var row = document.createElement('div');
     row.className = 'adv-field-row element-mode-row';
+    // Full width, so Element Tolerance and Element Thickness share the next
+    // line half and half.
+    row.style.gridColumn = '1 / -1';
 
     var label = document.createElement('label');
-    label.textContent = 'Paint or Single Extruder Mode';
-    row.appendChild(tp3dWithPreview(label, ELEMENT_MODE_PREVIEW, null, 'Paint or Single Extruder Mode', row));
+    label.textContent = 'Element Print Mode';
+    row.appendChild(tp3dWithPreview(label, ELEMENT_MODE_PREVIEW, null, 'Element Print Mode', row));
 
     var isWorldCover = tp3dIsWorldCover();
     var wrap = document.createElement('div');
     wrap.className = 'element-mode-switch';
     wrap.title = isWorldCover ? 'Only available for OpenStreetMap' : '';
-    [['PAINT', 'Paint'], ['SINGLECOLORMODE_REMESH', 'Single Extruder']].forEach(function(opt) {
+    [['PAINT', 'Paint'], ['SINGLECOLORMODE_REMESH', 'Single Extruder'], ['MULTI_EXTRUDER', 'Multi Extruder']].forEach(function(opt) {
         var btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'element-mode-btn' + (!isWorldCover && SETTINGS_STATE.elementMode === opt[0] ? ' active' : '');
@@ -2396,11 +2528,13 @@ function tp3dBuildElementsTab() {
         cardsSection.grid.appendChild(compositeRow);
     }
 
-    // The Paint/Single Extruder switch and the Element
-    // Tolerance it gates (OSM only, like the sidebar).
+    // The Paint/Single/Multi Extruder switch on its own line, then the
+    // Element Tolerance and Element Thickness it gates side by side
+    // (OSM only, like the sidebar).
     var modeSection = tp3dBuildSection('Print Mode', 'settings-grid-2');
     if (typeof ELEMENT_SOURCE !== 'undefined') modeSection.grid.appendChild(tp3dBuildElementModeSwitch());
     if (!tp3dIsWorldCover()) modeSection.grid.appendChild(tp3dBuildFieldRow(ELEMENT_TOLERANCE_FIELD));
+    if (!tp3dIsWorldCover()) modeSection.grid.appendChild(tp3dBuildFieldRow(ELEMENT_SHELL_THICKNESS_FIELD));
     // ESA WorldCover has no Paint/Single Extruder split -- the whole card is
     // greyed out (its buttons are already disabled).
     if (tp3dIsWorldCover()) {
@@ -2614,6 +2748,7 @@ function tp3dRelocateFields(sourceId, grid) {
         { id: 'map', label: 'Map', build: tp3dBuildMapTab }
     ];
     TABS.push({ id: 'other', label: 'Other', build: tp3dBuildOtherTab });
+    TABS.push({ id: 'export', label: 'Export', build: tp3dBuildExportTab });
     // The sliding puzzle page gets the tab too, for its own (fewer) fields.
     // Last, after Other, and tinted green (picker_common.css) as page-specific.
     if ((typeof TP3D_IS_PUZZLE_PAGE !== 'undefined' && TP3D_IS_PUZZLE_PAGE) ||

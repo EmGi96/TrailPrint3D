@@ -590,6 +590,8 @@ def _draw_element_box(layout, props):
             semSetting = elementSettings.column(align=True)
             semSetting.enabled = _elem_scm
             semSetting.prop(props, "toleranceElements", text=_("Tolerance"))
+            if props.elementMode == "MULTI_EXTRUDER":
+                box.prop(props, "elementShellThickness")
 
         def _draw_water_category(box, props):
             _any_water_not_ocean = (
@@ -904,12 +906,15 @@ def _draw_appearance_box(layout, props):
         col.label(text=_("Modified from selected style"), icon="INFO")
     box.separator(type="LINE")
     # Texture painting is only exported through the 3MF addon: keep its
-    # rows visible but greyed out without it, so Color Styles stay reachable.
+    # rows visible but greyed out without it (or with 3MF export disabled),
+    # so Color Styles stay reachable.
     if not temp.has3mf:
         box.label(text=_("3MF Addon not installed"), icon="INFO")
+    elif props.disable_3mf_export:
+        box.label(text=_("3MF export is disabled"), icon="INFO")
     if "PAINT" in props.elementMode:
         tex_row = box.row()
-        tex_row.enabled = temp.has3mf
+        tex_row.enabled = temp.has3mf and not props.disable_3mf_export
         tex_row.prop(props, "tex_use_texture")
     trail_tex_row = box.row()
     trail_tex_row.enabled = (

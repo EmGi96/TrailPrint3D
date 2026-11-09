@@ -216,6 +216,7 @@ select option{background:#2e2e2e}
         <select id="element_mode">
           <option value="PAINT">Paint on Map</option>
           <option value="SINGLECOLORMODE_REMESH">Single Color Mode</option>
+          <option value="MULTI_EXTRUDER">Multi Extruder Mode</option>
           <option value="SEPARATE">Separate Objects</option>
         </select>
       </div>

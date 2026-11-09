@@ -2442,7 +2442,7 @@ def createOcean(gen: GenerationContext, prefetched_coastline, scaleHor, tile):
         projection("paint", tile, ocean_obj)
         _flatten_painted_ocean(gen, tile, _ocean_geom)
         return None
-    elif elementMode in ("SINGLECOLORMODE", "SINGLECOLORMODE_REMESH"):
+    elif elementMode in ("SINGLECOLORMODE", "SINGLECOLORMODE_REMESH", "MULTI_EXTRUDER"):
         # Only clip ocean_obj to the plate's footprint here -- do NOT cut the
         # ocean recess into the plate yet. `tile` (the real plate object,
         # not a copy) must stay uncut until _rg_apply_single_color_mode has
@@ -2597,7 +2597,7 @@ def createOceanFromWaterPolygons(gen: GenerationContext, scaleHor, tile):
         projection("paint", tile, ocean_obj)
         _flatten_painted_ocean(gen, tile, union_all(ocean_polys))
         return None
-    elif elementMode in ("SINGLECOLORMODE", "SINGLECOLORMODE_REMESH"):
+    elif elementMode in ("SINGLECOLORMODE", "SINGLECOLORMODE_REMESH", "MULTI_EXTRUDER"):
         # Same ordering note as createOcean(): only clip to the plate's
         # footprint here, the actual recess cut happens later in
         # _rg_apply_single_color_mode's TERRAIN_PRIORITY_ORDER loop.

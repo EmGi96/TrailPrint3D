@@ -386,6 +386,9 @@ _SETTINGS_ROW_FIELDS = {
     # box. "Paint Roads" sits on the Elements tab's Roads card instead, see
     # _ADVANCED_SETTINGS_FIELDS.
     "texIncludeTrail": ("tex_include_trail", bool),
+    # "Create a texture" -- the stored choice (tex_use_texture_choice), not
+    # the 3MF-gated tex_use_texture, see props._get_tex_use_texture_choice.
+    "texUseTexture": ("tex_use_texture_choice", bool),
     "texResolution": ("tex_resolution", int),
     # Settings popup's Other tab, API section -- mirrors panels.py's API box.
     # demFilePath is set by picker_server's /pick_dem_path (OS dialog).
@@ -587,6 +590,12 @@ _ADVANCED_SETTINGS_FIELDS = [
     {
         "key": "toleranceElements",
         "attr": "toleranceElements",
+        "type": float,
+        "group": "OSM",
+    },
+    {
+        "key": "elementShellThickness",
+        "attr": "elementShellThickness",
         "type": float,
         "group": "OSM",
     },

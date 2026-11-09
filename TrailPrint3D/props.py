@@ -107,14 +107,27 @@ def generation_mode_update(self, context):
 def _get_tex_use_texture(self):
     # Runs each time the value is read; falls back to temp.has3mf
     # only if the user hasn't explicitly set it. Always False without the
-    # 3MF addon -- the texture is only exported through it, and panels.py
-    # hides the toggle then, so a stored True (set while 3MF was installed,
-    # or from someone else's .blend) couldn't be switched off.
-    return bool(temp.has3mf) and bool(self.get("tex_use_texture", True))
+    # 3MF addon or with 3MF export disabled -- the texture is only exported
+    # through a 3MF, and panels.py greys the toggle out then, so a stored True
+    # (set while 3MF was available, or from someone else's .blend) couldn't
+    # be switched off. The stored choice comes back once 3MF export does.
+    return (
+        bool(temp.has3mf)
+        and not self.disable_3mf_export
+        and bool(self.get("tex_use_texture", True))
+    )
 
 
 def _set_tex_use_texture(self, value):
     self["tex_use_texture"] = value
+
+
+def _get_tex_use_texture_choice(self):
+    # The user's own "Create a texture" choice, without the 3MF gating of
+    # _get_tex_use_texture. The generator pages show and save this one, so a
+    # page reload or history restore made while 3MF export is off doesn't
+    # write the gated False back over the user's choice.
+    return bool(self.get("tex_use_texture", True))
 
 
 # Road type tiers shown in the Roads UIList. `road_id` is the stable lookup
@@ -341,8 +354,14 @@ def single_extruder_active(tp3d):
 def texture_trail_active(tp3d):
     """Trail in texture is in effect. Single Extruder Mode wins: it builds a
     separate trail piece plus cutout, so the stored checkbox (greyed out in
-    the Appearance box) must not also paint the trail onto the texture."""
-    return tp3d.tex_include_trail and not single_extruder_active(tp3d)
+    the Appearance box) must not also paint the trail onto the texture. The
+    texture only exists with the elements in Paint mode, so Multi Extruder
+    elements keep the trail as its own object too."""
+    return (
+        tp3d.tex_include_trail
+        and tp3d.elementMode == "PAINT"
+        and not single_extruder_active(tp3d)
+    )
 
 
 def estimate_map_km(tp3d):
@@ -1141,14 +1160,37 @@ class TP3D_PG_properties(bpy.types.PropertyGroup):
                     "Use this if you don't have a multi-color printer. Each element will be made an individually printable object.\nTo mimic old SEPARATE mode, set tolerance to 0 and enable 'Keep Positions' in the export box."
                 ),
             ),
+            (
+                "MULTI_EXTRUDER",
+                _("Multi Extruder Mode"),
+                _(
+                    "Each element becomes its own object: a thin shell whose bottom follows the terrain instead of a flat base, seated in a matching recess in the map. Uses far less element-colored material on a multi-color printer"
+                ),
+            ),
         ],
         default="PAINT",
     )
+    elementShellThickness: FloatProperty(
+        name=_("Element Thickness"),
+        default=1.0,
+        min=0.2,
+        soft_max=5.0,
+        description=_tip(
+            "Vertical thickness (mm) of each element in Multi Extruder Mode. The element's bottom follows the terrain this far below its top surface"
+        ),
+    )  # type: ignore
     tex_use_texture: BoolProperty(
         name=_("Create a texture"),
         description=_tip("Create a texture instead of painting individual faces."),
         get=_get_tex_use_texture,
         set=_set_tex_use_texture,
+    )
+    tex_use_texture_choice: BoolProperty(  # type: ignore
+        name=_("Create a texture"),
+        description=_tip("Create a texture instead of painting individual faces."),
+        get=_get_tex_use_texture_choice,
+        set=_set_tex_use_texture,
+        options={"HIDDEN", "SKIP_SAVE"},
     )
     tex_include_roads: BoolProperty(  # type: ignore
         name=_("Roads in texture"),

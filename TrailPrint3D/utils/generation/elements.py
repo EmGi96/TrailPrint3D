@@ -1100,6 +1100,82 @@ def _rg_apply_single_color_mode(
                 _("Failed to apply single extruder mode booleans: {e}").format(e=str(e))
             ) from e
 
+    def _apply_multi_extruder_booleans(
+        gen: GenerationContext, obj, terrain: dict, thickerCurves
+    ):
+        """Multi Extruder Mode: thin every area element to a terrain-following
+        shell, recess the terrain to match, and resolve overlaps by priority."""
+        from ..mesh_ops import boolean_operation, multi_extruder_shell
+
+        try:
+            TERRAIN_PRIORITY_ORDER = [
+                "water",
+                "forest",
+                "scree",
+                "city",
+                "greenspace",
+                "farmland",
+                "glacier",
+                "ocean",
+            ]
+            _active_keys = [k for k in TERRAIN_PRIORITY_ORDER if terrain.get(k)]
+            if not _active_keys:
+                return
+            _n = len(_active_keys)
+            thickness = bpy.context.scene.tp3d.elementShellThickness
+            cutters = []  # higher-priority cutters, in priority order
+
+            for _done, key in enumerate(_active_keys):
+                elem_obj = terrain[key]
+                _ov = _progress.ProgressOverlay.get()
+                if _ov.active:
+                    _ov.update(
+                        percent=phase_start + (phase_end - phase_start) * (_done / _n),
+                        message=f"Multi extruder: shaping {key.capitalize()} ({_done + 1}/{_n})…",
+                    )
+
+                # Water/ocean "Insert": sink the piece; the recess follows it.
+                if key in ("water", "ocean"):
+                    from ..terrain import effective_water_insert  # deferred to avoid circular import at load time
+
+                    _wInsert = effective_water_insert(bpy.context.scene.tp3d)
+                    if _wInsert > 0:
+                        elem_obj.location.z -= _wInsert
+                        bpy.context.view_layer.update()
+
+                cutter, recess_ok = multi_extruder_shell(
+                    elem_obj, obj, thickness, map_outline=gen.runtime.mapOutline
+                )
+                if not recess_ok:
+                    _progress.WarningsOverlay.add_warning(
+                        _rpt("Could not cut the {} recess into the map.").format(
+                            _rpt(key.capitalize())
+                        ),
+                        "warn",
+                    )
+
+                for tcrv in thickerCurves:
+                    boolean_operation(elem_obj, tcrv)
+                for prev in cutters:
+                    boolean_operation(elem_obj, prev)
+
+                if cutter is not None:
+                    cutters.append(cutter)
+
+            if bpy.app.debug:
+                for cutter in cutters:
+                    cutter.location.x += gen.settings.size
+            else:
+                from ..scene import remove_objects
+
+                for cutter in cutters:
+                    remove_objects(cutter)
+
+        except Exception as e:
+            raise GenerationError(
+                _("Failed to apply multi extruder mode booleans: {e}").format(e=str(e))
+            ) from e
+
     def _cut_roads_from_terrain_and_elements(
         gen: GenerationContext, obj, terrain: dict
     ):
@@ -1363,9 +1439,11 @@ def _rg_apply_single_color_mode(
     # Step 4: Apply single‑color mode booleans (only for SINGLECOLORMODE_REMESH)
     if gen.settings.elementMode == "SINGLECOLORMODE_REMESH":
         _apply_single_color_mode_booleans(gen, obj, terrain, thickerCurves)
+    elif gen.settings.elementMode == "MULTI_EXTRUDER":
+        _apply_multi_extruder_booleans(gen, obj, terrain, thickerCurves)
 
     # Step 5: Cut roads out of terrain and elements
-    if gen.settings.elementMode == "SINGLECOLORMODE_REMESH":
+    if gen.settings.elementMode in ("SINGLECOLORMODE_REMESH", "MULTI_EXTRUDER"):
         _cut_roads_from_terrain_and_elements(gen, obj, terrain)
 
     # Step 6: Subtract trail grooves from buildings

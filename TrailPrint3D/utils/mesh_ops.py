@@ -3072,6 +3072,230 @@ def single_color_mode_mesh_remesh(
     return obj
 
 
+# Multi Extruder Mode: how far the recess cutters reach past the element's own
+# outline (mm) where that outline runs along the map's outer edge. Keeps the
+# cutter's side walls off the map's outer side walls (coplanar faces make the
+# boolean unreliable). Everywhere else the recess matches the element exactly.
+_MULTI_EXTRUDER_EDGE_EPS = 0.02
+# How close (mm) a boundary vertex must be to the map outline to count as on it.
+_MULTI_EXTRUDER_ON_EDGE_TOL = 0.01
+# Extra depth (mm) of the cutter that removes a higher-priority element's area
+# from lower-priority elements, so its floor never lands exactly on theirs.
+_MULTI_EXTRUDER_DEEP_EXTRA = 1.0
+# Thinnest a shell may get where it is clamped above the map's bottom (mm).
+_MULTI_EXTRUDER_MIN_SHELL = 0.2
+
+
+def _element_top_sheet(obj, min_normal_z=1e-3, bottom_tol=0.1):
+    """World-space bmesh holding only OBJ's top (terrain) surface.
+
+    The coloring elements are INTERSECT results of a tall prism with the
+    terrain, with every bottom vertex flattened to one Z (coloring_main /
+    merge_with_map). Like merge_with_map's terrain-following path, any face
+    touching that bottom plane is dropped -- which removes the bottom cap
+    and every side wall. Normals alone can't do this: the boolean leaves
+    sliver triangles on the walls whose normals tilt slightly up, and an
+    extruded wall face hangs below the shell as a fin. The normal test only
+    catches leftover wall pieces that don't reach the bottom."""
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    bm.transform(obj.matrix_world)
+    if not bm.verts:
+        return bm
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    bm.normal_update()
+    bottom_z = min(v.co.z for v in bm.verts) + bottom_tol
+    drop = [
+        f
+        for f in bm.faces
+        if any(v.co.z < bottom_z for v in f.verts)
+        or (f.normal.z <= min_normal_z and f.calc_area() > 1e-6)
+    ]
+    if drop:
+        bmesh.ops.delete(bm, geom=drop, context="FACES")
+    loose = [v for v in bm.verts if not v.link_faces]
+    if loose:
+        bmesh.ops.delete(bm, geom=loose, context="VERTS")
+    # A "bowtie" vertex (two parts of the outline touching at one point)
+    # extrudes into a vertical edge shared by four faces -- non-manifold, which
+    # the MANIFOLD boolean solver rejects. Give each face fan its own vertex.
+    for v in [v for v in bm.verts if v.is_valid and not v.is_manifold]:
+        boundary = [e for e in v.link_edges if len(e.link_faces) == 1]
+        if len(boundary) > 2:
+            bmesh.utils.vert_separate(v, boundary)
+    return bm
+
+
+def _push_sheet_boundary(bm, distance, only_near=None, near_tol=0.0):
+    """Move the open boundary of a sheet outward in XY by DISTANCE (mm).
+
+    ONLY_NEAR: optional world-space Shapely geometry; when given, only boundary
+    vertices within NEAR_TOL of it move."""
+    acc = {}
+    for e in bm.edges:
+        if len(e.link_faces) != 1:
+            continue
+        a, b = e.verts
+        d = Vector((b.co.x - a.co.x, b.co.y - a.co.y))
+        if d.length < 1e-9:
+            continue
+        n = Vector((d.y, -d.x)).normalized()
+        mid = Vector(((a.co.x + b.co.x) * 0.5, (a.co.y + b.co.y) * 0.5))
+        c = e.link_faces[0].calc_center_median()
+        if n.dot(Vector((c.x, c.y)) - mid) > 0:
+            n = -n
+        for v in (a, b):
+            acc[v] = acc.get(v, Vector((0.0, 0.0))) + n
+    if only_near is not None and acc:
+        import numpy as np
+        import shapely
+
+        verts = list(acc)
+        pts = shapely.points(np.array([(v.co.x, v.co.y) for v in verts], dtype=np.float64))
+        near = shapely.distance(only_near, pts) <= near_tol
+        acc = {v: acc[v] for v, keep in zip(verts, near) if keep}
+    for v, n in acc.items():
+        if n.length > 1e-9:
+            n.normalize()
+            v.co.x += n.x * distance
+            v.co.y += n.y * distance
+
+
+def _sheet_to_solid(sheet, orig_z, new_z):
+    """Extrude a height-field sheet into a closed solid.
+
+    Returns a new bmesh; the sheet itself is left untouched. ORIG_Z/NEW_Z map
+    each vertex's current Z to the Z of the original layer and of the
+    extruded copy, so either layer can follow the surface or be flattened."""
+    bm = sheet.copy()
+    orig_verts = bm.verts[:]
+    ret = bmesh.ops.extrude_face_region(bm, geom=bm.faces[:])
+    new_verts = [g for g in ret["geom"] if isinstance(g, bmesh.types.BMVert)]
+    for v in new_verts:
+        v.co.z = new_z(v.co.z)
+    for v in orig_verts:
+        v.co.z = orig_z(v.co.z)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    return bm
+
+
+def _bm_to_object(bm, name):
+    mesh = bpy.data.meshes.new(name)
+    bm.to_mesh(mesh)
+    bm.free()
+    mesh.update()
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(obj)
+    return obj
+
+
+def multi_extruder_shell(original, map, thickness, map_outline=None):
+    """Multi Extruder Mode: turn ORIGINAL (a full-depth coloring element) into
+    a THICKNESS-mm shell whose bottom follows the terrain, and cut a matching
+    terrain-following recess into MAP.
+
+    Thickness is measured vertically, so every printed layer under the element
+    gets the same amount of element color, regardless of slope. Where the shell
+    would reach through the map's bottom it is clamped just above it.
+
+    The recess matches the element exactly (0 tolerance), except where the
+    element runs along the map's outer edge: there the cutter reaches
+    _MULTI_EXTRUDER_EDGE_EPS past it so it doesn't share the map's side wall.
+    MAP_OUTLINE is the map's 2D outline in MAP's local XY (gen.runtime.mapOutline);
+    without it the outline is derived from the map mesh.
+
+    Returns (cutter, recess_ok). The cutter covers the element's footprint from
+    below the shell's floor to above the map; subtract it from lower-priority
+    elements so overlapping elements don't occupy the same space. recess_ok is
+    False when the terrain cut failed, in which case MAP is left unchanged.
+    Returns (None, True), leaving both objects untouched, when the element has
+    no top surface."""
+    from .terrain import _count_non_manifold  # deferred to avoid circular import at load time
+
+    sheet = _element_top_sheet(original)
+    if not sheet.faces:
+        sheet.free()
+        print(f"[multi_extruder_shell] {original.name}: no top surface -- skipping")
+        return None, True
+
+    mw_map = map.matrix_world
+    map_zs = [(mw_map @ v.co).z for v in map.data.vertices]
+    floor_z = min(map_zs) + _MULTI_EXTRUDER_MIN_SHELL
+    top_z = max(max(map_zs), max(v.co.z for v in sheet.verts)) + 2.0
+
+    def _shell_bottom(z):
+        return max(z - thickness, min(floor_z, z - _MULTI_EXTRUDER_MIN_SHELL))
+
+    # ── The element itself: top stays on the surface, bottom follows it down ──
+    shell = _sheet_to_solid(sheet, lambda z: z, _shell_bottom)
+    shell.transform(original.matrix_world.inverted())
+    shell.to_mesh(original.data)
+    shell.free()
+    original.data.update()
+
+    # ── Cutters: same surface, flat lid above the map; nudged out at map edge ──
+    if map_outline is not None:
+        from shapely.affinity import translate as _shp_translate
+
+        outline_ws = _shp_translate(map_outline, xoff=map.location.x, yoff=map.location.y)
+    else:
+        from . import geometry2d as _g2d  # deferred to avoid circular import at load time
+
+        outline_ws = _g2d.map_footprint_polygon(map)
+    if outline_ws is not None and not outline_ws.is_empty:
+        _push_sheet_boundary(
+            sheet,
+            _MULTI_EXTRUDER_EDGE_EPS,
+            only_near=outline_ws.boundary,
+            near_tol=_MULTI_EXTRUDER_ON_EDGE_TOL,
+        )
+    else:
+        # No outline to go by: nudge the whole boundary (tiny uniform gap).
+        _push_sheet_boundary(sheet, _MULTI_EXTRUDER_EDGE_EPS)
+    recess = _bm_to_object(
+        _sheet_to_solid(sheet, _shell_bottom, lambda z: top_z),
+        f"{original.name}_recess",
+    )
+    deep = _bm_to_object(
+        _sheet_to_solid(
+            sheet,
+            lambda z: _shell_bottom(z) - _MULTI_EXTRUDER_DEEP_EXTRA,
+            lambda z: top_z,
+        ),
+        f"{original.name}_cutter",
+    )
+    sheet.free()
+
+    nm_v, nm_e = _count_non_manifold(recess)
+    if nm_v or nm_e:
+        print(
+            f"[multi_extruder_shell] {original.name}: recess cutter non-manifold "
+            f"({nm_v}v/{nm_e}e) -- trying MANIFOLD anyway"
+        )
+    # Never fall back to EXACT here: on a large terrain with this kind of
+    # cutter it can return the cutter's shape instead of the difference,
+    # destroying the map. MANIFOLD at worst leaves the map uncut, which the
+    # sanity check below catches.
+    old_mesh = map.data.copy()
+    old_top = max(map_zs)
+    boolean = map.modifiers.new(name="Boolean", type="BOOLEAN")
+    boolean.operation = "DIFFERENCE"
+    boolean.object = recess
+    boolean.solver = "MANIFOLD"
+    applyModifier(map, boolean)
+    bpy.data.objects.remove(recess, do_unlink=True)
+
+    new_zs = [(mw_map @ v.co).z for v in map.data.vertices]
+    if not new_zs or max(new_zs) > old_top + 1e-3:
+        print(f"[multi_extruder_shell] {original.name}: recess cut failed -- map restored")
+        broken = map.data
+        map.data = old_mesh
+        bpy.data.meshes.remove(broken)
+        return deep, False
+    bpy.data.meshes.remove(old_mesh)
+    return deep, True
+
+
 def separate_mode_recess_cutter(original, map, tolerance=None):
     """Build a terrain recess cutter from ORIGINAL's own bottom-face footprint
     and subtract it from `map` -- for SEPARATE mode, which always wants an

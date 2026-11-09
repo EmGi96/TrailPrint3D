@@ -151,6 +151,7 @@ def writeMetadata(obj, type="MAP"):
         obj["elementMode"] = bpy.context.scene.tp3d.elementMode
         obj["tolerance"] = bpy.context.scene.tp3d.tolerance
         obj["toleranceElements"] = bpy.context.scene.tp3d.toleranceElements
+        obj["elementShellThickness"] = bpy.context.scene.tp3d.elementShellThickness
 
         obj["ellipseRatio"] = bpy.context.scene.tp3d.ellipseRatio
         obj["rectangleHeight"] = bpy.context.scene.tp3d.rectangleHeight

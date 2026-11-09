@@ -203,7 +203,8 @@ def _rg_export(gen: GenerationContext):
         print("Auto export disabled, skipping export")
         return
 
-    if is_3mf_extension_installed():
+    # disable_3mf_export: the sidebar checkbox / generator pages' Export tab.
+    if is_3mf_extension_installed() and not bpy.context.scene.tp3d.disable_3mf_export:
         print("Exporting to 3mf")
         if gen.runtime.curveObjs and (
             not gen.texture.useTexture or not gen.texture.texTrail
@@ -216,7 +217,7 @@ def _rg_export(gen: GenerationContext):
                     pass
         gen.runtime.mapObject.select_set(True)
 
-        if elements and gen.settings.elementMode == "SINGLECOLORMODE_REMESH":
+        if elements and gen.settings.elementMode in ("SINGLECOLORMODE_REMESH", "MULTI_EXTRUDER"):
             for elem_obj in elements.values():
                 if (
                     elem_obj
@@ -247,7 +248,7 @@ def _rg_export(gen: GenerationContext):
                 export_to_STL(tcrv, exportformat)
         export_to_STL(gen.runtime.mapObject, exportformat)
 
-        if elements and gen.settings.elementMode in ("SINGLECOLORMODE", "SINGLECOLORMODE_REMESH"):
+        if elements and gen.settings.elementMode in ("SINGLECOLORMODE", "SINGLECOLORMODE_REMESH", "MULTI_EXTRUDER"):
             for elem_obj in elements.values():
                 if (
                     elem_obj
@@ -302,12 +303,15 @@ def _rg_export_tiles(gen: GenerationContext, objects):
         print("Auto export disabled, skipping export")
         return
 
-    use_3mf = is_3mf_extension_installed()
+    use_3mf = (
+        is_3mf_extension_installed()
+        and not bpy.context.scene.tp3d.disable_3mf_export
+    )
     mode = gen.settings.elementMode
     if use_3mf:
-        element_modes = ("SINGLECOLORMODE_REMESH",)
+        element_modes = ("SINGLECOLORMODE_REMESH", "MULTI_EXTRUDER")
     else:
-        element_modes = ("SINGLECOLORMODE", "SINGLECOLORMODE_REMESH")
+        element_modes = ("SINGLECOLORMODE", "SINGLECOLORMODE_REMESH", "MULTI_EXTRUDER")
     trail_in_texture = gen.texture.useTexture and gen.texture.texTrail
 
     selected = []

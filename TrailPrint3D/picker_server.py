@@ -56,13 +56,14 @@ _pending_advanced_settings: 'queue.Queue[tuple]' = queue.Queue()
 _pending_color_styles: 'queue.Queue[dict]' = queue.Queue()
 # ─────────────────────────────────────────────────────────────────────
 
-# Settings popup's Other tab "3MF Print Profile" card (settings_modal.js):
-# POST /select_slicer_profile {name} and POST /upload_slicer_profile (the raw
-# .3mf as body, names in the X-Profile-Name / X-File-Name headers) are
-# queued here and handled on the main thread by
-# process_slicer_profile_requests, which also rebuilds the GET
+# Settings popup's Export tab "3MF Export" card (settings_modal.js):
+# POST /select_slicer_profile {name}, POST /upload_slicer_profile (the raw
+# .3mf as body, names in the X-Profile-Name / X-File-Name headers) and
+# POST /set_3mf_export {disabled} are queued here and handled on the main
+# thread by process_slicer_profile_requests, which also rebuilds the GET
 # /slicer_profiles snapshot. Kept out of SETTINGS_STATE like the export
-# folder -- restoring a history entry shouldn't switch the printer profile.
+# folder -- restoring a history entry shouldn't switch the printer profile
+# or the export format.
 _pending_slicer_profiles: 'queue.Queue[dict]' = queue.Queue()
 
 # The map generator pages' "Prefetch" button (POST /prefetch, see
@@ -484,6 +485,7 @@ def build_slicer_profiles_state(tp3d) -> dict:
         'available': get_threemf_api() is not None,
         'profiles': [{'id': i, 'label': label, 'description': desc} for i, label, desc in items],
         'current': getattr(tp3d, 'slicer_profile_name', 'NONE'),
+        'disable3mf': bool(getattr(tp3d, 'disable_3mf_export', False)),
     }
 
 
@@ -514,8 +516,8 @@ def _import_slicer_profile(path: str, name: str, source_file: str):
 
 
 def process_slicer_profile_requests(tp3d) -> None:
-    """Handle the queued /select_slicer_profile and /upload_slicer_profile
-    requests, rebuild the /slicer_profiles snapshot and release the waiting
+    """Handle the queued /select_slicer_profile, /upload_slicer_profile and
+    /set_3mf_export requests, rebuild the /slicer_profiles snapshot and release the waiting
     POST handlers with each request's result. Call from every generator
     operator's modal() tick (main thread). An uploaded profile becomes the
     selected one; a select with an empty name only refreshes the snapshot.
@@ -553,9 +555,13 @@ def process_slicer_profile_requests(tp3d) -> None:
                 os.remove(req['path'])
             except OSError:
                 pass
+        elif req['action'] == 'disable3mf':
+            tp3d.disable_3mf_export = req['disabled']
+            req['result'] = {'ok': True, 'message': ''}
 
     _Handler.slicer_profiles_json = json.dumps(build_slicer_profiles_state(tp3d)).encode('utf-8')
-    if any(req['name'] for req in requests):  # a page opening just refreshes
+    # A page opening just refreshes (a select with no name).
+    if any(req.get('name') or req['action'] == 'disable3mf' for req in requests):
         from .utils.ui_state import save_generator_settings
 
         save_generator_settings(tp3d)
@@ -1706,7 +1712,7 @@ class _Handler(BaseHTTPRequestHandler):
             self.wfile.write(b'ok')
             return
         # ─────────────────────────────────────────────────────────────
-        if self.path in ('/select_slicer_profile', '/upload_slicer_profile'):
+        if self.path in ('/select_slicer_profile', '/upload_slicer_profile', '/set_3mf_export'):
             # Answered once the main thread has handled the request
             # (process_slicer_profile_requests): {ok, message, state}.
             from urllib.parse import unquote
@@ -1720,6 +1726,13 @@ class _Handler(BaseHTTPRequestHandler):
                 except json.JSONDecodeError:
                     data = {}
                 request.update(action='select', name=str(data.get('name') or ''))
+                timeout = 5
+            elif self.path == '/set_3mf_export':
+                try:
+                    data = json.loads(body) if body else {}
+                except json.JSONDecodeError:
+                    data = {}
+                request.update(action='disable3mf', disabled=bool(data.get('disabled')))
                 timeout = 5
             else:
                 source_file = os.path.basename(unquote(self.headers.get('X-File-Name', '')))

@@ -116,6 +116,7 @@ _SNAPSHOT_SECTIONS = (
             "elementMode",
             "tolerance",
             "toleranceElements",
+            "elementShellThickness",
             "elementModeInset",
             "singleColorMode",
         ),

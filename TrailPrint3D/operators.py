@@ -1471,6 +1471,8 @@ def _mountain_split_ineligible_reason(obj, tp3d, check_topology=False):
     element_mode = obj.get("elementMode", tp3d.elementMode)
     if element_mode == "SINGLECOLORMODE_REMESH":
         return _("Maps generated with Single Extruder elements cannot be split")
+    if element_mode == "MULTI_EXTRUDER":
+        return _("Maps generated with Multi Extruder elements cannot be split")
     if not mesh.polygons:
         return _("The map has no faces")
 
