@@ -93,6 +93,7 @@ _TEST_FILES = [
     "test_osm_pipeline.py",
     "test_prefetch.py",
     "test_satellite.py",
+    "test_tile_generation.py",
     "test_updater.py",
 ]
 

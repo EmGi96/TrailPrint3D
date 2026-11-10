@@ -2333,6 +2333,8 @@ def createOcean(gen: GenerationContext, prefetched_coastline, scaleHor, tile):
                            May be empty if no coastline exists in this tile.
     scaleHor             : float  horizontal scale factor
     tile                 : bpy.types.Object  the map mesh (used for location)
+
+    Returns None when ocean in the geographic bbox misses the actual tile shape.
     """
     from .. import constants as _const  # deferred to avoid circular import at load time
     from .mesh_ops import (  # deferred to avoid circular import at load time  # deferred to avoid circular import at load time
@@ -2452,6 +2454,10 @@ def createOcean(gen: GenerationContext, prefetched_coastline, scaleHor, tile):
         # TERRAIN_PRIORITY_ORDER loop, which handles 'ocean' like every other
         # element.
         merge_with_map(tile, ocean_obj, True)
+        if not ocean_obj.data.vertices or not ocean_obj.data.polygons:
+            print("INFO: Ocean does not intersect the tile shape, skipping ocean layer.")
+            bpy.data.objects.remove(ocean_obj, do_unlink=True)
+            return None
         mat = bpy.data.materials.get("WATER")
         ocean_obj.data.materials.clear()
         ocean_obj.data.materials.append(mat)
@@ -2472,7 +2478,7 @@ def createOceanFromWaterPolygons(gen: GenerationContext, scaleHor, tile):
 
     Returns the same shapes createOcean() does: a _ColoringTextureResult for
     PAINT/texture mode, a merged-into-tile mesh object for single color mode,
-    or None if no water was found / the dataset couldn't be prepared.
+    or None if no water overlaps the tile shape / the dataset couldn't be prepared.
     """
     from .. import constants as _const  # deferred to avoid circular import at load time
     from . import geometry2d as _g2d
@@ -2602,6 +2608,10 @@ def createOceanFromWaterPolygons(gen: GenerationContext, scaleHor, tile):
         # footprint here, the actual recess cut happens later in
         # _rg_apply_single_color_mode's TERRAIN_PRIORITY_ORDER loop.
         merge_with_map(tile, ocean_obj, True)
+        if not ocean_obj.data.vertices or not ocean_obj.data.polygons:
+            print("INFO: Ocean does not intersect the tile shape, skipping ocean layer.")
+            bpy.data.objects.remove(ocean_obj, do_unlink=True)
+            return None
         mat = bpy.data.materials.get("WATER")
         ocean_obj.data.materials.clear()
         ocean_obj.data.materials.append(mat)
