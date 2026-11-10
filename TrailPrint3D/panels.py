@@ -904,38 +904,39 @@ def _draw_appearance_box(layout, props):
     row.operator("tp3d.delete_color_style", text="", icon="TRASH")
     if color_styles.style_is_modified(props):
         col.label(text=_("Modified from selected style"), icon="INFO")
-    box.separator(type="LINE")
-    # Texture painting is only exported through the 3MF addon: keep its
-    # rows visible but greyed out without it (or with 3MF export disabled),
-    # so Color Styles stay reachable.
-    if not temp.has3mf:
-        box.label(text=_("3MF Addon not installed"), icon="INFO")
-    elif props.disable_3mf_export:
-        box.label(text=_("3MF export is disabled"), icon="INFO")
     if "PAINT" in props.elementMode:
-        tex_row = box.row()
-        tex_row.enabled = temp.has3mf and not props.disable_3mf_export
-        tex_row.prop(props, "tex_use_texture")
-    trail_tex_row = box.row()
-    trail_tex_row.enabled = (
-        not _elem_scm and not props.singleColorMode and props.tex_use_texture
-    )
-    trail_tex_row.prop(
-        props,
-        "tex_include_trail",
-    )
-    road_tex_row = box.row()
-    # Roads only exist with Map Elements on. Unlike the trail row, a Single
-    # Extruder trail doesn't block this -- painted roads don't touch the cutout.
-    road_tex_row.enabled = (
-        not _elem_scm
-        and props.tex_use_texture
-        and props.elementChoice
-    )
-    road_tex_row.prop(
-        props,
-        "tex_include_roads",
-    )
+        box.separator(type="LINE")
+        # Texture painting is only exported through the 3MF addon: keep its
+        # rows visible but greyed out without it (or with 3MF export disabled),
+        # so Color Styles stay reachable.
+        if not temp.has3mf:
+            box.label(text=_("3MF Addon not installed"), icon="INFO")
+        elif props.disable_3mf_export:
+            box.label(text=_("3MF export is disabled"), icon="INFO")
+        if "PAINT" in props.elementMode:
+            tex_row = box.row()
+            tex_row.enabled = temp.has3mf and not props.disable_3mf_export
+            tex_row.prop(props, "tex_use_texture")
+        trail_tex_row = box.row()
+        trail_tex_row.enabled = (
+            not _elem_scm and not props.singleColorMode and props.tex_use_texture
+        )
+        trail_tex_row.prop(
+            props,
+            "tex_include_trail",
+        )
+        road_tex_row = box.row()
+        # Roads only exist with Map Elements on. Unlike the trail row, a Single
+        # Extruder trail doesn't block this -- painted roads don't touch the cutout.
+        road_tex_row.enabled = (
+            not _elem_scm
+            and props.tex_use_texture
+            and props.elementChoice
+        )
+        road_tex_row.prop(
+            props,
+            "tex_include_roads",
+        )
     _draw_color_settings(box, props)
 
 
@@ -999,11 +1000,11 @@ class TP3D_PT_generate(bpy.types.Panel):
             # 5. Map Elements -- what geographic data gets included.
             _draw_element_box(layout, props)
 
-            if props.elementMode == "PAINT":
-                # 6. Appearance -- how included elements render. Shown even
-                # with Map Elements off: "Trail in texture" still applies.
-                # Shown without the 3MF addon too, texture rows greyed out.
-                _draw_appearance_box(layout, props)
+            # 6. Appearance -- how included elements render. Shown even
+            # with Map Elements off: "Trail in texture" still applies.
+            # Shown without the 3MF addon too, texture rows greyed out.
+            _draw_appearance_box(layout, props)
+            
         # --- Status ---
         if props.o_time != "":
             layout.separator(type="LINE")
