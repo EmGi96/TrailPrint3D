@@ -46,7 +46,7 @@ def _slicer_profile_items_uncached() -> list[tuple[str, str, str]]:
     # Combine the description parts into one string
     desc = (
         "Use the built-in Bambu A1 template. "
-        "Add your own profiles in Preferences → Add-ons → 3MF Format → Advanced"
+        "Add your own profiles in Preferences → Add-ons → TrailPrint3D → Slicer Profiles"
     )
     items = [("NONE", "Built-in default (Bambu A1)", desc)]
 
@@ -63,11 +63,34 @@ def _slicer_profile_items_uncached() -> list[tuple[str, str, str]]:
         detail = p.machine or p.vendor
         desc = (
             f"{detail} (from {p.source_file}). "
-            "Add more profiles in Preferences → Add-ons → 3MF Format → Advanced"
+            "Add more profiles in Preferences → Add-ons → TrailPrint3D → Slicer Profiles"
         )
         items.append((p.name, p.name, desc))
 
     return items
+
+
+# slicer_profile_name persists the profile *name* (in slicer_profile_id), not
+# the dynamic enum's bare index -- adding, renaming or deleting a profile in the
+# shared 3MF storage would otherwise silently re-point a scene at a different
+# printer. A stored name that's currently unavailable reads back as "NONE" but
+# is kept, so the scene returns to it if the profile does.
+def _get_slicer_profile(self):
+    ids = [item[0] for item in _slicer_profile_items(self, None)]
+    stored = self.slicer_profile_id
+    if not stored:
+        # Files saved before this property was name-backed stored the enum
+        # index as an int IDProperty under the same name.
+        legacy = self.get("slicer_profile_name")
+        if isinstance(legacy, int) and 0 <= legacy < len(ids):
+            return legacy
+        return 0
+    return ids.index(stored) if stored in ids else 0
+
+
+def _set_slicer_profile(self, value):
+    items = _slicer_profile_items(self, None)
+    self.slicer_profile_id = items[value][0] if 0 <= value < len(items) else "NONE"
 
 
 def get_special_blend_items(self, context):
@@ -1654,12 +1677,18 @@ class TP3D_PG_properties(bpy.types.PropertyGroup):
             "Enable this if you want the every item to keep it's position, instead of letting each piece remain separate in the slicer."
         ),
     )
+    slicer_profile_id: StringProperty(  # type: ignore
+        default="",
+        options={'HIDDEN'},
+    )
     slicer_profile_name: EnumProperty(  # type: ignore
         name="",
         items=_slicer_profile_items,
+        get=_get_slicer_profile,
+        set=_set_slicer_profile,
         update=lambda self, context: utils.slicer_profile_changed(self),
         description=_tip(
-            "Printer/filament profile embedded in the 3MF export. Add profiles in Preferences \u2192 Add-ons \u2192 3MF Format \u2192 Advanced"
+            "Printer/filament profile embedded in the 3MF export. Add profiles in Preferences \u2192 Add-ons \u2192 TrailPrint3D \u2192 Slicer Profiles"
         ),
     )
 
