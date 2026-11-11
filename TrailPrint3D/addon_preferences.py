@@ -99,11 +99,33 @@ def _on_default_slicer_update(self, context):
     default_slicer_profile_changed(context.scene.tp3d)
 
 
+def _shared_slicer_profiles():
+    """The 3MF add-on's slicer_profiles package (shared profile storage), or
+    None when the add-on isn't enabled or predates slicer profiles. Checked
+    live on every draw: the 3MF add-on can be enabled/disabled mid-session."""
+    import importlib
+
+    from .threemf_discovery import get_threemf_api
+
+    api = get_threemf_api()
+    if api is None or not hasattr(bpy.types, "THREEMF_OT_load_slicer_profile"):
+        return None
+    try:
+        return importlib.import_module(".slicer_profiles", package=api.__package__)
+    except ImportError:
+        return None
+
+
 class TP3D_AddonPreferences(bpy.types.AddonPreferences):
     bl_idname = __package__
 
     show_osm_size_limits: BoolProperty(
         name=_("Show OSM Map Size Limits"),
+        default=False,
+    )  # type: ignore
+
+    show_slicer_profiles: BoolProperty(
+        name=_("Slicer Profiles"),
         default=False,
     )  # type: ignore
 
@@ -216,6 +238,8 @@ class TP3D_AddonPreferences(bpy.types.AddonPreferences):
 
         layout.separator()
 
+        self._draw_slicer_profiles(layout)
+
         # OSM map-size limits
         row = layout.row()
         row.prop(
@@ -289,6 +313,52 @@ class TP3D_AddonPreferences(bpy.types.AddonPreferences):
             msg = error_message[:60] + ("..." if len(error_message) > 60 else "")
             row.label(text=_("Check failed: {msg}").format(msg=msg), icon='CANCEL')
             row.operator("tp3d.check_update", text=_("Retry"), icon='FILE_REFRESH')
+
+        layout.separator()
+
+    def _draw_slicer_profiles(self, layout):
+        """The 3MF add-on's slicer profile manager (its Preferences → Advanced
+        section), drawn here against the same shared storage and operators."""
+        sp = _shared_slicer_profiles()
+        if sp is None:
+            return
+
+        box = layout.box()
+        box.prop(
+            self,
+            "show_slicer_profiles",
+            icon='TRIA_DOWN' if self.show_slicer_profiles else 'TRIA_RIGHT',
+            emboss=False,
+        )
+        if self.show_slicer_profiles:
+            try:
+                profiles = sp.list_profiles()
+            except OSError as e:
+                box.label(text=_("Could not read slicer profiles: {e}").format(e=e), icon='ERROR')
+                profiles = None
+            if profiles:
+                for p in profiles:
+                    row = box.row(align=True)
+                    detail = p.machine or p.vendor
+                    if p.vendor in ("PrusaSlicer", "SuperSlicer"):
+                        tag = "Prusa"
+                    elif p.vendor in ("Orca Slicer", "BambuStudio"):
+                        tag = "Orca/Bambu"
+                    else:
+                        tag = p.vendor
+                    row.label(text=f"[{tag}]  {p.name}  \u2014  {detail}", icon='FILE_3D')
+                    op = row.operator("threemf.rename_slicer_profile", text="", icon='GREASEPENCIL')
+                    op.old_name = p.name
+                    op = row.operator("threemf.delete_slicer_profile", text="", icon='X')
+                    op.profile_name = p.name
+            elif profiles is not None:
+                box.label(text=_("No profiles saved"), icon='INFO')
+            box.operator(
+                "threemf.load_slicer_profile",
+                text=_("Load Profile from 3MF"),
+                icon='FILEBROWSER',
+            )
+            box.label(text=_("Profiles are shared with the 3MF Format add-on."), icon='INFO')
 
         layout.separator()
 

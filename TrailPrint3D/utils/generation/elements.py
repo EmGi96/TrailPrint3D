@@ -710,11 +710,11 @@ def _rg_apply_single_color_mode(
     # Helper functions (each raises GenerationError on failure)
     # ----------------------------------------------------------------------
 
-    def _process_curve_projections(gen: GenerationContext, obj):
+    def _process_curve_projections(gen: GenerationContext, obj, thickerCurves):
         """Process curve objects for single-color remesh.
 
-        Returns:
-            (thickerCurves, trail_thick_ribbons) - both are lists of mesh objects.
+        Append cutters to the caller-owned list for cleanup even on failure.
+        Return the Shapely trail ribbons for road subtraction and textures.
         """
         from ..mesh_ops import (
             boolean_operation,
@@ -723,7 +723,6 @@ def _rg_apply_single_color_mode(
         )
         from ..scene import remove_objects
 
-        thickerCurves = []
         trail_thick_ribbons = []
         survivingCurveObjs = []
 
@@ -736,16 +735,17 @@ def _rg_apply_single_color_mode(
                 for coll in obj.users_collection:
                     coll.objects.link(dup)
 
-            for tcrv in gen.runtime.curveObjs:
-                result = single_color_mode_curve(tcrv, obj, True, dpt, dup)
-                if result is not None:
-                    if result[1] is not None:
-                        survivingCurveObjs.append(result[0])
-                        thickerCurves.append(result[1])
-                    if result[2] is not None and not result[2].is_empty:
-                        trail_thick_ribbons.append(result[2])
-
-            remove_objects(dup)
+            try:
+                for tcrv in gen.runtime.curveObjs:
+                    result = single_color_mode_curve(tcrv, obj, True, dpt, dup)
+                    if result is not None:
+                        if result[1] is not None:
+                            survivingCurveObjs.append(result[0])
+                            thickerCurves.append(result[1])
+                        if result[2] is not None and not result[2].is_empty:
+                            trail_thick_ribbons.append(result[2])
+            finally:
+                remove_objects(dup)
 
             # Select all thicker curves for subsequent operations
             for tcrv in thickerCurves:
@@ -761,7 +761,7 @@ def _rg_apply_single_color_mode(
                     recalculateNormals(survivingCurveObjs[j])
                     boolean_operation(survivingCurveObjs[j], thickerCurves[i])
 
-            return thickerCurves, trail_thick_ribbons
+            return trail_thick_ribbons
 
         except Exception as e:
             raise GenerationError(
@@ -1013,6 +1013,16 @@ def _rg_apply_single_color_mode(
                 "glacier",
                 "ocean",
             ]
+
+            # An element clipped away entirely (e.g. a bbox-corner coastline on
+            # a hexagon tile) has no vertices; drop it rather than let the
+            # shared-bottom min() below abort the whole phase.
+            for _k in TERRAIN_PRIORITY_ORDER:
+                _e = terrain.get(_k)
+                if _e and _e.type == "MESH" and not _e.data.vertices:
+                    print(f"[single-color] dropping empty element '{_k}' ({_e.name})")
+                    bpy.data.objects.remove(_e, do_unlink=True)
+                    terrain[_k] = None
 
             _active_scm_keys = [k for k in TERRAIN_PRIORITY_ORDER if terrain.get(k)]
             if not _active_scm_keys:
@@ -1421,38 +1431,39 @@ def _rg_apply_single_color_mode(
     thickerCurves = []
     trail_thick_ribbons = []
 
-    # Step 1: Process curve projections (only for SINGLECOLORMODE_REMESH with curves)
-    if gen.settings.singleColorMode and gen.runtime.curveObjs:
-        thickerCurves, trail_thick_ribbons = _process_curve_projections(gen, obj)
+    try:
+        # Step 1: Process curve projections (only for SINGLECOLORMODE_REMESH with curves)
+        if gen.settings.singleColorMode and gen.runtime.curveObjs:
+            trail_thick_ribbons = _process_curve_projections(gen, obj, thickerCurves)
 
-    # Step 2: In PAINT mode, clip trail curves to the map shape and collect
-    # trail ribbons from the (now-clipped) _Trail curves
-    if gen.settings.elementMode == "PAINT":
-        _clip_paint_trail_curves_to_map(gen, obj)
-        paint_ribbons = _collect_paint_trail_ribbons(gen)
-        trail_thick_ribbons.extend(paint_ribbons)
+        # Step 2: In PAINT mode, clip trail curves to the map shape and collect
+        # trail ribbons from the (now-clipped) _Trail curves
+        if gen.settings.elementMode == "PAINT":
+            _clip_paint_trail_curves_to_map(gen, obj)
+            paint_ribbons = _collect_paint_trail_ribbons(gen)
+            trail_thick_ribbons.extend(paint_ribbons)
 
-    # Step 3: Store trail union for texture rasterisation
-    if gen.texture.useTexture and gen.texture.texTrail and trail_thick_ribbons:
-        _store_trail_union_for_texture(gen, terrain, trail_thick_ribbons)
+        # Step 3: Store trail union for texture rasterisation
+        if gen.texture.useTexture and gen.texture.texTrail and trail_thick_ribbons:
+            _store_trail_union_for_texture(gen, terrain, trail_thick_ribbons)
 
-    # Step 4: Apply single‑color mode booleans (only for SINGLECOLORMODE_REMESH)
-    if gen.settings.elementMode == "SINGLECOLORMODE_REMESH":
-        _apply_single_color_mode_booleans(gen, obj, terrain, thickerCurves)
-    elif gen.settings.elementMode == "MULTI_EXTRUDER":
-        _apply_multi_extruder_booleans(gen, obj, terrain, thickerCurves)
+        # Step 4: Apply single‑color mode booleans (only for SINGLECOLORMODE_REMESH)
+        if gen.settings.elementMode == "SINGLECOLORMODE_REMESH":
+            _apply_single_color_mode_booleans(gen, obj, terrain, thickerCurves)
+        elif gen.settings.elementMode == "MULTI_EXTRUDER":
+            _apply_multi_extruder_booleans(gen, obj, terrain, thickerCurves)
 
-    # Step 5: Cut roads out of terrain and elements
-    if gen.settings.elementMode in ("SINGLECOLORMODE_REMESH", "MULTI_EXTRUDER"):
-        _cut_roads_from_terrain_and_elements(gen, obj, terrain)
+        # Step 5: Cut roads out of terrain and elements
+        if gen.settings.elementMode in ("SINGLECOLORMODE_REMESH", "MULTI_EXTRUDER"):
+            _cut_roads_from_terrain_and_elements(gen, obj, terrain)
 
-    # Step 6: Subtract trail grooves from buildings
-    if thickerCurves:
-        _subtract_trail_from_buildings(gen, thickerCurves, terrain)
+        # Step 6: Subtract trail grooves from buildings
+        if thickerCurves:
+            _subtract_trail_from_buildings(gen, thickerCurves, terrain)
 
-    # Step 7: Finalise roads
-    if gen.runtime.roadObj is not None:
-        _finalise_roads(gen, terrain, trail_thick_ribbons)
-
-    # Step 8: Clean up temporary thicker curves
-    _cleanup_thicker_curves(thickerCurves, bpy.app.debug, gen.settings.size)
+        # Step 7: Finalise roads
+        if gen.runtime.roadObj is not None:
+            _finalise_roads(gen, terrain, trail_thick_ribbons)
+    finally:
+        # Step 8: Clean up temporary thicker curves even when a phase fails.
+        _cleanup_thicker_curves(thickerCurves, bpy.app.debug, gen.settings.size)

@@ -104,10 +104,13 @@ def _rtg_apply_elevation(
     # treats every element boundary vertex as unpinned instead of raising an error --
     # element (e.g. water) edges get Taubin-smoothed right across the tile's own
     # outline instead of staying pinned to it.
+    # map_polygon_wkt may be pre-rotation (e.g. Extend Tile copies, whose
+    # rotation was just baked above); map_outline_local picks the variant that
+    # matches the mesh.
     if "map_polygon_wkt" in zobj:
-        from shapely.wkt import loads as _shp_loads  # deferred to avoid circular import at load time
+        from ..outline import map_outline_local  # deferred to avoid circular import at load time
 
-        gen.runtime.mapOutline = _shp_loads(zobj["map_polygon_wkt"])
+        gen.runtime.mapOutline = map_outline_local(zobj)
     # get_tile_elevation only populates gen.runtime.mapKm/tbMin*/tbMax* via its
     # own internal call to compute_and_store_tile_bounds when that call is made
     # with the bare object -- call it here first so _rg_build_terrain_elements

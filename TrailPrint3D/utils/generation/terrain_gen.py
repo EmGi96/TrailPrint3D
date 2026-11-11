@@ -44,11 +44,10 @@ def _cleanup_build_area(gen: GenerationContext):
 
 def _rg_create_map_object(gen: GenerationContext):
     """Create, rotate, and position the base map shape object."""
-    from shapely.wkt import loads
-
     from ..mesh_ops import (
         recalculateNormals,  # deferred to avoid circular import at load time
     )
+    from ..outline import map_outline_local
     from ..presets import (
         appendCollection,  # deferred to avoid circular import at load time
     )
@@ -160,8 +159,9 @@ def _rg_create_map_object(gen: GenerationContext):
 
     transform_MapObject(MapObject, targetx, targety)
     if MapObject and "map_polygon_wkt" in MapObject:
-        outline = loads(MapObject["map_polygon_wkt"])
-        gen.runtime.mapOutline = outline
+        # map_polygon_wkt is pre-rotation; mapOutline must match the baked mesh
+        # or every element clipped against it keeps the unrotated shape.
+        gen.runtime.mapOutline = map_outline_local(MapObject)
         gen.runtime.mapObject = MapObject
         bpy.context.scene.tp3d.currentMap = MapObject
 
