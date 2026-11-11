@@ -418,13 +418,13 @@ function tp3dApplyHistorySettings(entry) {
 
     // Applies a single entry -- the original (pre-grouping) click behavior,
     // now shared by both a singleton group's own card and an unfolded
-    // group's individual member rows.
+    // group's individual member rows. The drawer stays open so several
+    // entries can be tried in a row; ✕ / Escape / the toggle close it.
     function selectEntry(entry) {
         if (typeof window.tp3dApplyHistoryEntry === 'function' && entry.settings) {
             window.tp3dApplyHistoryEntry(entry.settings);
         }
         tp3dApplyHistorySettings(entry);
-        closePanel();
     }
 
     // Builds one entry's row (thumbnail, time, summary, delete button,
