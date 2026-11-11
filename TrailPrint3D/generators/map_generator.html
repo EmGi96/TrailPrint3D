@@ -792,11 +792,12 @@
                         if (pending === 0 && gpxLayer.getBounds().isValid()) {
                             // Auto-place a shape centered on the trail's bounding
                             // box, sized so the shape's own outline covers every
-                            // trail point (trail ~80% of it), replacing any existing
-                            // one -- including one restored from the previous
-                            // session -- and fit to that instead. Skipped for a
-                            // GeoJSON boundary, which is the tile outline instead.
-                            if (geojsonPaths.length === 0) {
+                            // trail point (trail ~80% of it), and fit to that
+                            // instead. Only when no area is drawn yet -- an
+                            // existing one (including one restored from the
+                            // previous session) is kept. Skipped for a GeoJSON
+                            // boundary, which is the tile outline instead.
+                            if (coords === null && geojsonPaths.length === 0) {
                                 placeShapeAroundBounds(gpxLayer.getBounds(), 0.8, tp3dLayerLatLngs(gpxLayer));
                             }
                             map.fitBounds(coords && rectLayer ? rectLayer.getBounds() : gpxLayer.getBounds(), { padding: [50, 50] });
