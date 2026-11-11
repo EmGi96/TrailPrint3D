@@ -368,6 +368,17 @@ def get_effective_footprint_size(tp3d):
     return tp3d.objSize
 
 
+def _color_height_sem_update(self, context):
+    # Color by Height's Single / Multi Extruder splits are alternatives.
+    if self.color_height_SEM and self.color_height_MEM:
+        self.color_height_MEM = False
+
+
+def _color_height_mem_update(self, context):
+    if self.color_height_MEM and self.color_height_SEM:
+        self.color_height_SEM = False
+
+
 def single_extruder_active(tp3d):
     """Single Extruder Mode is on, either via the Trail checkbox or the
     SINGLECOLORMODE_REMESH element mode."""
@@ -1590,6 +1601,15 @@ class TP3D_PG_properties(bpy.types.PropertyGroup):
             "Build terrain above the threshold as a one-millimeter-deep element and cut its tolerance gap from the piece below it, using the same construction as normal Single Extruder elements. Select the new piece and run again with a higher threshold to stack another color on top. Reversible with Ctrl-Z"
         ),
         default=False,
+        update=_color_height_sem_update,
+    )  # type: ignore
+    color_height_MEM: BoolProperty(
+        name=_("Multi Extruder Mode"),
+        description=_tip(
+            "Build terrain above the threshold as a thin shell whose bottom follows the terrain (Element Thickness deep), seated in a matching recess in the map, using the same construction as Multi Extruder elements. It is printed together with the map as its own part. Select the new piece and run again with a higher threshold to stack another color on top. Reversible with Ctrl-Z"
+        ),
+        default=False,
+        update=_color_height_mem_update,
     )  # type: ignore
     mountain_noise: BoolProperty(
         name=_("Threshold Variation Noise"),

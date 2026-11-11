@@ -1195,15 +1195,39 @@ def _draw_post_process_box(layout, props, context):
         # split -- hiding it left a stale "on" that made Color by Height fail
         # with no way to switch it off. `active` (not `enabled`) keeps it
         # clickable for exactly that.
-        split_reason = operators._mountain_selection_split_reason(context)
-        sem_row = col.row(align=True)
-        sem_row.active = split_reason is None
-        sem_row.prop(props, "color_height_SEM", icon="CHECKBOX_DEHLT" if not props.color_height_SEM else "CHECKBOX_HLT")
+        sem_reason = operators._mountain_selection_split_reason(
+            context, mode=operators.SPLIT_SINGLE_EXTRUDER
+        )
+        mem_reason = operators._mountain_selection_split_reason(
+            context, mode=operators.SPLIT_MULTI_EXTRUDER
+        )
+        # Both toggles on one line; each keeps its own greyed-out state.
+        split_row = col.row(align=True)
+        sem_toggle = split_row.row(align=True)
+        sem_toggle.active = sem_reason is None
+        sem_toggle.prop(props, "color_height_SEM", icon="CHECKBOX_DEHLT" if not props.color_height_SEM else "CHECKBOX_HLT")
+        mem_toggle = split_row.row(align=True)
+        mem_toggle.active = mem_reason is None
+        mem_toggle.prop(props, "color_height_MEM", icon="CHECKBOX_DEHLT" if not props.color_height_MEM else "CHECKBOX_HLT")
         ch_sem_row = col.row(align=True)
         ch_sem_row.prop(props, "toleranceElements", text=_("Tolerance"))
-        ch_sem_row.enabled = props.color_height_SEM and split_reason is None
-        if split_reason is not None:
-            draw_wrapped_label(col, context, split_reason, icon="INFO")
+        ch_sem_row.enabled = props.color_height_SEM and sem_reason is None
+        ch_mem_row = col.row(align=True)
+        ch_mem_row.prop(props, "elementShellThickness", text=_("Thickness"))
+        ch_mem_row.enabled = props.color_height_MEM and mem_reason is None
+        # Explain the option that is switched on; with neither on, explain
+        # whatever greys them out (once, when both share the reason).
+        if props.color_height_SEM:
+            reasons = [sem_reason]
+        elif props.color_height_MEM:
+            reasons = [mem_reason]
+        else:
+            reasons = [sem_reason, mem_reason]
+        shown = []
+        for reason in reasons:
+            if reason is not None and reason not in shown:
+                shown.append(reason)
+                draw_wrapped_label(col, context, reason, icon="INFO")
         col.operator("tp3d.color_mountain", text=_("Color by Height"), icon="RNDCURVE")
         if has_height_bake_undo(context.object):
             col.operator(

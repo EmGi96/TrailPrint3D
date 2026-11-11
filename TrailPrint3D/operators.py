@@ -1456,7 +1456,31 @@ def _paint_texture_state(mesh):
     return "texture" if bpy.data.images.get(f"{mesh.name}_MMU_Paint") else "incomplete"
 
 
-def _mountain_split_ineligible_reason(obj, tp3d, check_topology=False):
+_HEIGHT_PIECE_MODE_PROP = "heightPieceMode"
+_HEIGHT_SHELL_THICKNESS_PROP = "heightShellThickness"
+# Local Z of the floor a Multi Extruder height shell is clamped above, so a
+# shell stacked on it later ends on exactly the same bottom.
+_HEIGHT_SHELL_FLOOR_PROP = "heightShellFloorZ"
+
+SPLIT_SINGLE_EXTRUDER = "SINGLE_EXTRUDER"
+SPLIT_MULTI_EXTRUDER = "MULTI_EXTRUDER"
+
+
+def _height_piece_mode(obj):
+    """Which Color by Height split already produced or cut this map/piece
+    (SPLIT_SINGLE_EXTRUDER / SPLIT_MULTI_EXTRUDER), or None if it never was."""
+    mode = obj.get(_HEIGHT_PIECE_MODE_PROP)
+    if mode:
+        return str(mode)
+    # Single Extruder splits predate the mode tag.
+    if obj.get("lastMountianManifold"):
+        return SPLIT_SINGLE_EXTRUDER
+    return None
+
+
+def _mountain_split_ineligible_reason(
+    obj, tp3d, check_topology=False, mode=SPLIT_SINGLE_EXTRUDER
+):
     if obj.type != "MESH" or obj.get("Object type") != "MAP":
         return _("Only generated map meshes can be split")
 
@@ -1471,8 +1495,15 @@ def _mountain_split_ineligible_reason(obj, tp3d, check_topology=False):
     element_mode = obj.get("elementMode", tp3d.elementMode)
     if element_mode == "SINGLECOLORMODE_REMESH":
         return _("Maps generated with Single Extruder elements cannot be split")
-    if element_mode == "MULTI_EXTRUDER":
+    if element_mode == "MULTI_EXTRUDER" and mode != SPLIT_MULTI_EXTRUDER:
         return _("Maps generated with Multi Extruder elements cannot be split")
+    # A Single Extruder piece is printed apart from the map, a Multi Extruder
+    # shell sits in a recess of it -- the two constructions don't mix.
+    previous = _height_piece_mode(obj)
+    if previous is not None and previous != mode:
+        if previous == SPLIT_MULTI_EXTRUDER:
+            return _("This map was already split in Multi Extruder Mode")
+        return _("This map was already split in Single Extruder Mode")
     if not mesh.polygons:
         return _("The map has no faces")
 
@@ -1490,9 +1521,12 @@ def _mountain_split_ineligible_reason(obj, tp3d, check_topology=False):
     return None
 
 
-def _mountain_selection_split_reason(context, check_topology=False):
-    """Why the selected maps can't be split by height ("Single color" Color
-    by Height), prefixed with the map's name, or None if they all can."""
+def _mountain_selection_split_reason(
+    context, check_topology=False, mode=SPLIT_SINGLE_EXTRUDER
+):
+    """Why the selected maps can't be split by height in MODE (Color by
+    Height's Single / Multi Extruder Mode), prefixed with the map's name, or
+    None if they all can."""
     maps = [
         obj
         for obj in context.selected_objects
@@ -1502,7 +1536,7 @@ def _mountain_selection_split_reason(context, check_topology=False):
         return _("Select at least one Map object")
     for obj in maps:
         reason = _mountain_split_ineligible_reason(
-            obj, context.scene.tp3d, check_topology=check_topology
+            obj, context.scene.tp3d, check_topology=check_topology, mode=mode
         )
         if reason is not None:
             return f"{obj.name}: {reason}"
@@ -1735,6 +1769,247 @@ def _apply_mountain_manifold(
             bpy.data.meshes.remove(mountain_mesh)
 
 
+def _height_shell_top_sheet(obj, z_threshold, noise_amplitude, noise_scale):
+    """World-space bmesh of obj's upward-facing surface above the (noised)
+    threshold, or None if nothing lies above it."""
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+
+    for vertex in bm.verts:
+        vertex.co.z -= _mountain_noise_offset(
+            vertex.co.x, vertex.co.y, noise_amplitude, noise_scale
+        )
+    bmesh.ops.bisect_plane(
+        bm,
+        geom=bm.verts[:] + bm.edges[:] + bm.faces[:],
+        plane_co=Vector((0.0, 0.0, z_threshold)),
+        plane_no=Vector((0.0, 0.0, 1.0)),
+        clear_outer=False,
+        clear_inner=True,
+    )
+    for vertex in bm.verts:
+        vertex.co.z += _mountain_noise_offset(
+            vertex.co.x, vertex.co.y, noise_amplitude, noise_scale
+        )
+
+    bm.transform(obj.matrix_world)
+    bm.normal_update()
+    # Same 1e-3 cut-off as Multi Extruder elements' top sheet: side walls and
+    # undersides drop out, the terrain surface stays.
+    drop = [face for face in bm.faces if face.normal.z <= 1e-3]
+    if drop:
+        bmesh.ops.delete(bm, geom=drop, context="FACES")
+    loose = [vertex for vertex in bm.verts if not vertex.link_faces]
+    if loose:
+        bmesh.ops.delete(bm, geom=loose, context="VERTS")
+    # Bowtie vertices extrude into edges shared by four faces (see
+    # utils/mesh_ops._element_top_sheet).
+    for vertex in [v for v in bm.verts if v.is_valid and not v.is_manifold]:
+        boundary = [e for e in vertex.link_edges if len(e.link_faces) == 1]
+        if len(boundary) > 2:
+            bmesh.utils.vert_separate(vertex, boundary)
+    if not bm.faces:
+        bm.free()
+        return None
+    return bm
+
+
+def _height_root_map(obj):
+    """The original map a chain of height pieces was split from."""
+    seen = set()
+    while obj.get("IsMountainPiece") and obj.name not in seen:
+        seen.add(obj.name)
+        parent = bpy.data.objects.get(str(obj.get("mountain_base_name", "")))
+        if parent is None:
+            break
+        obj = parent
+    return obj
+
+
+def _bm_is_closed(bm):
+    return bool(bm.faces) and all(edge.is_manifold for edge in bm.edges)
+
+
+def _apply_height_shell(
+    obj, z_threshold, shell_mat, noise_amplitude, noise_scale, thickness
+):
+    """Color by Height in Multi Extruder Mode: turn the terrain above the
+    threshold into a THICKNESS-mm shell whose bottom follows the terrain --
+    the construction Multi Extruder elements use (utils/mesh_ops.
+    multi_extruder_shell) -- and cut a matching zero-tolerance recess into obj.
+    The shell is printed together with the map as its own part.
+
+    obj can also be an earlier shell (stacking): the new shell then takes the
+    old one's full thickness over its area, so both end on the map's recess
+    floor and every layer keeps the same amount of colour.
+
+    Returns the new shell object, or None (obj unchanged) if no valid shell
+    or cut could be made."""
+    from .utils import geometry2d as _g2d
+    from .utils.mesh_ops import (
+        _MULTI_EXTRUDER_DEEP_EXTRA,
+        _MULTI_EXTRUDER_EDGE_EPS,
+        _MULTI_EXTRUDER_MIN_SHELL,
+        _MULTI_EXTRUDER_ON_EDGE_TOL,
+        _bm_to_object,
+        _push_sheet_boundary,
+        _sheet_to_solid,
+    )
+    from .utils.texture import copy_paint_metadata
+
+    base_mat = _mountain_uniform_material(obj) or bpy.data.materials.get("BASE")
+    mw = obj.matrix_world
+    location_z = mw.translation.z
+    world_z = [(mw @ vertex.co).z for vertex in obj.data.vertices]
+    if not world_z:
+        return None
+
+    stacking = bool(obj.get("IsMountainPiece")) and (
+        _height_piece_mode(obj) == SPLIT_MULTI_EXTRUDER
+    )
+    if stacking:
+        thickness = float(obj.get(_HEIGHT_SHELL_THICKNESS_PROP, thickness))
+        floor_z = float(obj.get(_HEIGHT_SHELL_FLOOR_PROP, 0.0)) + location_z
+    else:
+        floor_z = min(world_z) + _MULTI_EXTRUDER_MIN_SHELL
+
+    def _shell_bottom(z):
+        return max(z - thickness, min(floor_z, z - _MULTI_EXTRUDER_MIN_SHELL))
+
+    sheet = _height_shell_top_sheet(obj, z_threshold, noise_amplitude, noise_scale)
+    if sheet is None:
+        return None
+
+    shell_bm = _sheet_to_solid(sheet, lambda z: z, _shell_bottom)
+    if not _bm_is_closed(shell_bm):
+        shell_bm.free()
+        sheet.free()
+        return None
+
+    # The cutter runs a hair past the map's outer edge (as Multi Extruder
+    # element recesses do) so its walls never sit on the map's side walls.
+    outline = _g2d.map_footprint_polygon(_height_root_map(obj))
+    if outline is not None and not outline.is_empty:
+        _push_sheet_boundary(
+            sheet,
+            _MULTI_EXTRUDER_EDGE_EPS,
+            only_near=outline.boundary,
+            near_tol=_MULTI_EXTRUDER_ON_EDGE_TOL,
+        )
+    top_z = max(world_z) + 2.0
+    if stacking:
+        # Remove the old shell's full thickness, reaching below its floor so
+        # the cut never lands on its bottom face.
+        cutter_bm = _sheet_to_solid(
+            sheet,
+            lambda z: _shell_bottom(z) - _MULTI_EXTRUDER_DEEP_EXTRA,
+            lambda z: top_z,
+        )
+    else:
+        cutter_bm = _sheet_to_solid(sheet, _shell_bottom, lambda z: top_z)
+    sheet.free()
+    cutter = _bm_to_object(cutter_bm, f"{obj.name}_HeightShellCutter")
+
+    original_mesh = obj.data
+    new_mesh = None
+    try:
+        # MANIFOLD, never EXACT: see multi_extruder_shell -- on large terrain
+        # EXACT can return the cutter instead of the difference.
+        modifier = obj.modifiers.new(name="HeightShell", type="BOOLEAN")
+        modifier.operation = "DIFFERENCE"
+        modifier.solver = "MANIFOLD"
+        modifier.object = cutter
+        try:
+            depsgraph = bpy.context.evaluated_depsgraph_get()
+            new_mesh = bpy.data.meshes.new_from_object(obj.evaluated_get(depsgraph))
+        finally:
+            obj.modifiers.remove(modifier)
+    finally:
+        bpy.data.objects.remove(cutter, do_unlink=True)
+
+    check_bm = bmesh.new()
+    try:
+        check_bm.from_mesh(new_mesh)
+        cut_ok = (
+            _bm_is_closed(check_bm)
+            and len(new_mesh.vertices) != len(original_mesh.vertices)
+            and max(v.co.z for v in new_mesh.vertices)
+            <= max(v.co.z for v in original_mesh.vertices) + 1e-3
+        )
+    finally:
+        check_bm.free()
+    if not cut_ok:
+        bpy.data.meshes.remove(new_mesh)
+        shell_bm.free()
+        return None
+
+    # Booleans drop mesh-level custom properties; a textured map must stay
+    # textured, and its texture image is keyed on the mesh name.
+    copy_paint_metadata(original_mesh, new_mesh)
+    original_name = original_mesh.name
+    obj.data = new_mesh
+    if original_mesh.users == 0:
+        bpy.data.meshes.remove(original_mesh)
+        new_mesh.name = original_name
+    new_mesh.materials.clear()
+    if base_mat is not None:
+        new_mesh.materials.append(base_mat)
+    new_mesh.polygons.foreach_set(
+        "material_index", np.zeros(len(new_mesh.polygons), dtype=np.int32)
+    )
+
+    shell_bm.transform(mw.inverted())
+    shell_mesh = bpy.data.meshes.new(f"{original_name}_HeightShell")
+    shell_bm.to_mesh(shell_mesh)
+    shell_bm.free()
+    shell_mesh.materials.append(shell_mat)
+
+    shell_obj = obj.copy()
+    shell_obj.data = shell_mesh
+    shell_obj.name = f"{obj.name}_Mountain"
+    for collection in obj.users_collection:
+        collection.objects.link(shell_obj)
+
+    level = int(obj.get("heightLayerLevel", 0) or 0)
+    if not obj.get("IsMountainPiece"):
+        obj["ExportGroup"] = 1
+    obj[_HEIGHT_PIECE_MODE_PROP] = SPLIT_MULTI_EXTRUDER
+    obj["mountain_obj_name"] = shell_obj.name
+    # Printed with the map, as one more part of it -- like Multi Extruder
+    # elements, unlike the separately printed Single Extruder pieces.
+    shell_obj["ExportGroup"] = 1
+    shell_obj["IsMountainPiece"] = True
+    shell_obj["heightLayerLevel"] = level + 1
+    shell_obj["mountain_base_name"] = obj.name
+    shell_obj[_HEIGHT_PIECE_MODE_PROP] = SPLIT_MULTI_EXTRUDER
+    shell_obj[_HEIGHT_SHELL_THICKNESS_PROP] = thickness
+    shell_obj[_HEIGHT_SHELL_FLOOR_PROP] = floor_z - location_z
+    shell_obj[_HEIGHT_COLOR_MATERIALS_PROP] = []
+    return shell_obj
+
+
+def _color_height_sem_update(self, context):
+    # Single / Multi Extruder splits are alternatives; keep at most one on.
+    if self.color_height_SEM and self.color_height_MEM:
+        self.color_height_MEM = False
+
+
+def _color_height_mem_update(self, context):
+    if self.color_height_MEM and self.color_height_SEM:
+        self.color_height_SEM = False
+
+
+def color_height_split_mode(settings):
+    """The split Color by Height runs with (settings: the operator or the
+    scene's tp3d), or None for plain face/texture painting."""
+    if settings.color_height_SEM:
+        return SPLIT_SINGLE_EXTRUDER
+    if settings.color_height_MEM:
+        return SPLIT_MULTI_EXTRUDER
+    return None
+
+
 class TP3D_OT_color_mountain(bpy.types.Operator):
     bl_idname = "tp3d.color_mountain"
     bl_label = _("Color by Height")
@@ -1764,6 +2039,15 @@ class TP3D_OT_color_mountain(bpy.types.Operator):
             "Build terrain above the threshold as a one-millimeter-deep element and cut its tolerance gap from the piece below it, using the same construction as normal Single Extruder elements. Select the new piece and run again with a higher threshold to stack another color on top. Reversible with Ctrl-Z"
         ),
         default=False,
+        update=_color_height_sem_update,
+    )  # type: ignore
+    color_height_MEM: bpy.props.BoolProperty(
+        name=_("Multi Extruder Mode"),
+        description=_tip(
+            "Build terrain above the threshold as a thin shell whose bottom follows the terrain (Element Thickness deep), seated in a matching recess in the map, using the same construction as Multi Extruder elements. It is printed together with the map as its own part. Select the new piece and run again with a higher threshold to stack another color on top. Reversible with Ctrl-Z"
+        ),
+        default=False,
+        update=_color_height_mem_update,
     )  # type: ignore
     mountain_noise: bpy.props.BoolProperty(
         name=_("Threshold Variation Noise"),
@@ -1807,6 +2091,7 @@ class TP3D_OT_color_mountain(bpy.types.Operator):
         self.mountain_treshold = tp3d.mountain_treshold
         self.mountain_color = tp3d.mountain_color
         self.color_height_SEM = tp3d.color_height_SEM
+        self.color_height_MEM = tp3d.color_height_MEM
         self.mountain_noise = tp3d.mountain_noise
         self.mountain_noise_amplitude = tp3d.mountain_noise_amplitude
         self.mountain_noise_scale = tp3d.mountain_noise_scale
@@ -1817,6 +2102,7 @@ class TP3D_OT_color_mountain(bpy.types.Operator):
         layout.prop(self, "mountain_treshold")
         layout.prop(self, "mountain_color")
         layout.prop(self, "color_height_SEM")
+        layout.prop(self, "color_height_MEM")
         layout.prop(self, "mountain_noise")
         col = layout.column()
         col.enabled = self.mountain_noise
@@ -1830,12 +2116,14 @@ class TP3D_OT_color_mountain(bpy.types.Operator):
         tp3d.mountain_treshold = self.mountain_treshold
         tp3d.mountain_color = self.mountain_color
         tp3d.color_height_SEM = self.color_height_SEM
+        tp3d.color_height_MEM = self.color_height_MEM
         tp3d.mountain_noise = self.mountain_noise
         tp3d.mountain_noise_amplitude = self.mountain_noise_amplitude
         tp3d.mountain_noise_scale = self.mountain_noise_scale
 
         selected_objects = context.selected_objects
         min_treshold = self.mountain_treshold
+        split_mode = color_height_split_mode(self)
 
         if not selected_objects:
             self.report({"ERROR"}, _rpt("No object selected. Select a map first."))
@@ -1850,11 +2138,11 @@ class TP3D_OT_color_mountain(bpy.types.Operator):
             self.report({"ERROR"}, _rpt("Select at least one generated map."))
             return {"CANCELLED"}
 
-        if self.color_height_SEM:
+        if split_mode is not None:
             problems = []
             for obj in map_objects:
                 reason = _mountain_split_ineligible_reason(
-                    obj, tp3d, check_topology=True
+                    obj, tp3d, check_topology=True, mode=split_mode
                 )
                 if reason is not None:
                     problems.append(f"{obj.name}: {reason}")
@@ -1962,9 +2250,9 @@ class TP3D_OT_color_mountain(bpy.types.Operator):
                     ).format(name=obj.name),
                 )
                 continue
-            # "Single color" splits a textured map too (below) instead of
-            # painting the height band into its texture.
-            is_texture_mode = texture_state == "texture" and not self.color_height_SEM
+            # Single / Multi Extruder Mode split a textured map too (below)
+            # instead of painting the height band into its texture.
+            is_texture_mode = texture_state == "texture" and split_mode is None
 
             print("Apply Mountain Color")
 
@@ -1995,9 +2283,9 @@ class TP3D_OT_color_mountain(bpy.types.Operator):
                 obj["lastMountianColor"] = tuple(self.mountain_color)
                 continue
 
-            if self.color_height_SEM:
+            if split_mode is not None:
                 # A stacked piece only has terrain above its own cut, so a
-                # lower threshold would carve straight through its 1 mm body.
+                # lower threshold would carve straight through its body.
                 previous_cut = obj.get("lastMountianCut")
                 if (
                     obj.get("IsMountainPiece")
@@ -2012,14 +2300,24 @@ class TP3D_OT_color_mountain(bpy.types.Operator):
                     )
                     continue
 
-                mountain_obj = _apply_mountain_manifold(
-                    obj,
-                    z_threshold=tres,
-                    mountain_mat=mat,
-                    noise_amplitude=noise_amplitude,
-                    noise_scale=noise_scale,
-                    tolerance=tp3d.toleranceElements,
-                )
+                if split_mode == SPLIT_MULTI_EXTRUDER:
+                    mountain_obj = _apply_height_shell(
+                        obj,
+                        z_threshold=tres,
+                        shell_mat=mat,
+                        noise_amplitude=noise_amplitude,
+                        noise_scale=noise_scale,
+                        thickness=tp3d.elementShellThickness,
+                    )
+                else:
+                    mountain_obj = _apply_mountain_manifold(
+                        obj,
+                        z_threshold=tres,
+                        mountain_mat=mat,
+                        noise_amplitude=noise_amplitude,
+                        noise_scale=noise_scale,
+                        tolerance=tp3d.toleranceElements,
+                    )
                 if mountain_obj is None:
                     self.report(
                         {"WARNING"},

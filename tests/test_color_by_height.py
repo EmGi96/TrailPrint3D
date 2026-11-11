@@ -13,7 +13,8 @@ import traceback
 
 import bmesh  # type: ignore
 import bpy  # type: ignore
-from mathutils import Matrix  # type: ignore
+from mathutils import Matrix, Vector  # type: ignore
+from mathutils.bvhtree import BVHTree  # type: ignore
 
 _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if _REPO_ROOT not in sys.path:
@@ -113,6 +114,7 @@ def test_operator_properties_registered():
         "mountain_treshold",
         "mountain_color",
         "color_height_SEM",
+        "color_height_MEM",
         "mountain_noise",
         "mountain_noise_amplitude",
         "mountain_noise_scale",
@@ -127,7 +129,28 @@ def test_blank_map_eligibility():
 
     obj["elementMode"] = "SINGLECOLORMODE_REMESH"
     assert operators._mountain_split_ineligible_reason(obj, tp3d)
+    assert operators._mountain_split_ineligible_reason(
+        obj, tp3d, mode=operators.SPLIT_MULTI_EXTRUDER
+    )
+    obj["elementMode"] = "MULTI_EXTRUDER"
+    assert operators._mountain_split_ineligible_reason(obj, tp3d)
+    assert operators._mountain_split_ineligible_reason(
+        obj, tp3d, True, mode=operators.SPLIT_MULTI_EXTRUDER
+    ) is None
     obj["elementMode"] = "PAINT"
+    assert operators._mountain_split_ineligible_reason(
+        obj, tp3d, True, mode=operators.SPLIT_MULTI_EXTRUDER
+    ) is None
+
+    # The two split constructions don't mix on one map.
+    obj["lastMountianManifold"] = True
+    assert operators._mountain_split_ineligible_reason(
+        obj, tp3d, mode=operators.SPLIT_MULTI_EXTRUDER
+    )
+    del obj["lastMountianManifold"]
+    obj["heightPieceMode"] = operators.SPLIT_MULTI_EXTRUDER
+    assert operators._mountain_split_ineligible_reason(obj, tp3d)
+    del obj["heightPieceMode"]
 
     obj.data["3mf_is_paint_texture"] = True
     assert operators._mountain_split_ineligible_reason(obj, tp3d)
@@ -559,6 +582,123 @@ def test_manifold_operator_stacks_three_colors():
     assert all(_is_manifold(obj.data) for obj in (base, green, grey, white))
 
 
+def _inside(obj, point):
+    """Ray-parity point-in-solid test against obj's evaluated mesh."""
+    tree = BVHTree.FromObject(obj, bpy.context.evaluated_depsgraph_get())
+    origin = Vector(point)
+    direction = Vector((0.0123, 0.0071, 1.0)).normalized()
+    hits = 0
+    while True:
+        location, _normal, _index, _distance = tree.ray_cast(origin, direction)
+        if location is None:
+            return hits % 2 == 1
+        hits += 1
+        origin = location + direction * 1e-5
+
+
+def _cone_surface_z(radius):
+    # _new_peak_map: radius 2 at z=-2 narrowing to 0.25 at z=2.
+    return (2.0 - radius) * 4.0 / 1.75 - 2.0
+
+
+def test_multi_extruder_shell_follows_terrain():
+    _clear_scene()
+    obj = _new_peak_map("ShellPeak")
+    obj["elementMode"] = "MULTI_EXTRUDER"
+    grey = operators._height_color_material((0.5, 0.5, 0.5))
+    shell = operators._apply_height_shell(obj, 0.0, grey, 0.0, 0.5, 1.0)
+    assert shell is not None
+    assert _is_manifold(obj.data)
+    assert _is_manifold(shell.data)
+    assert [mat.name for mat in shell.data.materials] == ["HEIGHT_808080"]
+    assert [mat.name for mat in obj.data.materials] == ["BASE"]
+    # Printed with the map as one more part, not beside it.
+    assert obj["ExportGroup"] == 1 and shell["ExportGroup"] == 1
+    assert shell["IsMountainPiece"] is True
+    assert shell["heightPieceMode"] == operators.SPLIT_MULTI_EXTRUDER
+    assert obj["heightPieceMode"] == operators.SPLIT_MULTI_EXTRUDER
+
+    # 1 mm measured vertically below the surface, on two different slopes'
+    # heights: the shell bottom follows the terrain instead of being flat.
+    for radius in (1.0, 0.6):
+        top = _cone_surface_z(radius)
+        assert _inside(shell, (radius, 0.0, top - 0.1))
+        assert _inside(shell, (radius, 0.0, top - 0.9))
+        assert not _inside(shell, (radius, 0.0, top - 1.1))
+        assert not _inside(obj, (radius, 0.0, top - 0.5)), "recess not cut"
+        assert _inside(obj, (radius, 0.0, top - 1.1)), "recess cut too deep"
+    # Below the threshold the map is untouched.
+    assert _inside(obj, (1.6, 0.0, _cone_surface_z(1.6) - 0.1))
+    assert not _inside(shell, (1.6, 0.0, _cone_surface_z(1.6) - 0.1))
+
+
+def test_multi_extruder_operator_stacks_shells():
+    _clear_scene()
+    base = _new_peak_map("ShellStackPeak")
+    bpy.context.scene.tp3d.elementShellThickness = 1.0
+
+    def _apply(selected, threshold, color):
+        bpy.ops.object.select_all(action="DESELECT")
+        selected.select_set(True)
+        bpy.context.view_layer.objects.active = selected
+        before = set(bpy.data.objects)
+        result = bpy.ops.tp3d.color_mountain(
+            mountain_treshold=threshold,
+            mountain_color=color,
+            color_height_SEM=False,
+            color_height_MEM=True,
+            mountain_noise=False,
+        )
+        assert "FINISHED" in result
+        created = [
+            obj
+            for obj in set(bpy.data.objects) - before
+            if obj.get("IsMountainPiece")
+        ]
+        assert len(created) == 1
+        return created[0]
+
+    grey = _apply(base, 40, (0.5, 0.5, 0.5))
+    # Thickness changes after the first shell must not detach the stack
+    # from the recess floor it was cut for.
+    bpy.context.scene.tp3d.elementShellThickness = 2.5
+    white = _apply(grey, 80, (1.0, 1.0, 1.0))
+    assert all(_is_manifold(obj.data) for obj in (base, grey, white))
+    assert white["heightShellThickness"] == grey["heightShellThickness"] == 1.0
+    assert white["mountain_base_name"] == grey.name
+    assert white["heightLayerLevel"] == 2
+
+    # Near the summit the white shell replaced the grey one completely and
+    # sits on the same recess floor in the base.
+    radius = 0.4
+    top = _cone_surface_z(radius)
+    assert _inside(white, (radius, 0.0, top - 0.5))
+    assert not _inside(grey, (radius, 0.0, top - 0.5))
+    assert not _inside(base, (radius, 0.0, top - 0.5))
+    assert _inside(base, (radius, 0.0, top - 1.1))
+    # Further down the grey shell is still there.
+    radius = 1.0
+    top = _cone_surface_z(radius)
+    assert _inside(grey, (radius, 0.0, top - 0.5))
+    assert not _inside(white, (radius, 0.0, top - 0.5))
+
+    # Single Extruder Mode is refused on a Multi Extruder stack.
+    bpy.ops.object.select_all(action="DESELECT")
+    white.select_set(True)
+    bpy.context.view_layer.objects.active = white
+    assert operators._mountain_selection_split_reason(bpy.context) is not None
+
+
+def test_split_options_are_exclusive():
+    tp3d = bpy.context.scene.tp3d
+    tp3d.color_height_SEM = True
+    tp3d.color_height_MEM = True
+    assert not tp3d.color_height_SEM
+    tp3d.color_height_SEM = True
+    assert not tp3d.color_height_MEM
+    tp3d.color_height_SEM = False
+
+
 def test_material_layers_stack_and_preserve_elements():
     _clear_scene()
     obj = _new_peak_map("MaterialStackPeak")
@@ -685,6 +825,9 @@ _run(
     "manifold operator stacks three colors",
     test_manifold_operator_stacks_three_colors,
 )
+_run("multi extruder shell follows terrain", test_multi_extruder_shell_follows_terrain)
+_run("multi extruder operator stacks shells", test_multi_extruder_operator_stacks_shells)
+_run("split options are exclusive", test_split_options_are_exclusive)
 _run("material layers stack and preserve elements", test_material_layers_stack_and_preserve_elements)
 _run("already-applied map does not abort selection", test_already_applied_map_does_not_abort_selection)
 
