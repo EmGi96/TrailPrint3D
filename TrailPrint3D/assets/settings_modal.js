@@ -120,7 +120,7 @@ var SETTINGS_MODAL_MAP_FIELDS = [
 // The section title is now supplied by tp3dBuildOtherTab's "Appearance" card.
 var SETTINGS_MODAL_OTHER_FIELDS = [
     { key: 'texUseTexture', source: 'SETTINGS_STATE', endpoint: 'update_setting',
-      label: 'Create a Texture', type: 'checkbox', default: true,
+      label: 'Use Texture', type: 'checkbox', default: true,
       title: 'Paint the map with a texture instead of coloring individual faces',
       previewCaption: [
           'Paint mode colors the map either with a texture or by coloring the mesh faces themselves.',
@@ -177,7 +177,7 @@ function tp3dTextureLockedTitle() {
     if (!tp3dHas3mf()) return TP3D_NO_3MF_TITLE;
     return TP3D_3MF_EXPORT_DISABLED ? TP3D_3MF_DISABLED_TITLE : '';
 }
-// "Create a Texture" (Other tab) is checked. Read from SETTINGS_STATE until
+// "Use Texture" (Other tab) is checked. Read from SETTINGS_STATE until
 // the Other tab's own row exists -- the Elements and Map tabs are built first.
 function tp3dTextureChecked() {
     var v = MAP_TAB_CONTROL_VALUES.texUseTexture;
@@ -190,7 +190,7 @@ function tp3dTextureChecked() {
 function tp3dTextureOn() {
     return tp3dTextureAvailable() && tp3dTextureChecked();
 }
-var TP3D_TEXTURE_OFF_TITLE = 'Turn on "Create a Texture" (Other tab)';
+var TP3D_TEXTURE_OFF_TITLE = 'Turn on "Use Texture" (Other tab)';
 function tp3dTextureOnLockedTitle() {
     var why = tp3dTextureLockedTitle();
     if (why) return why;

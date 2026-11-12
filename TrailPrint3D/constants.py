@@ -17,7 +17,7 @@ from bpy.app.translations import (
 )
 
 ADDON_NAME = "TrailPrint3D"
-ADDON_VERSION = (4, 0, 0)
+ADDON_VERSION = (4, 0, 1)
 required_blender_version = (5, 1, 0)
 
 GENERATION_SNAPSHOT_PROPERTY = "_tp3d_generation_snapshot"
