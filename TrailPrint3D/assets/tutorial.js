@@ -32,7 +32,11 @@
 //   waitText     Hint shown in place of the Next button on action steps.
 //   skippable    Action steps only: also show a "Skip step" button.
 //   skipIf       function() -> true to silently skip this step (e.g. the
-//                action it asks for has already been done).
+//                action it asks for has already been done). A step that was
+//                already shown this run is revisited instead (Back, or Next
+//                after Back) in *review* mode: Back / Next only -- no
+//                waitFor, demo, extra buttons or onEnter/onExit -- as long as
+//                its target is still visible.
 //   arrow        A bouncing arrow pointing at something. true = at the
 //                step's target; or a target spec (same forms as `target`);
 //                or { target, side } where side is 'left' | 'right' |
@@ -321,7 +325,7 @@ var tp3dTutorial = (function() {
     }
 
     function updateDemo(step) {
-        if (typeof step.demo !== 'function' || demoPaused) { hideDemo(); return; }
+        if (typeof step.demo !== 'function' || demoPaused || reviewing) { hideDemo(); return; }
         var now = performance.now();
         var drag = step.demoDuration != null ? step.demoDuration : 1100;
         // Re-read every frame so the demo stays glued to its target even if
@@ -436,11 +440,11 @@ var tp3dTutorial = (function() {
     function renderPopup(step) {
         pop.innerHTML = '';
         pop.style.width = step.width ? step.width + 'px' : '';
-        var isAction = typeof step.waitFor === 'function';
+        var isAction = isActionNow(step);
 
         var head = el('div', 'tp3d-tut-head');
-        // Steps skipped so far (skipIf) are left out of both numbers, so the
-        // counter doesn't jump.
+        // Steps skipped so far (skipIf, never shown) are left out of both
+        // numbers, so the counter doesn't jump.
         var skippedBefore = 0, skippedTotal = 0;
         Object.keys(skipped).forEach(function(k) {
             skippedTotal++;
@@ -469,7 +473,7 @@ var tp3dTutorial = (function() {
             back.addEventListener('click', function() { go(index - 1, -1); });
             foot.appendChild(back);
         }
-        (step.buttons || []).forEach(function(b) {
+        (reviewing ? [] : step.buttons || []).forEach(function(b) {
             var extra = el('button', 'tp3d-tut-btn secondary', b.label);
             extra.type = 'button';
             extra.addEventListener('click', function() { if (b.onClick) b.onClick(extra, api); });
@@ -505,30 +509,53 @@ var tp3dTutorial = (function() {
     function leaveStep() {
         if (cleanupWait) { try { cleanupWait(); } catch (e) {} cleanupWait = null; }
         var step = steps && steps[index];
-        if (step && step.onExit) { try { step.onExit(api); } catch (e) {} }
+        if (step && step.onExit && !reviewing) { try { step.onExit(api); } catch (e) {} }
     }
 
+    function isActionNow(step) { return typeof step.waitFor === 'function' && !reviewing; }
+
     // Moves to step i, walking further in direction dir (+1/-1) past any
-    // step whose skipIf says so. Running off the end finishes the tutorial.
+    // step whose skipIf says so. Back (dir -1) only lands on steps already
+    // shown this run; a shown step that would be skipped now (its action is
+    // done) is revisited in review mode instead, so Back / Next walk the
+    // same steps the user saw. Running off the end finishes the tutorial.
     function go(i, dir) {
         leaveStep();
-        while (i >= 0 && i < steps.length && steps[i].skipIf && steps[i].skipIf()) {
-            skipped[i] = true;
+        var review = false;
+        while (i >= 0 && i < steps.length) {
+            var s = steps[i];
+            var skip = false;
+            try { skip = !!(s.skipIf && s.skipIf()); } catch (e) {}
+            if (shown[i]) {
+                if (dir < 0 || skip) review = true;
+                // Its target may be gone (e.g. a step inside a since-closed popup).
+                if (!skip || resolveTargets(s.target).length) break;
+                review = false;
+            } else if (!skip && dir > 0) {
+                break;
+            }
+            if (!shown[i]) skipped[i] = true;
             i += dir;
         }
-        if (i >= 0 && i < steps.length) delete skipped[i];
-        if (i < 0) i = 0;
+        if (i < 0) {
+            // Nothing shown before this point is left to go back to: stay put.
+            i = index;
+            review = reviewing;
+        }
         if (i >= steps.length) {
             var done = onComplete;
             stop();
             if (done) { try { done(); } catch (e) {} }
             return;
         }
+        delete skipped[i];
+        shown[i] = true;
         index = i;
+        reviewing = review;
         var step = steps[index];
-        var isAction = typeof step.waitFor === 'function';
+        var isAction = isActionNow(step);
         blocker.style.pointerEvents = (isAction || step.interactive) ? 'none' : 'auto';
-        if (step.onEnter) { try { step.onEnter(api); } catch (e) {} }
+        if (step.onEnter && !reviewing) { try { step.onEnter(api); } catch (e) {} }
         scrollTargetsIntoView(step);
         renderPopup(step);
         lastRectKey = '';
@@ -555,7 +582,7 @@ var tp3dTutorial = (function() {
         if (e.key === 'Escape') { e.preventDefault(); stop(); return; }
         var step = steps[index];
         var typing = /^(INPUT|TEXTAREA|SELECT)$/.test((e.target && e.target.tagName) || '');
-        if (!typing && step && typeof step.waitFor !== 'function' && (e.key === 'Enter' || e.key === 'ArrowRight')) {
+        if (!typing && step && !isActionNow(step) && (e.key === 'Enter' || e.key === 'ArrowRight')) {
             e.preventDefault();
             next();
         }
@@ -564,7 +591,9 @@ var tp3dTutorial = (function() {
     // opts.onComplete runs only when the tutorial is finished -- its last
     // step passed -- not when it's exited early (✕, Esc, stop()).
     var onComplete = null;
-    var skipped = {};  // step indices skipped via skipIf this run
+    var skipped = {};  // step indices skipped via skipIf (never shown) this run
+    var shown = {};    // step indices shown this run
+    var reviewing = false;  // current step was revisited (see go())
 
     function start(stepList, opts) {
         if (!stepList || !stepList.length) return;
@@ -573,6 +602,8 @@ var tp3dTutorial = (function() {
         steps = stepList;
         onComplete = (opts && opts.onComplete) || null;
         skipped = {};
+        shown = {};
+        reviewing = false;
         root.classList.add('active');
         document.addEventListener('keydown', onKey, true);
         document.addEventListener('pointerdown', onPointerDown, true);
@@ -587,6 +618,7 @@ var tp3dTutorial = (function() {
         leaveStep();
         steps = null;
         index = -1;
+        reviewing = false;
         onComplete = null;
         if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null; }
         document.removeEventListener('keydown', onKey, true);
@@ -746,7 +778,7 @@ function tp3dTutorialMenu(opts) {
     }
 
     // keepalive: a tutorial's last step can be the click that closes the
-    // whole window (e.g. "Send to Blender"), which would otherwise cancel
+    // whole window (e.g. "Generate"), which would otherwise cancel
     // a normal in-flight request.
     function markComplete(id) {
         if (itemsById[id]) itemsById[id].classList.add('done');

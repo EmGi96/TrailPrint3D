@@ -119,7 +119,7 @@
         <div id="status" role="status" aria-live="polite">Draw a rectangle to begin.</div>
         <div id="totalSizeInfo"></div>
         <div id="exportFolderSlot"></div>
-        <button id="send" class="btn-send" disabled>Send to Blender</button>
+        <button id="send" class="btn-send" disabled>Generate</button>
     </div>
     <div id="mapColumn" role="main" tabindex="-1" aria-label="Generator workspace">
     <div id="elementStatus"></div>
@@ -134,7 +134,7 @@
             </button>
             <div id="coordSearchBody">
                 <div class="coord-row">
-                    <input type="text" id="citySearchInput" placeholder="City name">
+                    <input type="text" id="citySearchInput" placeholder="Location">
                     <button id="citySearchBtn" title="Search city">🔍</button>
                 </div>
                 <div class="coord-sep">or lat / lon</div>
@@ -360,7 +360,7 @@
         }
 
         // Shared by saveState() (persists this across reopens) and the
-        // "Send to Blender" handler (records it into the generation history
+        // "Generate" handler (records it into the generation history
         // via tp3dPushHistory, see assets/history_panel.js).
         function tp3dBuildStateSnapshot() {
             // Unlike multitile_generator.html, gpxPaths/gpxNames ARE persisted here --

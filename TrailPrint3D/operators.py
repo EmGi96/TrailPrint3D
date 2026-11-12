@@ -3762,6 +3762,10 @@ def _collect_existing_maps():
             continue
         if "PuzzleRow" in obj or "PuzzleCol" in obj:
             continue
+        # Color by Height pieces are copies of their map (so they inherit its
+        # MAP tag) -- they're parts of that map, not maps of their own.
+        if obj.get("IsMountainPiece"):
+            continue
 
         if obj.get("Shape") == "CUSTOM":
             shape = "custom"
@@ -3835,6 +3839,74 @@ def _collect_existing_maps():
                 print(f"[TrailPrint3D] Could not read grid outline for {obj.name}: {exc}")
         maps.append(entry)
     return maps
+
+
+def _is_map_object(obj):
+    return (
+        obj.get("Object type") == "MAP" or obj.get("objType") == "MAP"
+    ) and not obj.get("IsMountainPiece")
+
+
+def _xy_bounds(obj):
+    corners = [obj.matrix_world @ Vector(c) for c in obj.bound_box]
+    xs = [c.x for c in corners]
+    ys = [c.y for c in corners]
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def _remove_maps_with_parts(scene, names):
+    """Delete the named MAP objects together with their map parts.
+
+    Parts aren't formally linked to their map, so they're inferred: any
+    addon-generated object (it carries an "Object type"/"objType" tag) that
+    isn't a map itself and whose XY center sits inside the map's footprint,
+    plus Color by Height pieces naming it as their base and terrain planes
+    pointing at it via "PARENT". Where footprints overlap, a part belongs to
+    the map whose center is nearest. Untagged objects (the user's own) are
+    never touched. Returns the number of objects removed.
+    """
+    targets = [scene.objects.get(n) for n in names or []]
+    targets = [o for o in targets if o is not None and _is_map_object(o)]
+    if not targets:
+        return 0
+
+    all_maps = [o for o in scene.objects if _is_map_object(o)]
+    map_boxes = {m: _xy_bounds(m) for m in all_maps}
+
+    def owner_of(obj):
+        x0, y0, x1, y1 = _xy_bounds(obj)
+        cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+        best, best_d = None, None
+        for m, (mx0, my0, mx1, my1) in map_boxes.items():
+            if not (mx0 <= cx <= mx1 and my0 <= cy <= my1):
+                continue
+            d = ((mx0 + mx1) / 2 - cx) ** 2 + ((my0 + my1) / 2 - cy) ** 2
+            if best_d is None or d < best_d:
+                best, best_d = m, d
+        return best
+
+    target_set = set(targets)
+    target_names = {o.name for o in targets}
+    doomed = set(targets)
+    for obj in scene.objects:
+        if obj in doomed or _is_map_object(obj):
+            continue
+        if obj.get("IsMountainPiece") and obj.get("mountain_base_name") in target_names:
+            doomed.add(obj)
+        elif obj.get("PARENT") in target_set:
+            doomed.add(obj)
+        elif (
+            ("Object type" in obj or "objType" in obj)
+            and obj.type in {"MESH", "CURVE", "FONT"}
+            and owner_of(obj) in target_set
+        ):
+            doomed.add(obj)
+    for obj in list(doomed):
+        doomed.update(obj.children_recursive)
+
+    count = len(doomed)
+    utils.remove_objects(list(doomed))
+    return count
 
 
 def _dem_coverage_overlay():
@@ -4854,6 +4926,13 @@ class TP3D_OT_map_generator(bpy.types.Operator):
                 _rpt("Nothing to generate — draw an area to generate first."), "warn"
             )
             raise GenerationError
+
+        # Existing maps the user chose to replace in the picker's overlap
+        # prompt -- cleared before anything new is built.
+        remove_names = data.get("remove_maps") or []
+        if remove_names:
+            removed = _remove_maps_with_parts(context.scene, remove_names)
+            print(f"[TrailPrint3D] Removed {removed} object(s) of replaced map(s): {remove_names}")
 
         if not bounds and not geojson_paths and gpx_paths:
             # Trail-only: no area was drawn — just add the trail(s) using

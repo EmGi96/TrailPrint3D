@@ -424,9 +424,9 @@ function tp3dMultitileTutorialCreate() {
             target: ['#send', '.export-folder-pick'],
             placement: 'right',
             title: 'Generate your map',
-            text: 'Click <b>Send to Blender</b> to generate all tiles.',
+            text: 'Click <b>Generate</b> to generate all tiles.',
             waitFor: tp3dTutorial.waitForClick('#send'),
-            waitText: 'Click Send to Blender',
+            waitText: 'Click Generate',
             skippable: true
         }
     ];
@@ -566,9 +566,9 @@ function tp3dMultitileTutorialGpx() {
             target: ['#send', '.export-folder-pick'],
             placement: 'right',
             title: 'Generate your tiles',
-            text: 'Click <b>Send to Blender</b> to generate both trail tiles.',
+            text: 'Click <b>Generate</b> to generate both trail tiles.',
             waitFor: tp3dTutorial.waitForClick('#send'),
-            waitText: 'Click Send to Blender',
+            waitText: 'Click Generate',
             skippable: true
         }
     ];
@@ -642,9 +642,9 @@ function tp3dMultitileTutorialCountry() {
             target: ['#send', '.export-folder-pick'],
             placement: 'right',
             title: 'Generate your country map',
-            text: 'Click <b>Send to Blender</b> to generate all tiles.',
+            text: 'Click <b>Generate</b> to generate all tiles.',
             waitFor: tp3dTutorial.waitForClick('#send'),
-            waitText: 'Click Send to Blender',
+            waitText: 'Click Generate',
             skippable: true
         }
     ];

@@ -355,9 +355,9 @@ function tp3dMapGenerateSteps(withGpx) {
             target: ['#send', '.export-folder-pick'],
             placement: 'right',
             title: 'Generate your map',
-            text: 'Once you\'re happy, click <b>Send to Blender</b> to generate the map.',
+            text: 'Once you\'re happy, click <b>Generate</b> to generate the map.',
             waitFor: tp3dTutorial.waitForClick('#send'),
-            waitText: 'Click Send to Blender',
+            waitText: 'Click Generate',
             skippable: true
         }
     ];
@@ -409,13 +409,18 @@ function tp3dIsOsm() {
 }
 
 // Same reset as the other tutorials, plus: Settings popup closed, element
-// source on OSM (the steps explain OSM's Water/Roads options), and the
-// sample area placed as a hexagon.
+// source on OSM (the steps explain OSM's Water/Roads options) with every
+// element off, so "Turn elements on or off" starts from a clean strip, and
+// the sample area placed as a hexagon. Switching reloads OSM's own element
+// states from Blender, so they're turned off once that's done.
 function tp3dPrepareColorTutorial() {
     var m = tp3dSettingsModal();
     if (m) m.classList.remove('open');
     tp3dResetMapGenerator();
-    if (!tp3dIsOsm() && typeof tp3dSwitchElementSource === 'function') tp3dSwitchElementSource('OSM');
+    var switching = tp3dIsOsm() || typeof tp3dSwitchElementSource !== 'function'
+        ? null : tp3dSwitchElementSource('OSM');
+    if (switching) switching.then(function() { tp3dAllElementsOff(); });
+    else tp3dAllElementsOff();
     // Hexagon sample shape -- picked through its own button (like a user
     // would) before placing, since placeShapeAroundBounds uses the current shape.
     var hexBtn = document.querySelector('.shape-btn[data-shape="hexagon"]');
@@ -495,15 +500,9 @@ function tp3dMapTutorialColors() {
             title: 'Pick the kind of water',
             text: 'Hover over <b>Water</b> to choose which kinds to include.<br><br>' +
                   '<b>Small Rivers</b> and <b>Big Rivers</b> are only needed if one of your rivers is missing.',
-            // Opens the flyout as if hovered, and closes it again after.
-            onEnter: function() {
-                var wrap = tp3dElementChipWrap('water');
-                if (wrap) wrap.dispatchEvent(new MouseEvent('mouseenter'));
-            },
-            onExit: function() {
-                var wrap = tp3dElementChipWrap('water');
-                if (wrap) wrap.dispatchEvent(new MouseEvent('mouseleave'));
-            },
+            // Holds the flyout open for the step, and closes it again after.
+            onEnter: function() { tp3dHoldFlyoutOpen('water'); },
+            onExit: function() { tp3dReleaseFlyout('water'); },
             skipIf: function() { return !tp3dIsOsm(); }
         },
         {
@@ -523,6 +522,8 @@ function tp3dMapTutorialColors() {
                   '<li><b>Checkboxes:</b> which water to include</li>' +
                   '<li><b>Lake/Pond Threshold:</b> filters out elements with a surface area smaller than the value</li>' +
                   '<li><b>River Width:</b> thicker or thinner rivers (only for <b>Small Rivers</b>)</li>' +
+                  '<li><b>Min Island Area:</b> islands in the ocean smaller than this are covered with water ' +
+                  'instead of being left out</li>' +
                   '<li><b>Flatten Water Surface:</b> keeps the water flat instead of following the terrain</li>' +
                   '<li><b>Insert:</b> sinks the water a bit lower</li>' +
                   '</ul>',
@@ -554,9 +555,9 @@ function tp3dMapTutorialColors() {
             target: ['#send', '.export-folder-pick'],
             placement: 'right',
             title: 'Generate your map',
-            text: 'Click <b>Send to Blender</b> to generate your colored map.',
+            text: 'Click <b>Generate</b> to generate your colored map.',
             waitFor: tp3dTutorial.waitForClick('#send'),
-            waitText: 'Click Send to Blender',
+            waitText: 'Click Generate',
             skippable: true
         }
     ];
@@ -712,13 +713,17 @@ function tp3dDemoSetupElement(key, wanted) {
 }
 
 // Keeps a chip's hover list (element_status.js's tp3dAttachSubFlyout) open
-// for the step, reopening it whenever the real mouse leaves and it closes.
+// for the step: held, so the real mouse leaving or a press on the popup's
+// buttons doesn't close it (which would shrink the focus box and move the
+// popup out from under the click). Held even when it's already open (the
+// real mouse usually hovers the chip right then); the timer re-holds it if
+// the chips get re-rendered meanwhile.
 var tp3dFlyoutHoldTimer = null;
 function tp3dHoldFlyoutOpen(key) {
     tp3dReleaseFlyout(null);
     function open() {
         var wrap = tp3dElementChipWrap(key);
-        if (wrap && !wrap.querySelector('.element-flyout')) wrap.dispatchEvent(new MouseEvent('mouseenter'));
+        if (wrap) wrap.dispatchEvent(new CustomEvent('tp3d-hold-flyout', { detail: true }));
     }
     open();
     tp3dFlyoutHoldTimer = setInterval(open, 250);
@@ -726,7 +731,7 @@ function tp3dHoldFlyoutOpen(key) {
 function tp3dReleaseFlyout(key) {
     if (tp3dFlyoutHoldTimer) { clearInterval(tp3dFlyoutHoldTimer); tp3dFlyoutHoldTimer = null; }
     var wrap = key && tp3dElementChipWrap(key);
-    if (wrap) wrap.dispatchEvent(new MouseEvent('mouseleave'));
+    if (wrap) wrap.dispatchEvent(new CustomEvent('tp3d-hold-flyout', { detail: false }));
 }
 
 // Chip plus its hover list (when open) -- the focus box for an element step.
@@ -1207,9 +1212,9 @@ function tp3dPuzzleTutorialCreate() {
             target: ['#send', '.export-folder-pick'],
             placement: 'right',
             title: 'Generate your puzzle',
-            text: 'Click <b>Send to Blender</b> to generate your 16 puzzle pieces.',
+            text: 'Click <b>Generate</b> to generate your 16 puzzle pieces.',
             waitFor: tp3dTutorial.waitForClick('#send'),
-            waitText: 'Click Send to Blender',
+            waitText: 'Click Generate',
             skippable: true
         }
     ];
@@ -1496,9 +1501,9 @@ function tp3dSlidingTutorialCreate() {
             target: ['#send', '.export-folder-pick'],
             placement: 'right',
             title: 'Generate your puzzle',
-            text: 'Click <b>Send to Blender</b> to generate your 8 tiles and the frame.',
+            text: 'Click <b>Generate</b> to generate your 8 tiles and the frame.',
             waitFor: tp3dTutorial.waitForClick('#send'),
-            waitText: 'Click Send to Blender',
+            waitText: 'Click Generate',
             skippable: true
         }
     ];

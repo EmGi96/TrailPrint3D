@@ -1,11 +1,11 @@
 // Export folder handling shared by every generator page (via
 // __EXPORT_FOLDER_JS__ in picker_server.py). Picking a folder here sets the
 // Default Export Folder add-on preference only. Until a (still existing)
-// export folder is in effect, the page's "Send to Blender" button is swapped for a
+// export folder is in effect, the page's "Generate" button is swapped for a
 // "Select Export Folder" button in the same spot -- exports would have
 // nowhere to go otherwise -- and a one-step guide in the tutorials' style
 // (tutorial.js, so every page loads __TUTORIAL_JS__) points at it on open.
-// Once set, "Send to Blender" is back, with a small "Edit · Open" row below it.
+// Once set, "Generate" is back, with a small "Edit · Open" row below it.
 //
 // The page's own Send button and its click handlers are left untouched,
 // only hidden/shown: #exportFolderSlot sits right before it and holds the
@@ -135,7 +135,7 @@
             text: 'Before generating, you have to set a folder where the <b>exported files will be saved</b>.' +
                   '<br><br>Click <b>Select Export Folder</b> and pick a folder in the window that opens. ' +
                   'You can change it later with <b>Edit</b> under ' +
-                  '<b>Send to Blender</b>.',
+                  '<b>Generate</b>.',
             waitFor: tp3dTutorial.waitUntil(function() { return state.valid; }),
             waitText: 'Waiting for a folder…'
         }]);

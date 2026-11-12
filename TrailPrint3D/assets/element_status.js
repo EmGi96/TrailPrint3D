@@ -292,7 +292,10 @@ function tp3dRenderElementStatus() {
 // keeps them in sync with chip toggles and the modal.
 function tp3dAttachSubFlyout(wrap, chip, key) {
     if (tp3dIsWorldCover() || !TP3D_COMPOSITE_FLAGS[key]) return;
-    var flyout = null, hideTimer = null, pinned = false;
+    // held: kept open from outside (a tutorial step, via 'tp3d-hold-flyout'),
+    // so neither the mouse leaving nor a press elsewhere -- e.g. on the
+    // tutorial popup's Next button -- closes it until released.
+    var flyout = null, hideTimer = null, pinned = false, held = false;
     var trigger = chip;
     trigger.classList.add('element-flyout-trigger');
     trigger.title = chip.textContent.trim() + ' (click to toggle; hover or press Arrow Down for settings)';
@@ -363,7 +366,7 @@ function tp3dAttachSubFlyout(wrap, chip, key) {
     function hide() {
         clearTimeout(hideTimer);
         hideTimer = setTimeout(function() {
-            if (!pinned && !wrap.contains(document.activeElement)) close();
+            if (!pinned && !held && !wrap.contains(document.activeElement)) close();
         }, 150);
     }
     wrap.addEventListener('mouseenter', show);
@@ -383,9 +386,16 @@ function tp3dAttachSubFlyout(wrap, chip, key) {
         trigger.focus();
     });
     wrap.addEventListener('focusout', function(event) {
-        if (!wrap.contains(event.relatedTarget)) close();
+        if (!held && !wrap.contains(event.relatedTarget)) close();
     });
-    wrap.addEventListener('tp3d-close-flyout', close);
+    wrap.addEventListener('tp3d-close-flyout', function() { if (!held) close(); });
+    // detail true = hold open (opening it), false = release (closes like a
+    // mouse leaving would).
+    wrap.addEventListener('tp3d-hold-flyout', function(event) {
+        held = !!event.detail;
+        if (held) show();
+        else hide();
+    });
 }
 document.addEventListener('pointerdown', function(event) {
     document.querySelectorAll('.element-flyout').forEach(function(flyout) {

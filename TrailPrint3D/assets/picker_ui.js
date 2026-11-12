@@ -21,6 +21,50 @@ function tp3dAlert(message, title) {
     modal.classList.add('open');
 }
 
+// Two-choice dialog. Resolves true for the yes button, false for the no
+// button, and null if dismissed (×, backdrop click, Escape).
+function tp3dConfirm(message, title, yesLabel, noLabel) {
+    var modal = document.getElementById('tp3dConfirm');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'tp3dConfirm';
+        modal.className = 'tp3d-modal';
+        modal.setAttribute('role', 'dialog');
+        modal.setAttribute('aria-modal', 'true');
+        modal.setAttribute('aria-labelledby', 'tp3dConfirmTitle');
+        modal.innerHTML = '<div class="tp3d-modal-box"><div class="modal-header">'
+            + '<span id="tp3dConfirmTitle"></span><button type="button" class="tp3d-modal-close-btn" data-answer="dismiss" aria-label="Close">×</button>'
+            + '</div><div class="notice-body"></div><div class="confirm-actions">'
+            + '<button type="button" class="btn-plate-settings" data-answer="no"></button>'
+            + '<button type="button" class="btn-send" data-answer="yes"></button></div></div>';
+        document.body.appendChild(modal);
+    }
+    modal.querySelector('#tp3dConfirmTitle').textContent = title || 'Confirm';
+    modal.querySelector('.notice-body').textContent = message;
+    modal.querySelector('[data-answer="yes"]').textContent = yesLabel || 'Yes';
+    modal.querySelector('[data-answer="no"]').textContent = noLabel || 'No';
+    return new Promise(function(resolve) {
+        function finish(answer) {
+            modal.classList.remove('open');
+            modal.onclick = null;
+            modal.onkeydown = null;
+            resolve(answer);
+        }
+        modal.onclick = function(event) {
+            if (event.target === modal) return finish(null);
+            var button = event.target.closest('[data-answer]');
+            if (!button) return;
+            var answer = button.getAttribute('data-answer');
+            finish(answer === 'yes' ? true : answer === 'no' ? false : null);
+        };
+        modal.onkeydown = function(event) {
+            if (event.key === 'Escape') finish(null);
+        };
+        modal.classList.add('open');
+        modal.querySelector('[data-answer="yes"]').focus();
+    });
+}
+
 // Free-vs-Premium comparison, opened by the "Upgrade" button next to the
 // generator name on the free pages (any button with data-upgrade-panel --
 // the premium pages simply don't have one). Links are the same Patreon /
@@ -314,7 +358,7 @@ document.addEventListener('keydown', function(event) {
                         : element.id === 'tileSpacing' ? 'Tile spacing'
                         : element.id === 'latInput' ? 'Latitude'
                         : element.id === 'lonInput' ? 'Longitude'
-                        : element.id === 'citySearchInput' ? 'City or place name'
+                        : element.id === 'citySearchInput' ? 'Location'
                         : element.id === 'textValue' ? 'Text'
                         : null;
                     element.setAttribute('aria-label', name || element.title || (label && label.textContent.trim()) || element.placeholder || 'Value');

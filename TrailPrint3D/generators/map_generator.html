@@ -77,7 +77,7 @@
         <div id="status" role="status" aria-live="polite">Draw a shape to begin.</div>
         <div id="totalSizeInfo"></div>
         <div id="exportFolderSlot"></div>
-        <button id="send" class="btn-send" disabled>Send to Blender</button>
+        <button id="send" class="btn-send" disabled>Generate</button>
     </div>
     <div id="mapColumn" role="main" tabindex="-1" aria-label="Generator workspace">
     <div id="elementStatus"></div>
@@ -92,7 +92,7 @@
             </button>
             <div id="coordSearchBody">
                 <div class="coord-row">
-                    <input type="text" id="citySearchInput" placeholder="City name">
+                    <input type="text" id="citySearchInput" placeholder="Location">
                     <button id="citySearchBtn" title="Search city">🔍</button>
                 </div>
                 <div class="coord-sep">or lat / lon</div>
@@ -299,7 +299,7 @@
         }
 
         // Shared by saveState() (persists this across reopens) and the
-        // "Send to Blender" handler (records it into the generation history
+        // "Generate" handler (records it into the generation history
         // via tp3dPushHistory, see assets/history_panel.js).
         function tp3dBuildStateSnapshot() {
             // gpxPaths/gpxNames ARE persisted here so the last-used trail is
@@ -1240,6 +1240,25 @@
             payload.plate_mode = plateMode;
             payload.text_layout = textLayout;
 
+            // Existing maps overlapping the new area: ask whether to remove
+            // them (and their parts) first. Dismissing the prompt cancels.
+            var ask = Promise.resolve([]);
+            if (payload.bounds) {
+                var svgShape = currentShape === 'svg';
+                ask = tp3dAskReplaceOverlappingMaps(makeShapeLayer(
+                    svgShape ? svgInscribedBounds(payload.bounds, svgAspect) : payload.bounds,
+                    svgShape ? 'rectangle' : currentShape, {}, null,
+                    tp3dCanRotateShape() ? TP3D_SHAPE_ROTATION_DEG % 360 : 0
+                ));
+            }
+            ask.then(function(removeMaps) {
+                if (removeMaps === null) return;
+                payload.remove_maps = removeMaps;
+                sendPayload(payload);
+            });
+        };
+
+        function sendPayload(payload) {
             document.getElementById('send').disabled = true;
             document.getElementById('status').textContent = 'Sending to Blender...';
             tp3dPushHistory(tp3dBuildStateSnapshot(), tp3dHistorySummary(), tp3dHistoryThumbnail()).then(function(historyId) {
@@ -1257,7 +1276,7 @@
                 updateSendState();
                 updateStatus();
             });
-        };
+        }
 
         // Default Size to the scene's current Object Size (restoreState below
         // overrides this if a previously-saved value exists).

@@ -1383,3 +1383,96 @@ function clearSvgShapeImport() {
     updateSendState();
     saveState();
 }
+// ── Overlap with existing maps (Map Generator) ───────────────────────────────
+// On Generate, the Map Generator asks whether existing maps (the purple
+// outlines) that overlap the new area should be removed first. Overlap is
+// measured as real shared area in projected (zoom-0) coordinates, so maps
+// that merely touch along an edge don't count, and a map with the exact same
+// outline as the new one isn't asked about either.
+
+function tp3dLayerRings(layer) {
+    var rings = [];
+    (function walk(latlngs) {
+        if (!latlngs || !latlngs.length) return;
+        if (latlngs[0] instanceof L.LatLng) {
+            rings.push(latlngs.map(function(ll) { return map.project(ll, 0); }));
+        } else {
+            latlngs.forEach(walk);
+        }
+    })(layer.getLatLngs());
+    return rings;
+}
+
+function tp3dRingArea(ring) {
+    var area = 0;
+    for (var i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        area += (ring[j].x * ring[i].y) - (ring[i].x * ring[j].y);
+    }
+    return area / 2;
+}
+
+// Sutherland-Hodgman: *subject* may be concave, *clip* must be convex.
+function tp3dClipToConvex(subject, clip) {
+    if (tp3dRingArea(clip) < 0) clip = clip.slice().reverse();
+    var output = subject;
+    for (var i = 0; i < clip.length && output.length; i++) {
+        var a = clip[i], b = clip[(i + 1) % clip.length];
+        var input = output;
+        output = [];
+        var side = function(p) { return (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x); };
+        for (var k = 0; k < input.length; k++) {
+            var p = input[k], q = input[(k + 1) % input.length];
+            var sp = side(p), sq = side(q);
+            if (sp >= 0) output.push(p);
+            if ((sp >= 0) !== (sq >= 0)) {
+                var t = sp / (sp - sq);
+                output.push(L.point(p.x + t * (q.x - p.x), p.y + t * (q.y - p.y)));
+            }
+        }
+    }
+    return output;
+}
+
+// Names of existing maps whose outline shares area with *newLayer* (a convex
+// Leaflet polygon/rectangle) without being the same outline.
+function tp3dOverlappingExistingMaps(newLayer) {
+    if (typeof existingMaps === 'undefined' || !existingMaps.length) return [];
+    var newRing = tp3dLayerRings(newLayer)[0];
+    if (!newRing || newRing.length < 3) return [];
+    var newArea = Math.abs(tp3dRingArea(newRing));
+    if (!newArea) return [];
+    var names = [];
+    existingMaps.forEach(function(m) {
+        if (!m.name || !m.bounds) return;
+        var rings = tp3dLayerRings(makeShapeLayer(m.bounds, m.shape, {}, m.polygon, m.rotation));
+        var area = 0, shared = 0;
+        rings.forEach(function(ring) {
+            area += Math.abs(tp3dRingArea(ring));
+            var cut = tp3dClipToConvex(ring, newRing);
+            if (cut.length >= 3) shared += Math.abs(tp3dRingArea(cut));
+        });
+        if (!area || shared <= 0.001 * Math.min(area, newArea)) return;
+        var identical = Math.abs(shared - area) <= 0.01 * area
+            && Math.abs(shared - newArea) <= 0.01 * newArea;
+        if (!identical) names.push(m.name);
+    });
+    return names;
+}
+
+// Resolves to the list of map names to remove (empty to keep them all), or
+// null if the user dismissed the prompt -- the caller then aborts Generate.
+function tp3dAskReplaceOverlappingMaps(newLayer) {
+    var names = tp3dOverlappingExistingMaps(newLayer);
+    if (!names.length) return Promise.resolve([]);
+    var which = names.length === 1
+        ? 'The existing map "' + names[0] + '" overlaps'
+        : names.length + ' existing maps (' + names.join(', ') + ') overlap';
+    return tp3dConfirm(
+        which + ' the area you drew.\n\nRemove ' + (names.length === 1 ? 'it' : 'them')
+            + ' and ' + (names.length === 1 ? 'its' : 'their') + ' map parts before generating?',
+        'Overlapping map', 'Remove', 'Keep'
+    ).then(function(answer) {
+        if (answer === null) return null;
+        return answer ? names : [];
+    });
+}

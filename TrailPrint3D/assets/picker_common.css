@@ -71,7 +71,7 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 0.875rem; line
 /* Export folder (assets/export_folder.js): "Select Export Folder" takes the
    Send button's place (and its margin-top:auto, keeping it at the bottom of
    the sidebar) until a folder is set; then a small "Edit · Open" row sits
-   just under "Send to Blender", tighter than the sidebar's own gap. */
+   just under "Generate", tighter than the sidebar's own gap. */
 #exportFolderSlot { margin-top: auto; }
 #exportFolderSlot .export-folder-pick { width: 100%; margin-top: 0; }
 .export-folder-pick:disabled { cursor: progress; }
@@ -1027,6 +1027,8 @@ input[type=range] { min-width: 0; min-height: var(--control-height); }
 .field-error { color: var(--danger); font-size: 0.8125rem; margin: 0; overflow-wrap: anywhere; }
 input[aria-invalid=true] { border-color: var(--danger); }
 .notice-body { font-size: 0.875rem; color: var(--text-secondary); white-space: pre-wrap; }
+.confirm-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.confirm-actions button { margin-top: 0; }
 .settings-panel-host { flex: 1; min-height: 0; display: flex; }
 .settings-modal-tab-panel { width: 100%; }
 .warning-text { color: var(--warning); }

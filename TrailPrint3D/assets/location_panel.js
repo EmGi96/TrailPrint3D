@@ -3,7 +3,6 @@
 // pin-icon button by default; expands to a small panel offering either a
 // city-name lookup (via Nominatim) or direct lat/lon entry. Requires `map`
 // to already be defined by the including page (see map_init.js).
-var searchMarker = null;
 
 document.getElementById('coordSearchToggle').addEventListener('click', function() {
     var body = document.getElementById('coordSearchBody');
@@ -42,9 +41,29 @@ function tp3dLocationError(message, inputs) {
     });
 }
 
-function flyToMarker(lat, lon, zoom) {
+// Pin marking the searched spot; clicking it fades it out over
+// SEARCH_MARKER_FADE_MS and then removes it. A new search replaces it.
+var SEARCH_MARKER_FADE_MS = 400;
+var searchMarker = null;
+
+function fadeOutMarker(marker) {
+    var els = [marker.getElement(), marker._shadow].filter(Boolean);
+    els.forEach(function(el) {
+        el.style.transition = 'opacity ' + SEARCH_MARKER_FADE_MS + 'ms ease';
+        el.style.opacity = '0';
+        el.style.pointerEvents = 'none';
+    });
+    setTimeout(function() {
+        map.removeLayer(marker);
+        if (searchMarker === marker) searchMarker = null;
+    }, SEARCH_MARKER_FADE_MS);
+}
+
+function flyToLocation(lat, lon, zoom) {
     if (searchMarker) map.removeLayer(searchMarker);
-    searchMarker = L.marker([lat, lon]).addTo(map);
+    var marker = L.marker([lat, lon], { title: 'Click to hide' }).addTo(map);
+    marker.on('click', function() { fadeOutMarker(marker); });
+    searchMarker = marker;
     map.flyTo([lat, lon], zoom);
 }
 
@@ -61,7 +80,7 @@ function goToCoords() {
             [latOk ? null : latInput, lonOk ? null : lonInput].filter(Boolean));
         return;
     }
-    flyToMarker(lat, lon, 15);
+    flyToLocation(lat, lon, 15);
 }
 
 document.getElementById('coordSearchBtn').addEventListener('click', goToCoords);
@@ -109,7 +128,7 @@ function searchCity() {
                 return;
             }
             tp3dLocationError('', [input]);
-            flyToMarker(parseFloat(results[0].lat), parseFloat(results[0].lon), 12);
+            flyToLocation(parseFloat(results[0].lat), parseFloat(results[0].lon), 12);
         })
         .catch(function(error) {
             console.error('[TP3D location] Search failed:', error);

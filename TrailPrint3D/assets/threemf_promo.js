@@ -118,7 +118,7 @@
     ].join('\n');
     document.head.appendChild(style);
 
-    // ── Install button above "Send to Blender" ────────────────────────────────
+    // ── Install button above "Generate" ────────────────────────────────
     function insertInstallButton() {
         if (document.getElementById('tp3d3mfInstallBtn')) return;
         var sendBtn = document.getElementById('send');

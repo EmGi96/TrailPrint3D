@@ -9,7 +9,7 @@
 //    entry's settings blob to the page's own fields -- normally the same
 //    "apply a saved state blob" logic its restoreState() already uses,
 //    factored out so both can call it.
-//  - Its own "Send to Blender" handler calls window.tp3dPushHistory(settings,
+//  - Its own "Generate" handler calls window.tp3dPushHistory(settings,
 //    summary, thumbnail) right before POSTing to /confirm, to record what was
 //    actually generated. settings is expected to be that same state-blob
 //    shape; summary is a short one-line human-readable description; thumbnail
