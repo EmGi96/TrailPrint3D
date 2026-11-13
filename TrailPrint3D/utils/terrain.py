@@ -1927,6 +1927,72 @@ def _close_chain_with_bbox(chain, bbox_bl):
     return list(biggest.exterior.coords)
 
 
+def _close_coastline_gaps(lines, tile_box):
+    """Bridge coastline ends that stop inside the tile.
+
+    A coastline only splits the tile into land and ocean faces if every
+    piece runs from tile edge to tile edge or closes on itself. A gap in
+    the OSM coastline (a broken or missing way) leaves loose ends inside
+    the tile; polygonize() then sees land and ocean as one face, the
+    right-side probes tag it ocean, and the whole map turns into water.
+
+    Each loose end is joined to the nearest loose start (closest pairs
+    first), keeping the land-is-left direction; ends with no start left
+    to pair with run straight to the nearest tile edge, and so do starts.
+    Returns the clipped lines plus the bridging segments.
+    """
+    boundary = tile_box.boundary
+    min_x, min_y, max_x, max_y = tile_box.bounds
+    tol = max(max_x - min_x, max_y - min_y, 1.0) * 1e-6
+
+    def _loose(p):
+        return boundary.distance(Point(p)) > tol
+
+    ends, starts = [], []
+    for ln in lines:
+        first, last = ln.coords[0], ln.coords[-1]
+        if Point(first).distance(Point(last)) <= tol:
+            continue  # closed loop (island) -- nothing to bridge
+        if _loose(last):
+            ends.append(last)
+        if _loose(first):
+            starts.append(first)
+    if not ends and not starts:
+        return lines
+
+    bridges = []
+    pairs = sorted(
+        (math.dist(end, start), i, j)
+        for i, end in enumerate(ends)
+        for j, start in enumerate(starts)
+    )
+    used_ends, used_starts = set(), set()
+    for _dist, i, j in pairs:
+        if i in used_ends or j in used_starts:
+            continue
+        used_ends.add(i)
+        used_starts.add(j)
+        bridges.append(LineString([ends[i], starts[j]]))
+
+    def _to_edge(p):
+        q = boundary.interpolate(boundary.project(Point(p)))
+        return (q.x, q.y)
+
+    bridges.extend(
+        LineString([end, _to_edge(end)]) for i, end in enumerate(ends) if i not in used_ends
+    )
+    bridges.extend(
+        LineString([_to_edge(start), start])
+        for j, start in enumerate(starts)
+        if j not in used_starts
+    )
+    print(
+        f"  [ocean] coastline gaps: {len(ends)} loose ends, {len(starts)} loose starts "
+        f"-> {len(bridges)} bridging segments"
+    )
+    return lines + [b for b in bridges if b.length > 0]
+
+
 def _polygonize_ocean_faces(open_chains, closed_loops, bbox_bl, rdp_eps=0.0):
     """Build the ocean region(s) for one tile directly from coastline chains.
 
@@ -1979,6 +2045,7 @@ def _polygonize_ocean_faces(open_chains, closed_loops, bbox_bl, rdp_eps=0.0):
             clipped.extend(g for g in c.geoms if not g.is_empty)
     if not clipped:
         return []
+    clipped = _close_coastline_gaps(clipped, tile_box)
     if rdp_eps > 0:
         # Simplify together so a mainland shortcut cannot swallow nearby islands.
         # GEOS may hand back a single LineString (or empty) instead of a Multi.
