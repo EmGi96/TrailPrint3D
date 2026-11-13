@@ -2220,9 +2220,11 @@ function tp3dBuildDemPathRow() {
         statusEl.classList.toggle('warning-text', !!(current && (coverage.error || coverage.problem)));
     }
     document.addEventListener('tp3d-dem-coverage', function() {
-        // The path can also change from Blender's sidebar, without a dialog here.
+        // The path can also change from Blender's sidebar (or be cleared by a
+        // tutorial reset), without a dialog here -- no coverage at all may
+        // mean exactly that, so re-read the path then too.
         var coverage = window.tp3dDemCoverage;
-        if (coverage && coverage.path !== state.path && !state.picking) poll();
+        if ((!coverage || coverage.path !== state.path) && !state.picking) poll();
         else renderStatus();
     });
     function poll() {

@@ -871,6 +871,197 @@ function tp3dMapTutorialPrefetch() {
     ];
 }
 
+// ---- "Use local Datasets (GeoTiff)" ----
+
+// Bundled sample DEM: the BetweenLakes.gpx trail's area plus a margin
+// (~105 m pixels, under 20 KB), so TP3D_SAMPLE_AREA_BOUNDS sits inside it.
+var TP3D_SAMPLE_DEM = 'BetweenLakesArea.tif';
+
+function tp3dApiSelect() { return document.getElementById('setting-api'); }
+function tp3dApiRow() {
+    var select = tp3dApiSelect();
+    return select ? select.closest('.adv-field-row') : null;
+}
+function tp3dIsLocalDem() {
+    var select = tp3dApiSelect();
+    return !!select && select.value === 'LOCAL_DEM';
+}
+function tp3dDemPathRow() {
+    var cell = document.querySelector('#settingsModal .dem-path-cell');
+    return cell ? cell.closest('.adv-field-row') : null;
+}
+function tp3dShowOtherTab() { if (window.tp3dActivateSettingsTab) window.tp3dActivateSettingsTab('other'); }
+function tp3dOtherTabActive() {
+    var tab = document.getElementById('settings-tab-other');
+    return !!tab && tab.classList.contains('active');
+}
+
+// A readable DEM is selected and map_init.js has drawn its coverage.
+function tp3dHasDemCoverage() {
+    var c = window.tp3dDemCoverage;
+    return !!c && !!(c.footprint || c.tiles);
+}
+
+// Picks the bundled sample as the DEM File without the OS dialog (POST
+// /pick_dem_path's 'sample' kind); the DEM row and the coverage overlay
+// then follow the change like after any other pick.
+function tp3dUseSampleDem(button) {
+    var label = button.textContent;
+    button.disabled = true;
+    button.textContent = 'Loading…';
+    fetch('/pick_dem_path', { method: 'POST', body: JSON.stringify({ kind: 'sample', name: TP3D_SAMPLE_DEM }) })
+        .then(function(r) {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            if (window.tp3dCheckDemCoverage) tp3dCheckDemCoverage();
+        })
+        .catch(function() {
+            button.disabled = false;
+            button.textContent = label;
+            tp3dAlert('Could not load the sample GeoTIFF file.');
+        });
+}
+
+// Same reset as the other tutorials, plus: Settings popup closed, every
+// element off (OSM or ESA), Resolution 5, the Elevation API back on
+// Mapterhorn and no DEM File selected, so the steps start from scratch.
+// The API goes through its own Settings select (same /update_setting call
+// and row visibility as a user's pick); the DEM path is cleared directly,
+// since the popup has no control for that.
+function tp3dPrepareLocalDemTutorial() {
+    var m = tp3dSettingsModal();
+    if (m) m.classList.remove('open');
+    tp3dResetMapGenerator();
+    tp3dAllElementsOff(true);
+
+    var slider = document.getElementById('resolutionSlider');
+    if (slider && String(slider.value) !== '5') {
+        slider.value = 5;
+        slider.dispatchEvent(new Event('input', { bubbles: true }));
+        saveState();
+    }
+
+    var select = tp3dApiSelect();
+    if (select && select.value !== 'MAPTERHORN') {
+        select.value = 'MAPTERHORN';
+        select.dispatchEvent(new Event('change'));
+    }
+    if (typeof SETTINGS_STATE !== 'undefined' && SETTINGS_STATE.demFilePath) {
+        fetch('http://127.0.0.1:' + PORT + '/update_setting', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: 'demFilePath', value: '' })
+        }).catch(function() {});
+        SETTINGS_STATE.demFilePath = '';
+    }
+}
+
+function tp3dZoomToDemCoverage() {
+    if (typeof tp3dDemLayer !== 'undefined' && tp3dDemLayer.getLayers().length) {
+        map.fitBounds(tp3dDemLayer.getBounds(), { padding: [40, 40] });
+    }
+}
+
+function tp3dMapTutorialLocalDem() {
+    return [
+        {
+            target: '.settings-gear-btn',
+            placement: 'bottom',
+            title: 'Use local Datasets (GeoTiff)',
+            text: 'A <b>GeoTIFF DEM</b> is an image file where every pixel holds a <b>height</b> instead of a color, ' +
+                  'and that knows exactly where on Earth it lies.<br><br>' +
+                  'Many national mapping agencies offer them for free, often far more detailed than the online ' +
+                  'elevation services. With your own file, the terrain is read from it instead of being downloaded.'
+        },
+        {
+            target: '.settings-gear-btn',
+            placement: 'bottom',
+            title: 'Open the settings',
+            text: 'Click <b>Settings</b>.',
+            waitFor: tp3dTutorial.waitForClick('.settings-gear-btn'),
+            waitText: 'Click Settings',
+            skipIf: tp3dSettingsOpen
+        },
+        {
+            target: function() { return document.getElementById('settings-tab-other'); },
+            placement: 'bottom',
+            title: 'The Other tab',
+            text: 'The elevation source is set on the <b>Other</b> tab. Click it.',
+            waitFor: tp3dTutorial.waitUntil(tp3dOtherTabActive),
+            waitText: 'Click Other',
+            skipIf: tp3dOtherTabActive
+        },
+        {
+            target: tp3dApiRow,
+            placement: 'bottom',
+            title: 'Select Local DEM File',
+            text: '<b>Elevation API</b> picks where the terrain heights come from. ' +
+                  'Set it to <b>Local DEM File</b>.',
+            onEnter: tp3dShowOtherTab,
+            waitFor: tp3dTutorial.waitUntil(tp3dIsLocalDem),
+            waitText: 'Select Local DEM File',
+            skipIf: tp3dIsLocalDem
+        },
+        {
+            target: tp3dDemPathRow,
+            placement: 'bottom',
+            title: 'Pick your file',
+            text: 'Click <b>File…</b> to pick a GeoTIFF (.tif) file, or <b>Folder…</b> for a folder of tiles ' +
+                  'covering a larger area. Only the tiles your map needs are read.<br><br>' +
+                  'Supported are WGS84 lat/lon, UTM, and Swiss LV95 files.<br><br>' +
+                  'No file at hand? Try our sample between Lake Como and Lake Lugano.',
+            onEnter: tp3dShowOtherTab,
+            buttons: [{ label: 'Use sample GeoTIFF', onClick: tp3dUseSampleDem }],
+            waitFor: tp3dTutorial.waitUntil(tp3dHasDemCoverage),
+            waitText: 'Pick a GeoTIFF file'
+        },
+        {
+            target: tp3dDemPathRow,
+            placement: 'bottom',
+            title: 'Format check',
+            text: 'Below the path you see whether the file can be used. <b>Supported format</b> means it is ready.',
+            onEnter: tp3dShowOtherTab
+        },
+        {
+            target: tp3dInSettings('.tp3d-modal-close-btn'),
+            title: 'Close the settings',
+            text: 'Your changes are saved right away. Close the settings to continue.',
+            waitFor: tp3dTutorial.waitUntil(function() { return !tp3dSettingsOpen(); }),
+            waitText: 'Close the settings',
+            skipIf: function() { return !tp3dSettingsOpen(); }
+        },
+        {
+            target: '#map',
+            title: 'The covered area',
+            text: 'The <b>green dashed outline</b> shows the area your file covers. ' +
+                  'It is also listed as <b>DEM coverage</b> in the legend.<br><br>' +
+                  'Keep your map inside it: <b>outside the file, the terrain comes out flat</b>.',
+            onEnter: tp3dZoomToDemCoverage,
+            skipIf: function() { return !tp3dHasDemCoverage(); }
+        },
+        {
+            target: '#map',
+            title: 'Draw your area inside',
+            text: 'We placed an area inside the coverage for you. Move or resize it as you like, ' +
+                  'just keep it within the green outline.',
+            onEnter: function() {
+                if (!tp3dHasDrawnArea()) tp3dPlaceSampleArea();
+                tp3dZoomToDemCoverage();
+            },
+            interactive: true
+        },
+        {
+            target: ['#send', '.export-folder-pick'],
+            placement: 'right',
+            title: 'Generate your map',
+            text: 'Click <b>Generate</b>. The terrain now comes from your file.<br><br>' +
+                  'The setting stays on until you switch the <b>Elevation API</b> back in the settings.',
+            waitFor: tp3dTutorial.waitForClick('#send'),
+            waitText: 'Click Generate',
+            skippable: true
+        }
+    ];
+}
+
 // ---- Puzzle Generator: "Create a 4 x 4 Jigsaw Puzzle" ----
 
 // Mount Fuji -- a single big cone with its summit crater, centered in the
@@ -1585,6 +1776,13 @@ var TP3D_MAP_TUTORIAL_MENU = {
                 tp3dAllElementsOff();
             },
             steps: tp3dMapTutorialPrefetch
+        },
+        {
+            id: 'map-local-dem',
+            title: 'Use local Datasets (GeoTiff)',
+            description: 'Use your own elevation file and see which area it covers.',
+            prepare: tp3dPrepareLocalDemTutorial,
+            steps: tp3dMapTutorialLocalDem
         }
     ]
 };

@@ -38,6 +38,7 @@ TrailPrint3D/                 - Blender addon package (installed as a Blender ex
   assets/                      - .blend asset libraries (connectors, holder, other) + progress-overlay SVG icons
   sample_files/                - bundled sample files, e.g. GPX tracks (for tutorials and example generations)
     BetweenLakes.gpx            - Lake Como to Lake Ceresio route (komoot export)
+    BetweenLakesArea.tif        - small GeoTIFF DEM (EPSG:4326, ~105 m/px) around that route, for the local DEM tutorial
     germany.json                - Germany country border as GeoJSON (Natural Earth admin-0)
     star.svg                    - five-pointed star, sample SVG map shape (made for TrailPrint3D)
   wheels/                      - bundled Shapely wheels (per-platform)

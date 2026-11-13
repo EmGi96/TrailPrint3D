@@ -786,6 +786,13 @@ button.element-chip:active { background: rgba(255,255,255,0.16); }
 #map .map-top-actions { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: var(--z-map-control);
     display: flex; gap: 8px; }
 #map .map-top-actions .map-tutorial-btn { position: static; transform: none; }
+/* "Center DEM" (map_init.js): bottom-center on the map while a Local DEM
+   coverage outline is shown, styled like the Tutorials button with the
+   outline's own green. */
+#map .map-dem-center-btn { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: var(--z-map-control);
+    padding: 6px 18px; background: rgba(26,26,26,0.88); border: 1px solid #1e9e55; border-radius: 4px; color: var(--text-primary);
+    font-size: 13px; font-weight: 600; font-family: inherit; cursor: pointer; white-space: nowrap; box-shadow: 0 2px 8px rgba(0,0,0,0.35); }
+#map .map-dem-center-btn:hover { background: #1e9e55; color: #fff; }
 .tp3d-tut-menu .tp3d-modal-box { width: 360px; }
 .tp3d-tut-menu-intro { font-size: 12px; color: var(--text-secondary); }.tp3d-tut-menu-item { display: flex; flex-direction: column; gap: 3px; text-align: left; width: 100%;
     background: var(--surface-field); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; color: var(--text-primary);

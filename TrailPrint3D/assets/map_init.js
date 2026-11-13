@@ -115,9 +115,33 @@ var tp3dDemLegendRow = null;
 var tp3dDemCoverage = null;  // also read by the Settings popup's DEM row
 var tp3dDemStatusKey = null;
 
+// "Center DEM" -- bottom-center on the map, only while a coverage outline is
+// drawn; fits the view to the whole outline. Same click/scroll guard as the
+// other #map overlays (see the top of this file), since it's added later.
+var tp3dDemCenterBtn = document.createElement('button');
+tp3dDemCenterBtn.type = 'button';
+tp3dDemCenterBtn.className = 'map-dem-center-btn';
+tp3dDemCenterBtn.textContent = 'Center DEM';
+tp3dDemCenterBtn.title = 'Show the whole local DEM coverage';
+tp3dDemCenterBtn.style.display = 'none';
+tp3dDemCenterBtn.addEventListener('click', function () {
+    if (tp3dDemLayer.getLayers().length) map.fitBounds(tp3dDemLayer.getBounds(), { padding: [40, 40] });
+});
+map.getContainer().appendChild(tp3dDemCenterBtn);
+L.DomEvent.disableClickPropagation(tp3dDemCenterBtn);
+L.DomEvent.disableScrollPropagation(tp3dDemCenterBtn);
+
+// Drawn as a wide white casing under a thicker dashed green line, plus a faint
+// green tint inside, so the outline stays readable on every base layer --
+// including green ones (topo, satellite forests), where a thin green line alone
+// disappears.
 function drawDemFootprint(footprint, tooltip) {
     L.polygon(footprint, {
-        color: '#2ecc71', weight: 2, opacity: 0.9, dashArray: '4 4', fill: false, interactive: false
+        color: '#ffffff', weight: 7, opacity: 0.85,
+        fillColor: '#2ecc71', fillOpacity: 0.08, interactive: false
+    }).addTo(tp3dDemLayer);
+    L.polygon(footprint, {
+        color: '#1e9e55', weight: 3, opacity: 1, dashArray: '8 6', fill: false, interactive: false
     }).addTo(tp3dDemLayer).bindTooltip(tooltip, { sticky: true });
 }
 
@@ -139,10 +163,11 @@ function tp3dShowDemCoverage(coverage, focus) {
     if (legend && drawn && !tp3dDemLegendRow) {
         tp3dDemLegendRow = document.createElement('div');
         tp3dDemLegendRow.className = 'legend-row';
-        tp3dDemLegendRow.innerHTML = '<span class="legend-swatch line" style="border-color:#2ecc71;"></span>DEM coverage';
+        tp3dDemLegendRow.innerHTML = '<span class="legend-swatch line" style="border-color:#1e9e55;"></span>DEM coverage';
         legend.appendChild(tp3dDemLegendRow);
     }
     if (tp3dDemLegendRow) tp3dDemLegendRow.style.display = drawn ? '' : 'none';
+    tp3dDemCenterBtn.style.display = drawn ? '' : 'none';
 
     // A newly chosen file may be nowhere near the current view.
     if (drawn && focus && !map.getBounds().intersects(tp3dDemLayer.getBounds())) {

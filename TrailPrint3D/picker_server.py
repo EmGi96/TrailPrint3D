@@ -105,7 +105,8 @@ _export_folder_job: dict = {'status': 'idle', 'scene': '', 'default': ''}
 
 # Settings popup's Local DEM File row (assets/settings_modal.js): POST
 # /pick_dem_path {kind: 'file'|'folder'} opens the OS dialog the same way as
-# /pick_export_folder and queues the choice as a 'demFilePath' update on
+# /pick_export_folder ({kind: 'sample', name} picks a bundled sample_files/
+# GeoTIFF instead, no dialog) and queues the choice as a 'demFilePath' update on
 # _pending_settings; GET /dem_path_status reports it back. 'path' is seeded
 # from the scene's demFilePath in start_picker and kept in sync with it by
 # _sync_dem_path ('scene' is the raw, possibly '//'-relative, value last
@@ -1574,10 +1575,24 @@ class _Handler(BaseHTTPRequestHandler):
         if self.path == '/pick_dem_path':
             length = int(self.headers.get('Content-Length', 0))
             try:
-                kind = json.loads(self.rfile.read(length) or b'{}').get('kind')
+                request = json.loads(self.rfile.read(length) or b'{}')
+                kind = request.get('kind')
+                sample_name = request.get('name')
             except (json.JSONDecodeError, AttributeError):
-                kind = None
-            if _dem_path_job.get('status') == 'picking':
+                kind = sample_name = None
+            if kind == 'sample':
+                # A bundled sample GeoTIFF (the local DEM tutorial's "Use sample
+                # GeoTIFF" button, assets/map_tutorials.js) -- chosen without a
+                # dialog, otherwise exactly like a file picked in one.
+                sample_path = _sample_file_path(sample_name or '')
+                if sample_path is None or _dem_path_job.get('status') == 'picking':
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                _pending_settings.put(('demFilePath', str(sample_path)))
+                _dem_path_job.update(status='done', path=str(sample_path),
+                                     revision=_dem_path_job.get('revision', 0) + 1)
+            elif _dem_path_job.get('status') == 'picking':
                 _raise_dialog(_dem_path_job)
             else:
                 _dem_path_job.update(status='picking')
