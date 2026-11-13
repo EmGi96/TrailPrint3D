@@ -206,6 +206,7 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 0.875rem; line
 .settings-modal-box:not(.guide-hidden) .adv-field-row:focus-within .preview-btn,
 .settings-modal-box:not(.guide-hidden) .element-card:hover .preview-btn,
 .settings-modal-box:not(.guide-hidden) .trail-option:hover .preview-btn,
+.settings-modal-box:not(.guide-hidden) .element-mode-option:hover .preview-btn,
 .settings-modal-box:not(.guide-hidden) .element-source-option:hover .preview-btn {
     opacity: 1;
 }
@@ -360,6 +361,14 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 0.875rem; line
 .settings-modal-box :is(.element-source-switch .shape-btn, .element-mode-switch .element-mode-btn).active {
     background: var(--set-accent-tint); border-color: var(--accent); color: #fff; }
 .settings-modal-box .element-mode-switch .element-mode-btn:disabled { background: none; border-color: transparent; }
+/* Element Print Mode option: the button fills the cell, its "?" sits in the
+   top-right corner (same look as .trail-option > .preview-btn). */
+.settings-modal-box .element-mode-option { position: relative; display: flex; min-width: 0; }
+.settings-modal-box .element-mode-option > .element-mode-btn { flex: 1; min-width: 0; padding: 0 24px; }
+.settings-modal-box .element-mode-option > .preview-btn { position: absolute; top: 50%; right: 5px; transform: translateY(-50%);
+    width: 16px; height: 16px; min-width: 0; min-height: 0; border-radius: 50%; padding: 0; font-size: 9px; font-weight: 600;
+    background: none; border: 1px solid #5c6573; color: var(--text-muted); }
+.settings-modal-box .element-mode-option > .preview-btn:hover { border-color: var(--accent); color: var(--text-primary); background: none; }
 .element-source-block { grid-column: 1 / -1; }
 /* Other tab's API setup hint -- a sentence, not a label/control pair. */
 .api-setup-note { grid-column: 1 / -1; font-size: var(--fs-small); }

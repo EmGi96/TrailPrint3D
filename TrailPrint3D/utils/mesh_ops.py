@@ -593,6 +593,12 @@ def RaycastCurveToMesh(curve_obj, mesh_obj):
         print("No surface hits found for curve; restored original elevations.")
 
 
+# Custom property on a non-MAP object whose top stands in for the map
+# surface (Multi Extruder element shells and roads, which sit in recesses cut
+# into the map). Value: mm to add to a hit on it to get the map surface Z.
+SURFACE_OFFSET_PROP = "tp3dSurfaceOffset"
+
+
 def RaycastCurveToAnyMesh(curve_obj, offset_z=1000.0, smooth_after=True):
     """Move curve points up by offset_z then raycast straight down onto any mesh below.
     Uses scene.ray_cast so the nearest mesh hit is used automatically.
@@ -658,13 +664,24 @@ def RaycastCurveToAnyMesh(curve_obj, offset_z=1000.0, smooth_after=True):
             # on through it, since a separate SEM road mesh lying on the
             # terrain otherwise hides the map under every point of a trail
             # that runs entirely along a road (no hit to borrow a Z from).
+            #
+            # Multi Extruder element shells and roads are the exception: they
+            # sit in recesses cut into the map, so casting through them lands
+            # on the recess floor. Their top (plus SURFACE_OFFSET_PROP) is the
+            # map surface there, so a hit on them counts as a map hit.
             origin = co_world
+            surface_offset = 0.0
             for _attempt in range(16):
                 hit_result = scene.ray_cast(depsgraph, origin, direction_world)
                 hit_obj = hit_result[4] if hit_result[0] else None
                 is_map_hit = hit_obj is not None and (
                     hit_obj.get("objType") == "MAP" or hit_obj.get("Object type") == "MAP"
                 )
+                if hit_obj is not None and not is_map_hit:
+                    _offset = hit_obj.get(SURFACE_OFFSET_PROP)
+                    if _offset is not None:
+                        is_map_hit = True
+                        surface_offset = float(_offset)
                 if hit_obj is None or is_map_hit:
                     break
                 origin = hit_result[1] + direction_world * 1e-4
@@ -681,7 +698,12 @@ def RaycastCurveToAnyMesh(curve_obj, offset_z=1000.0, smooth_after=True):
             # neighbour Z instead -- flat plateaus followed by sudden vertical
             # steps. This function had drifted out of sync with that fix.
             hit_ok = is_map_hit and hit_result[2].z >= 0.1
-            hits.append(curve_world_inv @ hit_result[1] if hit_ok else None)
+            hits.append(
+                curve_world_inv
+                @ (hit_result[1] + Vector((0.0, 0.0, surface_offset)))
+                if hit_ok
+                else None
+            )
 
         # Fill gaps from the nearest point along the spline that DID hit --
         # carried forward first, then backward (covers a run of misses at

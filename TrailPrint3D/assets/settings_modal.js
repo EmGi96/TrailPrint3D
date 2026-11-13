@@ -122,6 +122,7 @@ var SETTINGS_MODAL_OTHER_FIELDS = [
     { key: 'texUseTexture', source: 'SETTINGS_STATE', endpoint: 'update_setting',
       label: 'Use Texture', type: 'checkbox', default: true,
       title: 'Paint the map with a texture instead of coloring individual faces',
+      preview: 'https://trailprint3d.com/images/howto/texture.webp',
       previewCaption: [
           'Paint mode colors the map either with a texture or by coloring the mesh faces themselves.',
           'The texture gives smoother, more detailed borders between colors, and makes Paint Trail and Paint Roads possible. It needs the 3MF add-on and 3MF export.'
@@ -486,6 +487,8 @@ var ELEMENT_SHELL_THICKNESS_FIELD = {
     key: 'elementShellThickness', source: 'ADVANCED_SETTINGS_STATE', endpoint: 'update_advanced_setting',
     label: 'Element Thickness', type: 'number', step: 0.1, min: 0.2, decimals: 2,
     title: "Vertical thickness (mm) of each element in Multi Extruder Mode. The element's bottom follows the terrain this far below its top surface",
+    preview: 'https://trailprint3d.com/images/howto/elementDepth.webp',
+    previewCaption: "How thick each element is in Multi Extruder Mode. Its bottom follows the terrain this far below the surface — thinner uses less of the element's color.",
     enabledWhen: function() { return SETTINGS_STATE.elementMode === 'MULTI_EXTRUDER'; }
 };
 var COASTLINE_SIMPLIFY_FIELD = {
@@ -1275,6 +1278,8 @@ function tp3dBuildFieldRow(field) {
         manualValue = Number(input.value) > 0 ? Number(input.value) : field.manualDefault;
         manualToggle = document.createElement('input');
         manualToggle.type = 'checkbox';
+        // Same on/off switch look as the plain checkbox fields.
+        manualToggle.className = 'tp3d-switch';
         manualToggle.checked = Number(input.value) > 0;
         manualToggle.setAttribute('aria-label', 'Use manual ' + field.label);
         manualToggle.title = row.title;
@@ -2354,6 +2359,16 @@ var ELEMENT_SOURCE_OPTIONS = [
 // Visual example behind the row's "?" button (also highlighted by the
 // "Colorize your Map" tutorial, assets/map_tutorials.js).
 var ELEMENT_MODE_PREVIEW = 'https://trailprint3d.com/images/howto/PaintVsSingleExtruder.webp';
+// [elementMode, button label, preview image, guide caption] -- each option
+// gets its own "?" (same pill look as TRAIL_APPEARANCE_OPTIONS).
+var ELEMENT_MODE_OPTIONS = [
+    ['PAINT', 'Paint', 'https://trailprint3d.com/images/howto/paint.webp',
+     'The elements are painted onto the map surface. The map is printed as one piece, colored by your multi-color printer.'],
+    ['SINGLECOLORMODE_REMESH', 'Single Extruder', 'https://trailprint3d.com/images/howto/singleExtruder.webp',
+     'Each element becomes its own full-height piece that is printed separately and inserted into its cutout in the map. No multi-color printer needed.'],
+    ['MULTI_EXTRUDER', 'Multi Extruder', 'https://trailprint3d.com/images/howto/multiExtruder.webp',
+     'Each element becomes a thin shell whose bottom follows the terrain, seated in a matching recess in the map. Printed together with the map on a multi-color printer. Useful to prevent color bleeding when slicing.']
+];
 function tp3dBuildElementModeSwitch() {
     var row = document.createElement('div');
     row.className = 'adv-field-row element-mode-row';
@@ -2369,21 +2384,27 @@ function tp3dBuildElementModeSwitch() {
     var wrap = document.createElement('div');
     wrap.className = 'element-mode-switch';
     wrap.title = isWorldCover ? 'Only available for OpenStreetMap' : '';
-    [['PAINT', 'Paint'], ['SINGLECOLORMODE_REMESH', 'Single Extruder'], ['MULTI_EXTRUDER', 'Multi Extruder']].forEach(function(opt) {
+    ELEMENT_MODE_OPTIONS.forEach(function(opt) {
+        // Option span wraps the button and its "?" (siblings, since a button
+        // can't contain another button); hovering it shows that option's guide.
+        var option = document.createElement('span');
+        option.className = 'element-mode-option';
         var btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'element-mode-btn' + (!isWorldCover && SETTINGS_STATE.elementMode === opt[0] ? ' active' : '');
         btn.disabled = isWorldCover;
         btn.textContent = opt[1];
+        option.appendChild(btn);
+        option.appendChild(tp3dMakePreviewButton(opt[2], opt[3], opt[1], option));
         btn.addEventListener('click', function() {
             if (SETTINGS_STATE.elementMode === opt[0]) return;
             SETTINGS_STATE.elementMode = opt[0];
-            wrap.querySelectorAll('button').forEach(function(b) { b.classList.toggle('active', b === btn); });
+            wrap.querySelectorAll('.element-mode-btn').forEach(function(b) { b.classList.toggle('active', b === btn); });
             tp3dRefreshSingleExtruderFields();
             tp3dRefreshMapTabVisibility(); // texture fields depend on elementMode
             tp3dSendMapField({ key: 'elementMode', endpoint: 'update_setting' }, opt[0]);
         });
-        wrap.appendChild(btn);
+        wrap.appendChild(option);
     });
     row.appendChild(wrap);
     return row;

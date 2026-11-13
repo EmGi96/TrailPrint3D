@@ -1115,7 +1115,11 @@ def _rg_apply_single_color_mode(
     ):
         """Multi Extruder Mode: thin every area element to a terrain-following
         shell, recess the terrain to match, and resolve overlaps by priority."""
-        from ..mesh_ops import boolean_operation, multi_extruder_shell
+        from ..mesh_ops import (
+            SURFACE_OFFSET_PROP,
+            boolean_operation,
+            multi_extruder_shell,
+        )
 
         try:
             TERRAIN_PRIORITY_ORDER = [
@@ -1145,6 +1149,7 @@ def _rg_apply_single_color_mode(
                     )
 
                 # Water/ocean "Insert": sink the piece; the recess follows it.
+                _wInsert = 0.0
                 if key in ("water", "ocean"):
                     from ..terrain import effective_water_insert  # deferred to avoid circular import at load time
 
@@ -1152,6 +1157,12 @@ def _rg_apply_single_color_mode(
                     if _wInsert > 0:
                         elem_obj.location.z -= _wInsert
                         bpy.context.view_layer.update()
+                    else:
+                        _wInsert = 0.0
+                # The shell's top is the map surface (minus the Insert), so
+                # trails added later (RaycastCurveToAnyMesh) snap onto it
+                # instead of falling through into the recess.
+                elem_obj[SURFACE_OFFSET_PROP] = float(_wInsert)
 
                 cutter, recess_ok = multi_extruder_shell(
                     elem_obj, obj, thickness, map_outline=gen.runtime.mapOutline
@@ -1456,6 +1467,18 @@ def _rg_apply_single_color_mode(
         # Step 5: Cut roads out of terrain and elements
         if gen.settings.elementMode in ("SINGLECOLORMODE_REMESH", "MULTI_EXTRUDER"):
             _cut_roads_from_terrain_and_elements(gen, obj, terrain)
+        if (
+            gen.settings.elementMode == "MULTI_EXTRUDER"
+            and gen.runtime.roadObj is not None
+        ):
+            # Roads are cut out of the map here too; their top is the
+            # terrain raised by el_sHeight (finalize_roads), so a trail added
+            # later snaps to the terrain height instead of the groove floor.
+            from ..mesh_ops import SURFACE_OFFSET_PROP
+
+            gen.runtime.roadObj[SURFACE_OFFSET_PROP] = -float(
+                gen.elevation.el_sHeight
+            )
 
         # Step 6: Subtract trail grooves from buildings
         if thickerCurves:
