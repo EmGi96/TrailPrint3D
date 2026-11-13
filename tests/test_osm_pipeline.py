@@ -1006,6 +1006,44 @@ def test_ocean_probes_preserve_narrow_channels():
     assert not any(p.covers(Point(75.0, 500.0)) for p in polygons)
 
 
+def test_ocean_coastline_gap_does_not_flood_map():
+    """A coastline with a gap inside the tile must still split land from ocean
+    (issue #85: the whole map turned into ocean)."""
+    from shapely.geometry import Point
+
+    from TrailPrint3D.utils.terrain import _polygonize_ocean_faces
+
+    # land on the left (west) of travel, ocean on the right (east)
+    cases = {
+        "gap in the middle": [[(50.0, -10.0), (52.0, 30.0), (50.0, 45.0)],
+                              [(49.0, 55.0), (48.0, 60.0), (51.0, 110.0)]],
+        "ends inside": [[(50.0, -10.0), (52.0, 30.0), (48.0, 60.0)]],
+        "starts inside": [[(52.0, 30.0), (48.0, 60.0), (51.0, 110.0)]],
+    }
+    for name, chains in cases.items():
+        for epsilon in (0.0, 0.1):
+            polygons = _polygonize_ocean_faces(chains, [], (0.0, 0.0, 100.0, 100.0), rdp_eps=epsilon)
+            assert polygons, f"{name}: expected an ocean face"
+            area = sum(p.area for p in polygons)
+            assert 35.0 * 100 < area < 65.0 * 100, f"{name}: ocean covers {area / 100:.1f}% of the tile"
+            assert any(p.covers(Point(90.0, 50.0)) for p in polygons), f"{name}: east should be ocean"
+            assert not any(p.covers(Point(10.0, 50.0)) for p in polygons), f"{name}: west should be land"
+
+
+def test_ocean_island_gap_keeps_island_land():
+    """An island loop with a small gap is closed back into an island."""
+    from shapely.geometry import Point
+
+    from TrailPrint3D.utils.terrain import _polygonize_ocean_faces
+
+    coast = [(20.0, -1.0), (20.0, 101.0)]  # mainland to the west
+    island = [(60.0, 40.0), (70.0, 40.0), (70.0, 60.0), (60.0, 60.0), (60.0, 41.0)]  # CCW, open
+    polygons = _polygonize_ocean_faces([coast], [island], (0.0, 0.0, 100.0, 100.0))
+    assert any(p.covers(Point(90.0, 50.0)) for p in polygons), "sea around the island should be ocean"
+    assert not any(p.covers(Point(65.0, 50.0)) for p in polygons), "the island should stay land"
+    assert not any(p.covers(Point(10.0, 50.0)) for p in polygons), "the mainland should stay land"
+
+
 def test_coast_simplify_auto_default():
     from TrailPrint3D.utils.terrain import resolve_coast_simplify
 
@@ -1395,6 +1433,8 @@ if __name__ == "__main__":
     _run("coastline faces: narrow ocean channels stay water",    test_ocean_probes_preserve_narrow_channels)
     _run("coastline faces: simplification preserves offshore islands",
          test_ocean_simplification_does_not_move_mainland_across_islands)
+    _run("coastline faces: a coastline gap does not flood the map", test_ocean_coastline_gap_does_not_flood_map)
+    _run("coastline faces: an island with a gap stays land",        test_ocean_island_gap_keeps_island_land)
     _run("coast simplify: automatic default", test_coast_simplify_auto_default)
     _run("coast simplify: midpoint and monotonicity", test_coast_simplify_auto_midpoint_and_monotonicity)
     _run("coast simplify: ceiling and clamping", test_coast_simplify_auto_ceiling_and_clamping)
