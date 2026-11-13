@@ -1120,8 +1120,11 @@ def _free_port() -> int:
             return s.getsockname()[1]
 
 
+# Opera (and Opera GX, same exe name) is Chromium-based but ignores --app and
+# just opens an empty tab, so it is deliberately left out: Opera users fall
+# through to the Edge/Chrome candidates in _find_chromium(), like Firefox users.
 _CHROMIUM_EXE_NAMES = {
-    'msedge.exe', 'chrome.exe', 'brave.exe', 'vivaldi.exe', 'opera.exe', 'chromium.exe',
+    'msedge.exe', 'chrome.exe', 'brave.exe', 'vivaldi.exe', 'chromium.exe',
 }
 
 
