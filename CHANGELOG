@@ -1,5 +1,21 @@
-Version 4.0
+Version 4.0.1
 Upcoming
+
+Readded: Multi Extruder Mode for Color by Height — height bands become shells printed in place on the map, as an alternative to separately printed Single Extruder pieces, and also works on maps generated with Multi Extruder elements
+Added: "Use local Datasets (GeoTiff)" tutorial in the Map Generator, with a bundled sample GeoTIFF file
+Added: "Center DEM" button on the 2D map that fits the view to the whole Local DEM coverage
+Added: Missing settings to the Generator pages' Settings menu
+Added: Map Generator asks whether existing maps overlapping the new area should be removed (together with their map parts) before generating
+Changed: Local DEM coverage outline on the 2D map is now clearly visible on every map layer, including green ones
+Changed: Renamed "Send to Blender" to "Generate" on all Generator pages
+Changed: Location search marker can be clicked to hide it
+Changed: Importing a GPX file only auto-draws an area if no area exists yet
+Changed: History panel stays open when selecting multiple entries
+Fixed: Tutorials — Back/Next now revisit already-shown steps instead of skipping them, element hover lists no longer close mid-step, and the Colorize tutorial starts with all elements off
+Fixed: Big and Small Rivers fetching different OSM tags — both now fetch the same ones
+Fixed: Color by Height pieces showing up as separate existing maps in the Generator pages
+-----------------------------
+Version 4.0
 
 Added: Quick Access button for all Generators at the Top bar
 Added: Backplate Generator
