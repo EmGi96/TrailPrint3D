@@ -1308,10 +1308,22 @@
             // footprint (isoToPuzzleSpace/puzzleGeoBbox), not the raw drawn
             // rectangle -- see the comment on isoToPuzzleSpace for why.
             var sendGeo = coords ? computePuzzleGeometry(coords) : null;
+            // Leaflet lets the map pan across the antimeridian any number of
+            // times, so the drawn box can carry a raw longitude like -434
+            // instead of -74. Shift both boxes by the same multiple of 360
+            // to bring the bbox center into -180..180 -- otherwise the
+            // backend clips the (normalised) prefetched OSM data against a
+            // box a world away and every element comes back empty.
+            var sendBbox = tp3dRotatedPuzzleBounds();
+            var sendScaleBbox = puzzleGeoBbox(coords, sendGeo.frac);
+            var centerLngRaw = (sendBbox.east + sendBbox.west) / 2;
+            var lngShift = (((centerLngRaw + 180) % 360 + 360) % 360 - 180) - centerLngRaw;
+            sendBbox.east += lngShift; sendBbox.west += lngShift;
+            sendScaleBbox.east += lngShift; sendScaleBbox.west += lngShift;
             var payload = {
                 excluded_ids: tp3dPrefetchExcludedIds(),
-                bbox: tp3dRotatedPuzzleBounds(),
-                scale_bbox: puzzleGeoBbox(coords, sendGeo.frac),
+                bbox: sendBbox,
+                scale_bbox: sendScaleBbox,
                 shapeRotation: TP3D_SHAPE_ROTATION_DEG,
                 pieces: pieces.map(function(p) {
                     return { row: p.row, col: p.col, points: p.puzzlePoints.map(tp3dPuzzlePointToPayload) };
