@@ -380,7 +380,50 @@ def test_default_profile_pref_runs_its_update_callback():
     prefs.default_slicer_profile = "__UNSET__"
 
 
+def _without_skipped(snapshot):
+    snapshot = dict(snapshot)
+    snapshot["settings"] = {
+        k: v for k, v in snapshot["settings"].items() if k not in ui_state._RESET_SKIPPED_SETTINGS
+    }
+    return snapshot
+
+
+def test_reset_restores_every_default():
+    """The Settings popup's Reset All Settings, through the same queue action
+    picker_server's /reset_settings sends."""
+    tp3d = _open_map_generator()
+    _edit_like_a_page(tp3d)
+    ui_state.apply_setting_update(tp3d, "elementSource", "WORLDCOVER")
+    ui_state.apply_element_toggle(tp3d, "forest")  # the WorldCover flag
+    ui_state.apply_setting_update(tp3d, "elementSource", "OSM")
+    ui_state.apply_setting_update(tp3d, "api", "OPENTOPODATA")
+    ui_state.apply_setting_update(tp3d, "texUseTexture", False)
+    ui_state.apply_setting_update(tp3d, "disableCache", True)
+    ui_state.apply_element_toggle(tp3d, "roads")  # off again: remembers Track + the bootstrap tiers
+    ui_state.apply_color_update(tp3d, {"action": "apply", "style": list(color_styles.BUILT_IN_STYLES)[-1]})
+    tp3d.disable_3mf_export = True
+    ui_state.apply_setting_update(tp3d, "objSize", 150)  # page field: kept
+    ui_state.apply_setting_update(tp3d, "titlefield", "My Title")  # Shape Extras text: kept
+    assert "_toggle_remember_roads" in tp3d.keys()
+
+    ui_state.apply_color_update(tp3d, {"action": "reset"})
+
+    fresh = _fresh_tp3d()
+    reset = ui_state.build_generator_settings_snapshot(tp3d)
+    expected = ui_state.build_generator_settings_snapshot(fresh)
+    assert _without_skipped(reset) == _without_skipped(expected), (reset, expected)
+    assert tp3d.tex_use_texture_choice is True
+    assert tp3d.disable_3mf_export is False
+    assert "_toggle_remember_roads" not in tp3d.keys()
+    assert tp3d.objSize == 150
+    assert tp3d.titlefield == "My Title"
+    # Saved, so the next session also starts from the defaults.
+    with open(MAP_FILE, encoding="utf-8") as f:
+        assert _without_skipped(json.load(f)) == _without_skipped(json.loads(json.dumps(expected)))
+
+
 _run("page edits survive into a new session", test_page_edits_survive_into_a_new_session)
+_run("reset restores every default", test_reset_restores_every_default)
 _run("WorldCover keeps its forced element mode", test_worldcover_keeps_its_forced_element_mode)
 _run("reopening a generator keeps sidebar changes", test_reopening_a_generator_keeps_sidebar_changes)
 _run("generators keep separate settings across sessions", test_generators_keep_separate_settings_across_sessions)

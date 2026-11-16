@@ -52,7 +52,8 @@ _pending_advanced_settings: 'queue.Queue[tuple]' = queue.Queue()
 # apply touches several tp3d properties at once, and save/delete need the
 # helpers from ui.color_styles that aren't on the generic /update_setting
 # whitelist. Drained on the main thread via drain_pending_color_styles and
-# utils.apply_color_update.
+# utils.apply_color_update. Also carries the Other tab's "Reset All Settings"
+# ({'action': 'reset'}, POST /reset_settings) -- see that handler for why.
 _pending_color_styles: 'queue.Queue[dict]' = queue.Queue()
 # ─────────────────────────────────────────────────────────────────────
 
@@ -1730,6 +1731,24 @@ class _Handler(BaseHTTPRequestHandler):
             self.wfile.write(b'ok')
             return
         # ─────────────────────────────────────────────────────────────
+        if self.path == '/reset_settings':
+            # Settings popup's "Reset All Settings" (settings_modal.js). Rides
+            # the color-style queue: its handler waits for the main thread, and
+            # that tick's refresh_state_snapshots + finish_color_style_updates
+            # rebuild every snapshot -- so the page's reload right after this
+            # answers already serves the defaults.
+            length = int(self.headers.get('Content-Length', 0))
+            self.rfile.read(length)
+            done = threading.Event()
+            _pending_color_styles.put({'action': 'reset', 'done': done})
+            ok = done.wait(timeout=5)
+            resp = json.dumps({'ok': ok}).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(resp)))
+            self.end_headers()
+            self.wfile.write(resp)
+            return
         if self.path in ('/select_slicer_profile', '/upload_slicer_profile', '/set_3mf_export'):
             # Answered once the main thread has handled the request
             # (process_slicer_profile_requests): {ok, message, state}.

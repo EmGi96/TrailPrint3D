@@ -554,6 +554,11 @@ def apply_color_update(tp3d, update: dict) -> None:
             return
         if tp3d.color_style == style_id:
             tp3d.color_style = color_styles.DEFAULT_STYLE
+    elif action == 'reset':
+        # "Reset All Settings" -- not just colors, but it rides this queue
+        # because its POST handler waits for the main thread and its finish
+        # step refreshes every page snapshot (see picker_server /reset_settings).
+        reset_generator_settings(tp3d)
     # Repaint the scene's materials so the viewport / preview picks up the change.
     try:
         from . import color
@@ -907,6 +912,93 @@ def apply_generator_settings_snapshot(tp3d, data):
     # remembered one; with none set this is the last-used behaviour.
     if data.get("slicerProfile") and _preferred_slicer_profile() is None:
         assign("slicer_profile_name", data["slicerProfile"])
+
+
+# _SETTINGS_ROW_FIELDS keys the Settings popup's "Reset All Settings" button
+# (reset_generator_settings) leaves alone: the page's own fields -- Size,
+# Resolution and Shape Rotation live on the page itself, which keeps and sends
+# its own values -- and the Shape Extras "Text Settings" popup, whose titles
+# and texts are the user's content rather than settings.
+_RESET_SKIPPED_SETTINGS = frozenset(
+    {
+        "objSize",
+        "resolution",
+        "shapeRotation",
+        "textFont",
+        "textSize",
+        "textSizeTitle",
+        "titlefield",
+        *(f"textfield{i}" for i in range(1, 8)),
+        "titleIcon",
+        *(f"iconText{i}" for i in range(1, 8)),
+        "textPlacement",
+        "plateThickness",
+        "outerBorderSize",
+        "plateInsertValue",
+        "plateBevel",
+        "shellWallThickness",
+        "handleStyle",
+    }
+)
+
+
+def _reset_property(tp3d, attr):
+    """Set one scene property back to its declared default. Assigned rather
+    than property_unset() so update callbacks run (elementSource can force
+    elementMode, color_style repaints the swatches)."""
+    prop = tp3d.bl_rna.properties.get(attr)
+    if prop is None:
+        return
+    if prop.type == "ENUM":
+        value = set(prop.default_flag) if prop.is_enum_flag else prop.default
+    elif getattr(prop, "is_array", False):
+        value = tuple(prop.default_array)
+    else:
+        value = prop.default
+    try:
+        setattr(tp3d, attr, value)
+    except (TypeError, ValueError, AttributeError):
+        tp3d.property_unset(attr)
+
+
+def reset_generator_settings(tp3d):
+    """Put every setting a generator page can edit back to its default -- the
+    Settings popup's "Reset All Settings" button (picker_server's
+    /reset_settings, applied via apply_color_update's 'reset' action). Covers
+    what build_generator_settings_snapshot saves, minus _RESET_SKIPPED_SETTINGS,
+    plus the Export tab's 3MF switch."""
+    from . import color_styles
+
+    for key, (attr, _caster) in _SETTINGS_ROW_FIELDS.items():
+        if key in _RESET_SKIPPED_SETTINGS:
+            continue
+        if attr == "tex_use_texture_choice":
+            # Computed from the stored "tex_use_texture" ID property, which
+            # reads as True (the default) when absent.
+            if "tex_use_texture" in tp3d.keys():
+                del tp3d["tex_use_texture"]
+            continue
+        _reset_property(tp3d, attr)
+    for field in _ADVANCED_SETTINGS_FIELDS:
+        if "road_id" in field:
+            _write_advanced_field(tp3d, field, False)  # new tiers start unticked (props.ensure_road_types)
+        else:
+            _reset_property(tp3d, field["attr"])
+    for attr in _GENERATOR_ELEMENT_ATTRS:
+        _reset_property(tp3d, attr)
+    for key in _COMPOSITE_MASTER_FLAGS:
+        if f"_toggle_remember_{key}" in tp3d.keys():
+            del tp3d[f"_toggle_remember_{key}"]
+    tp3d.color_style = color_styles.DEFAULT_STYLE
+    color_styles.set_scene_colors(tp3d, color_styles.default_colors())
+    _reset_property(tp3d, "disable_3mf_export")
+    # The Default 3MF Export Profile preference, else the built-in template.
+    with _suppress_slicer_profile_save():
+        try:
+            tp3d.slicer_profile_name = _preferred_slicer_profile() or "NONE"
+        except (TypeError, ValueError):
+            tp3d.slicer_profile_name = "NONE"
+    _redraw_all_areas()
 
 
 def _generator_settings_path(generator):

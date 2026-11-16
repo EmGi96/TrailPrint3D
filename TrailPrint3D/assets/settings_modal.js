@@ -1826,8 +1826,103 @@ function tp3dBuildOtherTab() {
     advancedSection.grid.appendChild(tp3dBuildFieldRow(ROAD_MIN_WIDTH_FIELD));
     wrap.appendChild(advancedSection.card);
 
+    var resetSection = tp3dBuildSection('Reset', 'settings-grid-2');
+    resetSection.grid.appendChild(tp3dBuildResetSettingsRow());
+    wrap.appendChild(resetSection.card);
+
     tp3dRefreshMapTabVisibility();
     return wrap;
+}
+
+// Set by the Reset button right before it reloads the page, so the reloaded
+// page reopens the Settings popup instead of dropping the user on the map.
+var TP3D_REOPEN_SETTINGS_KEY = 'tp3dReopenSettingsAfterReset';
+
+// "Reset All Settings" (Other tab) -- every setting of this generator back to
+// its default: all Settings popup tabs, the enabled elements and their
+// sub-selections, colors and the 3MF export profile (Blender side:
+// ui_state.reset_generator_settings, via POST /reset_settings). The page's own
+// fields shown in the Puzzle tab are reset here, to their HTML defaults. The
+// drawn area, trail, Size, Resolution, Shape Extras and typed texts are kept.
+// Reloads the page afterwards, since every tab is built from the snapshots
+// the server injects on load.
+function tp3dBuildResetSettingsRow() {
+    var row = document.createElement('div');
+    row.className = 'adv-field-row';
+    row.title = 'Reset every setting of this generator to its default';
+
+    var label = document.createElement('label');
+    label.textContent = 'All Settings';
+    row.appendChild(tp3dWithPreview(label, null, [
+        'Reset All Settings',
+        'Sets every setting of this generator back to its default: all tabs of this popup, which elements are enabled and selected, the colors and the 3MF export profile.',
+        'Your drawn area, trail, Size, Resolution, Shape Extras and any texts you typed are kept.'
+    ], 'Reset All Settings', row));
+
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'element-mode-btn';
+    btn.textContent = 'Reset to Defaults';
+    btn.addEventListener('click', function() {
+        tp3dConfirm(
+            'Reset every setting of this generator to its default? This includes the enabled elements, colors and export profile. Your drawn area and trail are kept.',
+            'Reset All Settings', 'Reset', 'Cancel'
+        ).then(function(yes) {
+            if (!yes) return;
+            btn.disabled = true;
+            btn.textContent = 'Resetting…';
+            tp3dResetPageSettingFields();
+            fetch('http://127.0.0.1:' + PORT + '/reset_settings', { method: 'POST' })
+                .then(function(r) { return r.json(); })
+                .then(function(reply) {
+                    if (!reply.ok) throw new Error('Blender did not respond');
+                    // Awaited (unlike saveState) so the reload restores the
+                    // reset Puzzle-tab fields, not the old ones.
+                    return fetch('http://127.0.0.1:' + PORT + '/save_state', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(tp3dBuildStateSnapshot())
+                    });
+                })
+                .then(function() {
+                    try { sessionStorage.setItem(TP3D_REOPEN_SETTINGS_KEY, '1'); } catch (e) {}
+                    location.reload();
+                })
+                .catch(function() {
+                    btn.disabled = false;
+                    btn.textContent = 'Reset to Defaults';
+                    tp3dAlert('Could not reset the settings. Make sure Blender is running, then try again.');
+                });
+        });
+    });
+    row.appendChild(btn);
+    return row;
+}
+
+// The page-owned fields the Puzzle tab relocates (tp3dBuildPuzzleTab) aren't
+// scene settings -- put each back to its value in the page's HTML and fire
+// the events the page listens to, so it regenerates and saves them.
+function tp3dResetPageSettingFields() {
+    var panel = document.getElementById('settings-panel-puzzle');
+    if (!panel) return;
+    // Free text (the holder/frame label) is the user's content, kept like the
+    // Shape Extras texts are on the Blender side.
+    panel.querySelectorAll('input:not([type="text"]), select').forEach(function(el) {
+        if (el.type === 'checkbox' || el.type === 'radio') {
+            if (el.checked === el.defaultChecked) return;
+            el.checked = el.defaultChecked;
+        } else if (el.tagName === 'SELECT') {
+            var index = 0;
+            Array.prototype.forEach.call(el.options, function(opt, i) { if (opt.defaultSelected) index = i; });
+            if (el.selectedIndex === index) return;
+            el.selectedIndex = index;
+        } else {
+            if (el.value === el.defaultValue) return;
+            el.value = el.defaultValue;
+        }
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+    });
 }
 
 // Export tab -- the 3MF export switch and print profile (one card).
@@ -2905,5 +3000,17 @@ function tp3dRelocateFields(sourceId, grid) {
     // put between the gear and the OSM/ESA pill across re-renders.
     if (TP3D_COLOR_STYLES.builtIn.length) {
         elementStatus.insertBefore(tp3dBuildCompactColorStyleSelect(), gearBtn.nextSibling);
+    }
+
+    // Back from "Reset All Settings" (tp3dBuildResetSettingsRow) -- reopen
+    // the popup on the Other tab the button was clicked from.
+    var reopen = null;
+    try {
+        reopen = sessionStorage.getItem(TP3D_REOPEN_SETTINGS_KEY);
+        sessionStorage.removeItem(TP3D_REOPEN_SETTINGS_KEY);
+    } catch (e) {}
+    if (reopen) {
+        activateTab('other');
+        openModal();
     }
 })();
