@@ -36,7 +36,11 @@ def _raise_overlays_with_plate(gen, lift):
         obj.location.z += lift
 
 
-def _rg_create_text_and_overlays(gen: GenerationContext):
+def _rg_create_text_and_overlays(gen: GenerationContext, shell_height_bvh=None):
+    """shell_height_bvh: world-space BVHTree of the terrain from before the
+    elements were cut into it -- only passed when this runs after the
+    elements (the map generator, see _rtg_add_shape_extras), so the Shell
+    wall reads the same untouched surface runGeneration's shell does."""
     from ..outline import shift_outline_keys  # deferred
     from ..plate import create_generic_plate  # deferred
     from ..scene import (
@@ -99,6 +103,7 @@ def _rg_create_text_and_overlays(gen: GenerationContext):
             gen.settings.tolerance,
             wall=gen.settings.shellWallThickness,
             bottom_wall=gen.settings.plateThickness,
+            height_bvh=shell_height_bvh,
         )
         if shellobj is not None:
             shellobj.data.materials.clear()

@@ -140,6 +140,9 @@ class RuntimeState:
     textObj: Object | None = None
     plateObj: Object | None = None
     shellObj: Object | None = None
+    # mathutils.bvhtree.BVHTree of the pre-element terrain (map generator only,
+    # see tile_orchestrator._rtg_process_tile).
+    shellHeightBVH: object | None = None
     roadObj: Object | None = None
     roadUnion: Polygon | MultiPolygon | None = None
 

@@ -559,6 +559,26 @@ def _rtg_process_tile(
         gen.fetch.fetchThread = None
         gen.fetch.fetchResult = None
 
+    # --- Phase 3b: Snapshot the terrain for a later Shell ---
+    # runGeneration builds its shell before the elements, reading the
+    # untouched terrain surface. The map generator can only build it at the
+    # very end (_rtg_add_shape_extras), after Single/Multi Extruder Mode has
+    # cut element recesses -- with their tolerance gaps -- into the border,
+    # which would notch the shell wall. Keep a world-space BVH of the surface
+    # as it is now for build_map_shell to read instead.
+    gen.runtime.shellHeightBVH = None
+    if gen.settings.shapeExtrasActive and gen.settings.plateMode == "SHELL":
+        import bmesh  # type: ignore
+        from mathutils.bvhtree import BVHTree  # type: ignore
+
+        _bm = bmesh.new()
+        try:
+            _bm.from_mesh(zobj.data)
+            _bm.transform(zobj.matrix_world)
+            gen.runtime.shellHeightBVH = BVHTree.FromBMesh(_bm)
+        finally:
+            _bm.free()
+
     # --- Phase 4: Terrain overlay elements (water, forest, city, glacier, buildings, roads) ---
     _elem_start = base_pct + step * 0.70
     _elem_end = base_pct + step * 0.85
@@ -647,6 +667,10 @@ def _rtg_add_shape_extras(gen: GenerationContext, map_obj, riders=()):
     saved_road = gen.runtime.roadObj
     saved_elements = gen.runtime.elements
     map_z = map_obj.location.z
+    # Pre-element terrain snapshot taken by _rtg_process_tile -- the shell
+    # reads its wall height from it, same surface runGeneration's shell sees.
+    shell_height_bvh = gen.runtime.shellHeightBVH
+    gen.runtime.shellHeightBVH = None
     try:
         tp3d.o_centerx = map_obj.location.x
         tp3d.o_centery = map_obj.location.y
@@ -662,7 +686,7 @@ def _rtg_add_shape_extras(gen: GenerationContext, map_obj, riders=()):
         gen.runtime.curveObjs = None
         gen.runtime.roadObj = None
         gen.runtime.elements = None
-        _rg_create_text_and_overlays(gen)
+        _rg_create_text_and_overlays(gen, shell_height_bvh=shell_height_bvh)
     finally:
         for k, v in saved.items():
             setattr(tp3d, k, v)
