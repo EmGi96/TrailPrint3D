@@ -1127,6 +1127,9 @@ def coloring_main(
             top_verts = {v for f in bm.faces if f.normal.z > 0.087 for v in f.verts}
             if top_verts:
                 median_z = statistics.median(v.co.z for v in top_verts)
+                _warn_water_flatten_raise(
+                    median_z - min(v.co.z for v in top_verts)
+                )
                 for v in top_verts:
                     v.co.z = median_z
 
@@ -1297,12 +1300,14 @@ def flatten_terrain_water(map_obj, polygon=None, mat_index=None, insert=0.0, up_
         groups = _snap_shoreline_verts(top_faces, _water_geom_to_local(map_obj, polygon))
 
     boxes = []
+    max_raise = 0.0
     # Never sink a water surface through the model: keep two 0.2mm layers above the base
     floor_z = bottom_z + 0.4
     for move, ref in groups:
         target_z = max(statistics.median(v.co.z for v in ref) - insert, floor_z)
         xs, ys = [], []
         for v in move:
+            max_raise = max(max_raise, target_z - v.co.z)
             v.co.z = target_z
             xs.append(v.co.x)
             ys.append(v.co.y)
@@ -1313,6 +1318,7 @@ def flatten_terrain_water(map_obj, polygon=None, mat_index=None, insert=0.0, up_
         map_obj.data.update()
     bm.free()
     print(f"  [flatten_terrain_water] flattened {len(boxes)} water bodies")
+    _warn_water_flatten_raise(max_raise)
     return boxes
 
 
@@ -1633,6 +1639,24 @@ def effective_water_insert(tp3d):
             "warn",
         )
     return min(tp3d.col_wInsert, cap)
+
+
+def _warn_water_flatten_raise(max_raise):
+    """Warn (once per generation -- add_warning collapses duplicates) when
+    Flatten Water Surface lifted any water vertex by more than
+    WATER_FLATTEN_RAISE_WARN mm."""
+    from .. import constants as _const  # deferred to avoid circular import at load time
+
+    if max_raise <= _const.WATER_FLATTEN_RAISE_WARN:
+        return
+    print(f"  [flatten water] raised water by up to {max_raise:.2f}mm")
+    # Fixed text (no per-body amount) so add_warning collapses it to one entry.
+    _progress.WarningsOverlay.add_warning(
+        _rpt("Flatten Water Surface is still enabled -- it raised some water by more than {threshold:g}mm").format(
+            threshold=_const.WATER_FLATTEN_RAISE_WARN
+        ),
+        "warn",
+    )
 
 
 def _flatten_painted_water(gen: GenerationContext, map_obj, polygon, mat_index=None):

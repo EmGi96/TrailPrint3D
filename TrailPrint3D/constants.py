@@ -31,6 +31,11 @@ R = 6371.0  # Earth radius in kilometers
 # never reaches the bottom of the map
 WATER_INSERT_MARGIN = 0.5
 
+# Flatten Water Surface warns once any water vertex is raised by more than
+# this (mm) -- a reminder that the setting is on and lifting water above the
+# surrounding terrain
+WATER_FLATTEN_RAISE_WARN = 0.5
+
 COAST_SIMPLIFY_BASE = 0.05
 COAST_SIMPLIFY_SLOPE = 0.45
 
