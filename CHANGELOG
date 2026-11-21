@@ -6,6 +6,9 @@ Added: "Use local Datasets (GeoTiff)" tutorial in the Map Generator, with a bund
 Added: "Center DEM" button on the 2D map that fits the view to the whole Local DEM coverage
 Added: Missing settings to the Generator pages' Settings menu
 Added: Map Generator asks whether existing maps overlapping the new area should be removed (together with their map parts) before generating
+Added: "Reset All Settings" button in the Generator pages' Settings menu
+Added: Preview images for the Element Mode options (Paint / Single Extruder / Multi Extruder), Use Texture and Element Thickness in the Settings menu
+Added: Warning when Flatten Water Surface raises water by more than 0.5mm, as a reminder that the setting is still enabled
 Changed: Local DEM coverage outline on the 2D map is now clearly visible on every map layer, including green ones
 Changed: Renamed "Send to Blender" to "Generate" on all Generator pages
 Changed: Location search marker can be clicked to hide it
@@ -14,6 +17,9 @@ Changed: History panel stays open when selecting multiple entries
 Fixed: Tutorials — Back/Next now revisit already-shown steps instead of skipping them, element hover lists no longer close mid-step, and the Colorize tutorial starts with all elements off
 Fixed: Big and Small Rivers fetching different OSM tags — both now fetch the same ones
 Fixed: Color by Height pieces showing up as separate existing maps in the Generator pages
+Fixed: Shell wall getting notched by Single and Multi Extruder element cutouts in the Map Generator
+Fixed: Trails sinking into the element and road recesses in Multi Extruder Mode instead of following the map surface
+Fixed: Puzzle Configurator returning no OSM elements when the map was panned across the antimeridian
 -----------------------------
 Version 4.0
 
