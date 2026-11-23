@@ -4861,7 +4861,16 @@ class TP3D_OT_map_generator(bpy.types.Operator):
                 bpy.context.view_layer.objects.active = obj
                 bpy.ops.object.convert(target="MESH")
             # EXACT: OSM element meshes aren't guaranteed watertight.
-            boolean_operation(obj, cutter_obj, "INTERSECT", solver="EXACT")
+            # Buildings overlap themselves (building:part inside its parent
+            # building) -- EXACT without use_self returns an empty mesh for
+            # them, which removed the whole buildings object below.
+            boolean_operation(
+                obj,
+                cutter_obj,
+                "INTERSECT",
+                solver="EXACT",
+                use_self=obj.get("Object type") == "BUILDINGS",
+            )
             if not obj.data.vertices:
                 utils.remove_objects(obj)
 

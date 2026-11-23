@@ -334,13 +334,20 @@ def is_mesh_manifold(obj):
     return manifold
 
 
-def boolean_operation(obj_a, obj_b, operation="DIFFERENCE", solver="MANIFOLD"):
+def boolean_operation(
+    obj_a, obj_b, operation="DIFFERENCE", solver="MANIFOLD", use_self=False
+):
     """
     Performs a Boolean operation on obj_a with obj_b.
 
     operation: 'UNION', 'INTERSECT', or 'DIFFERENCE'
     solver:    'MANIFOLD' (both inputs must be watertight-manifold) or 'EXACT'
                (tolerates non-manifold input -- use for OSM element meshes).
+    use_self:  EXACT only -- resolve obj_a's own self-intersections first.
+               Needed when obj_a has overlapping shells (e.g. OSM buildings,
+               where every building:part overlaps its parent building);
+               without it EXACT can return an empty mesh. Slower, so only
+               pass it for such meshes.
     """
     # Ensure both objects exist
     if obj_a is None or obj_b is None:
@@ -352,6 +359,8 @@ def boolean_operation(obj_a, obj_b, operation="DIFFERENCE", solver="MANIFOLD"):
     mod.object = obj_b
     mod.operation = operation
     mod.solver = solver
+    if solver == "EXACT" and use_self:
+        mod.use_self = True
 
     # Apply the modifier — obj_b must be viewport-visible or Blender refuses to apply
     prev_hide = obj_b.hide_viewport

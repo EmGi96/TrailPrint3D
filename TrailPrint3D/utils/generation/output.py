@@ -167,6 +167,17 @@ def _rg_set_material_preview():
                     space.shading.type = "MATERIAL"
 
 
+def _alive_object(obj) -> bool:
+    """True if obj is a bpy Object that still exists. Element entries can
+    outlive their object (e.g. the map generator's rotated-shape cut removes
+    an element clipped away entirely), and touching a removed one raises
+    ReferenceError."""
+    try:
+        return isinstance(obj, bpy.types.Object) and obj.name in bpy.data.objects
+    except ReferenceError:
+        return False
+
+
 def _rg_export(gen: GenerationContext):
     """Export all geometry, update API counters, and zoom camera."""
     from ...export import (  # deferred to avoid circular import at load time
@@ -219,16 +230,12 @@ def _rg_export(gen: GenerationContext):
 
         if elements and gen.settings.elementMode in ("SINGLECOLORMODE_REMESH", "MULTI_EXTRUDER"):
             for elem_obj in elements.values():
-                if (
-                    elem_obj
-                    and isinstance(elem_obj, bpy.types.Object)
-                    and elem_obj.name in bpy.data.objects
-                ):
+                if _alive_object(elem_obj):
                     elem_obj.select_set(True)
         elif elements and gen.settings.elementMode == "PAINT":
             for key in ("roads", "buildings"):
                 elem_obj = elements.get(key)
-                if elem_obj and elem_obj.name in bpy.data.objects:
+                if _alive_object(elem_obj):
                     elem_obj.select_set(True)
 
         if textobj:
@@ -250,11 +257,7 @@ def _rg_export(gen: GenerationContext):
 
         if elements and gen.settings.elementMode in ("SINGLECOLORMODE", "SINGLECOLORMODE_REMESH", "MULTI_EXTRUDER"):
             for elem_obj in elements.values():
-                if (
-                    elem_obj
-                    and isinstance(elem_obj, bpy.types.Object)
-                    and elem_obj.name in bpy.data.objects
-                ):
+                if _alive_object(elem_obj):
                     export_to_STL(elem_obj, exportformat)
 
         if textobj:
