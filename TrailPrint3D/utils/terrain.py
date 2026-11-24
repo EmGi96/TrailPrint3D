@@ -1621,8 +1621,14 @@ def cut_water_pocket(gen: GenerationContext, map_obj, polygon, insert, water_mat
 
 def effective_water_insert(tp3d):
     """col_wInsert capped to minThickness - WATER_INSERT_MARGIN (never
-    negative) -- deeper would sink the water through the bottom of the map."""
+    negative) -- deeper would sink the water through the bottom of the map.
+    0 while Flatten Water Surface is off: Insert is a sub-option of it (the
+    sidebar and generator pages grey it out then), so a value left over from
+    when flattening was on must not still sink the water."""
     from .. import constants as _const  # deferred to avoid circular import at load time
+
+    if not tp3d.col_wFlattenTop:
+        return 0.0
 
     cap = max(0.0, tp3d.minThickness - _const.WATER_INSERT_MARGIN)
     if tp3d.col_wInsert > cap:
