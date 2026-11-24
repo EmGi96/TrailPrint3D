@@ -4370,6 +4370,9 @@ class TP3D_OT_puzzle_configurator(bpy.types.Operator):
         # PREVIOUS generation left on the scene, which is what was making
         # every piece's base way thicker than minThickness instead of sitting
         # on it.
+        # Select only the blank: transform_apply acts on every selected object.
+        bpy.ops.object.select_all(action="DESELECT")
+        blank.select_set(True)
         bpy.context.view_layer.objects.active = blank
         bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
         overlay.update(0.06, "Fetching Elevation", "Querying elevation API…")
@@ -5200,6 +5203,11 @@ class TP3D_OT_map_generator(bpy.types.Operator):
             # See the GeoJSON branch above.
             utils.remove_generated_objects_at(blank)
 
+            # transform_apply acts on every SELECTED object, not just the active
+            # one -- a user-selected light/camera made it raise ("Area Lights
+            # can only have scale applied").
+            bpy.ops.object.select_all(action="DESELECT")
+            blank.select_set(True)
             bpy.context.view_layer.objects.active = blank
             bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
             overlay.update(0.06, "Fetching Elevation", "Querying elevation API…")
