@@ -1480,6 +1480,11 @@ def cut_water_pocket(gen: GenerationContext, map_obj, polygon, insert, water_mat
 
     if insert <= 0:
         return
+    # matrix_world is only refreshed on a depsgraph update: a Plate/Shell
+    # lifts the map via location.z right before the elements are built, and
+    # a stale matrix put the cutter plateThickness too low -- its floor then
+    # landed below the map bottom and the pocket cut straight through.
+    bpy.context.view_layer.update()
     parts = list(_g2d.iter_polygons(_water_geom_to_local(map_obj, polygon)))
     if not parts:
         return
