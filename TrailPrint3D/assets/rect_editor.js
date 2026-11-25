@@ -1337,14 +1337,21 @@ function placeShapeAroundBounds(b, fraction, latlngs) {
     }
     var north = map.unproject([centerX - side / 2, centerY - side / 2], 0);
     var south = map.unproject([centerX + side / 2, centerY + side / 2], 0);
-    editHandles.clearLayers();
-    moveHandleLayer.clearLayers();
-    syncCenterHandles = null;
-    coords = {
+    tp3dApplyPlacedCoords({
         north: north.lat, south: south.lat,
         east: south.lng, west: north.lng,
         type: currentShape
-    };
+    });
+}
+
+// Replaces the drawn shape with *newCoords* and rebuilds everything that hangs
+// off it (edit/move/rotation handles, the page's derived preview, saved state)
+// -- shared by placeShapeAroundBounds and tp3dCenterShapeOnTrail.
+function tp3dApplyPlacedCoords(newCoords) {
+    clearRotatedCornerEditHandles();
+    moveHandleLayer.clearLayers();
+    syncCenterHandles = null;
+    coords = newCoords;
     var rect = previewDrawnRect(coords);
     if (drawMode === 'center') {
         shapeCenter = boundsCenter(coords);
@@ -1360,6 +1367,83 @@ function placeShapeAroundBounds(b, fraction, latlngs) {
     updateStatus();
     saveState();
 }
+
+// ── "Center" (drawn area onto the trail) ─────────────────────────────────────
+// Bottom-center map button, shown only while both a trail (the page's own
+// gpxLayer) and a drawn area exist. Moves the area, keeping its size, shape
+// and rotation, so its center lands on the center of the trail's bounding box
+// -- the same center placeShapeAroundBounds uses when it auto-places an area
+// around an imported trail. Shifted in the projected (zoom-0) plane, not in
+// degrees, so the area keeps its exact projected size (what the backend scales
+// from) at the new latitude.
+function tp3dTrailBounds() {
+    if (typeof gpxLayer === 'undefined' || !gpxLayer || typeof gpxLayer.getBounds !== 'function') return null;
+    var bounds = gpxLayer.getBounds();
+    return bounds.isValid() ? bounds : null;
+}
+
+function tp3dCenterShapeOnTrail() {
+    var trail = tp3dTrailBounds();
+    if (!coords || !rectLayer || !trail) return;
+    var target = map.project(tp3dProjectedBoundsCenter({
+        north: trail.getNorth(), south: trail.getSouth(),
+        east: trail.getEast(), west: trail.getWest()
+    }, 0), 0);
+    var northWest = map.project([coords.north, coords.west], 0);
+    var southEast = map.project([coords.south, coords.east], 0);
+    var dx = target.x - (northWest.x + southEast.x) / 2;
+    var dy = target.y - (northWest.y + southEast.y) / 2;
+    var newNorthWest = map.unproject([northWest.x + dx, northWest.y + dy], 0);
+    var newSouthEast = map.unproject([southEast.x + dx, southEast.y + dy], 0);
+    tp3dApplyPlacedCoords({
+        north: newNorthWest.lat, south: newSouthEast.lat,
+        east: newSouthEast.lng, west: newNorthWest.lng,
+        type: coords.type || currentShape
+    });
+    if (!map.getBounds().contains(rectLayer.getBounds())) {
+        map.fitBounds(rectLayer.getBounds(), { padding: [50, 50] });
+    }
+}
+
+var tp3dTrailCenterBtn = null;
+
+function tp3dSyncTrailCenterBtn() {
+    if (!tp3dTrailCenterBtn) return;
+    tp3dTrailCenterBtn.style.display = coords && rectLayer && tp3dTrailBounds() ? '' : 'none';
+}
+
+function tp3dInstallTrailCenterBtn() {
+    if (tp3dTrailCenterBtn || typeof map === 'undefined' || !map) return;
+    tp3dTrailCenterBtn = document.createElement('button');
+    tp3dTrailCenterBtn.type = 'button';
+    tp3dTrailCenterBtn.className = 'map-trail-center-btn';
+    tp3dTrailCenterBtn.textContent = 'Center';
+    tp3dTrailCenterBtn.title = 'Move the drawn area to the center of the trail';
+    tp3dTrailCenterBtn.addEventListener('click', tp3dCenterShapeOnTrail);
+    // map_init.js's shared bottom row; on its own (with the same click/scroll
+    // guard) if a page doesn't have it.
+    var row = map.getContainer().querySelector('.map-bottom-actions');
+    if (row) {
+        row.appendChild(tp3dTrailCenterBtn);
+    } else {
+        tp3dTrailCenterBtn.style.cssText = 'position:absolute;bottom:24px;left:50%;transform:translateX(-50%);z-index:1000;';
+        map.getContainer().appendChild(tp3dTrailCenterBtn);
+        L.DomEvent.disableClickPropagation(tp3dTrailCenterBtn);
+        L.DomEvent.disableScrollPropagation(tp3dTrailCenterBtn);
+    }
+    // Trail polylines and the drawn shape are all map layers, so any trail
+    // import/clear or shape draw/clear passes through here. Deferred a tick so
+    // a page that removes the layers before resetting `coords` is read after.
+    var pending = false;
+    map.on('layeradd layerremove', function() {
+        if (pending) return;
+        pending = true;
+        setTimeout(function() { pending = false; tp3dSyncTrailCenterBtn(); }, 0);
+    });
+    tp3dSyncTrailCenterBtn();
+}
+if (document.readyState === 'complete') tp3dInstallTrailCenterBtn();
+else window.addEventListener('load', tp3dInstallTrailCenterBtn);
 
 // Drops the imported SVG shape and its file, reverting to Rectangle if it
 // was the active shape (there's nothing meaningful left to show once the

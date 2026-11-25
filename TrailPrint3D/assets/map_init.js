@@ -115,9 +115,18 @@ var tp3dDemLegendRow = null;
 var tp3dDemCoverage = null;  // also read by the Settings popup's DEM row
 var tp3dDemStatusKey = null;
 
-// "Center DEM" -- bottom-center on the map, only while a coverage outline is
-// drawn; fits the view to the whole outline. Same click/scroll guard as the
-// other #map overlays (see the top of this file), since it's added later.
+// Bottom-center row of map buttons, shared so several can show side by side
+// instead of stacking on the same spot: "Center DEM" below and rect_editor.js's
+// "Center" (drawn area onto the trail). Same click/scroll guard as the other
+// #map overlays (see the top of this file), since it's added later.
+var tp3dMapBottomActions = document.createElement('div');
+tp3dMapBottomActions.className = 'map-bottom-actions';
+map.getContainer().appendChild(tp3dMapBottomActions);
+L.DomEvent.disableClickPropagation(tp3dMapBottomActions);
+L.DomEvent.disableScrollPropagation(tp3dMapBottomActions);
+
+// "Center DEM" -- only while a coverage outline is drawn; fits the view to the
+// whole outline.
 var tp3dDemCenterBtn = document.createElement('button');
 tp3dDemCenterBtn.type = 'button';
 tp3dDemCenterBtn.className = 'map-dem-center-btn';
@@ -127,9 +136,7 @@ tp3dDemCenterBtn.style.display = 'none';
 tp3dDemCenterBtn.addEventListener('click', function () {
     if (tp3dDemLayer.getLayers().length) map.fitBounds(tp3dDemLayer.getBounds(), { padding: [40, 40] });
 });
-map.getContainer().appendChild(tp3dDemCenterBtn);
-L.DomEvent.disableClickPropagation(tp3dDemCenterBtn);
-L.DomEvent.disableScrollPropagation(tp3dDemCenterBtn);
+tp3dMapBottomActions.appendChild(tp3dDemCenterBtn);
 
 // Drawn as a wide white casing under a thicker dashed green line, plus a faint
 // green tint inside, so the outline stays readable on every base layer --
