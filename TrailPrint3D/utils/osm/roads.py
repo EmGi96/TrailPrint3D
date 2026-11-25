@@ -378,9 +378,12 @@ def _triangulated_terrain_faces(map_obj: bpy.types.Object) -> list:
     """Return only the upward-facing triangles of the terrain as world-space triples.
 
     Must be captured BEFORE any boolean cuts a road/element out of the terrain.
-    Filtering to upward-facing faces (normal.z > 0.5) excludes side walls and
+    Filtering to upward-facing faces (normal.z > 0.05) excludes side walls and
     the flat base, both of which would inject wrong-Z geometry into the road
-    mesh if allowed to be clipped by the road polygon.
+    mesh if allowed to be clipped by the road polygon. The cutoff must stay
+    near 0 (walls are vertical): steep real terrain -- trenches, ramps, cliffs,
+    amplified by elevation scale -- easily exceeds 60 degrees, and any terrain
+    triangle dropped here becomes a hole in the road surface.
     """
     map_data: bpy.types.Mesh = map_obj.data
     
@@ -406,7 +409,7 @@ def _triangulated_terrain_faces(map_obj: bpy.types.Object) -> list:
         if len(f.verts) != 3:
             continue
         world_normal = mw_rot @ f.normal
-        if world_normal.z < 0.5:  # skip walls and bottom — only top surface
+        if world_normal.z <= 0.05:  # skip walls and bottom — only top surface
             continue
         tris.append(tuple(_world(v.co) for v in f.verts))
     bm.free()
@@ -708,6 +711,36 @@ def finalize_roads(
         )
 
 
+_PINCH_EPS = 1e-3  # mm -- far below anything a printer can resolve
+
+
+def _separate_pinched_parts(polygon):
+    """Pull apart road areas that only touch at a single point.
+
+    Clipping the road union to a puzzle piece (or the union itself) can leave
+    two road areas meeting at exactly one corner. clip_triangles_to_polygon
+    dedupes vertices, so both areas then share that corner's top and bottom
+    vertex, and after extrusion the vertical wall edge there belongs to four
+    faces -- a non-manifold edge that slicers flag.
+
+    Shrinking every outline inward by one micrometre (mitred, so corners stay
+    sharp) pulls such corners apart, well beyond the 1e-5 vertex dedupe in
+    clip_triangles_to_polygon. Growing back afterwards is deliberately skipped:
+    a mitred grow restores the exact corner and re-creates the pinch. One
+    micrometre per side is far below anything a printer can resolve.
+    """
+    if polygon is None or polygon.is_empty:
+        return polygon
+    try:
+        shrunk = polygon.buffer(-_PINCH_EPS, join_style="mitre", mitre_limit=10.0)
+    except Exception:
+        return polygon
+    # Never let the safety net remove real geometry (e.g. a degenerate input).
+    if shrunk.is_empty or shrunk.area < polygon.area * 0.9:
+        return polygon
+    return shrunk
+
+
 def roads_geometry_for_polygon(
     road_polygon,
     terrain_tris: list,
@@ -718,6 +751,9 @@ def roads_geometry_for_polygon(
     Mirrors finalize_roads but for an arbitrary polygon (e.g. one puzzle piece).
     Returns (None, None) if the polygon yields no geometry.
     """
+    road_polygon = _separate_pinched_parts(road_polygon)
+    if road_polygon is None or road_polygon.is_empty:
+        return None, None
     top_verts, top_tris = g2d.clip_triangles_to_polygon(
         terrain_tris, road_polygon, el_sHeight
     )

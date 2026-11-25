@@ -1460,7 +1460,7 @@ def _bevel_bottom_edges(obj, bevel_width):
     )
 
 
-def _cut_terrain_slab(terrain_obj, poly, bottom_z, top_z, name):
+def _cut_terrain_slab(terrain_obj, poly, bottom_z, top_z, name, matrix_world=None):
     """Cut ONE flat-prism + boolean-INTERSECT terrain slab for a single 2D
     polygon against terrain_obj, preserving terrain_obj's own per-face
     paint-mode element colors (water/forest/city/etc) through the cut.
@@ -1479,6 +1479,15 @@ def _cut_terrain_slab(terrain_obj, poly, bottom_z, top_z, name):
     carry a real material_index attribute through the operation even once
     slots get merged in afterward, so every face silently falls back to slot
     0 regardless of what the merged material list ends up containing.
+
+    *poly*/*bottom_z*/*top_z* are in world space by default. Pass
+    *matrix_world* to give them in that object space instead -- the slab
+    object then carries that transform, so its vertices stay small, local
+    coordinates. Use this when the slab will be unioned onto an object built
+    around its own local origin: a map sits at UTM-sized world coordinates
+    (~1e5), where float32 vertex positions only resolve ~0.008mm, so a
+    world-space slab's walls can't line up exactly with that object's own
+    exact local walls and the union leaves slivers along the seam.
 
     Returns the new object, or None if the polygon produced no geometry, or
     the INTERSECT emptied it out entirely (removed in that case too).
@@ -1500,6 +1509,9 @@ def _cut_terrain_slab(terrain_obj, poly, bottom_z, top_z, name):
 
     obj = bpy.data.objects.new(mesh.name, mesh)
     bpy.context.collection.objects.link(obj)
+    if matrix_world is not None:
+        obj.matrix_world = matrix_world
+        bpy.context.view_layer.update()
 
     boolean_operation(obj, terrain_obj, "INTERSECT")
     if len(obj.data.vertices) == 0:
