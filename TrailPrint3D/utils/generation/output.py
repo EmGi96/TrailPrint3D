@@ -293,7 +293,7 @@ _ELEMENT_OBJECT_TYPES = frozenset(
 def _rg_export_tiles(gen: GenerationContext, objects):
     """Export a Multi Tile Generator batch -- *objects* is every object
     carrying one of the batch's MultitileIndex values (tiles, trail pieces,
-    element meshes). Picks from them by the same rules _rg_export uses for a
+    element meshes, map connectors). Picks from them by the same rules _rg_export uses for a
     single map; the 3MF export then groups each tile with its own pieces
     (export.export_selected_to_3mf groups by MultitileIndex + ExportGroup)."""
     from ...export import (  # deferred to avoid circular import at load time
@@ -330,7 +330,9 @@ def _rg_export_tiles(gen: GenerationContext, objects):
                 use_3mf and mode == "PAINT" and obj_type in {"ROADS", "BUILDINGS"}
             )
         else:
-            keep = obj_type in {"MAP", "TEXT", "PLATE", "SHELL"}
+            # CONNECTOR: the dovetail map connectors placed beside the batch
+            # (premium operators_pe._place_map_connectors).
+            keep = obj_type in {"MAP", "TEXT", "PLATE", "SHELL", "CONNECTOR"}
         if keep:
             selected.append(obj)
     if not selected:
