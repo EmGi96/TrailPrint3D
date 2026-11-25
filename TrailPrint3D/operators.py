@@ -4522,6 +4522,9 @@ class TP3D_OT_puzzle_configurator(bpy.types.Operator):
             puzzle_size=puzzle_size,
         )
 
+        # Trail decals are separate objects -- anything new from here on
+        # tagged TRAIL gets auto-exported with the puzzle below.
+        objs_before_trails = set(bpy.data.objects.keys())
         if trails:
             # The actual per-piece decal is still built AFTER the cut, though
             # -- merge_active_with_map's non-single-color-mode path builds a
@@ -4606,11 +4609,18 @@ class TP3D_OT_puzzle_configurator(bpy.types.Operator):
             bpy.data.objects.remove(bpy.data.objects[blank_name], do_unlink=True)
 
         finished_objs = piece_objs + ([holder_obj] if holder_obj is not None else [])
+        trail_decals = [
+            o
+            for o in bpy.data.objects
+            if o.name not in objs_before_trails and o.get("Object type") == "TRAIL"
+        ]
         total_time = time.time() - start_time
         bpy.context.scene.tp3d["o_time"] = (
             "Script ran for {:.0f} seconds".format(total_time)
         )
         export.save_history_thumbnail(data.get("history_id"), finished_objs)
+        overlay.update(0.97, "Exporting…", "")
+        export.auto_export_puzzle(finished_objs + trail_decals, puzzle_name)
         # Re-zoom LAST, after the thumbnail render -- customThumbnail swaps in
         # its own temp top-down camera view for the screenshot and then tries
         # to restore the previous one, but a direct RegionView3D.view_matrix

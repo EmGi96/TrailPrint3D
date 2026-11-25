@@ -102,6 +102,134 @@ def export_selected_to_STL(force="STL"):
     active_obj = bpy.context.active_object
 
 
+_PAINT_COMPANION_MATERIALS = ("ROADS", "BUILDINGS")
+
+
+def _split_paint_companion_faces(duplicates):
+    """Split ROADS/BUILDINGS faces off textured export duplicates.
+
+    In texture mode the 3MF exporter colors a mesh only through its paint
+    texture (per-face materials are ignored), and roads/buildings are not
+    baked into that texture -- a normal map keeps them as separate ROADS/
+    BUILDINGS objects that export_selected_to_3mf gives a solid-colour paint
+    texture. Puzzle pieces and the sliding-puzzle frame have their road/
+    building shells joined into the textured mesh instead, so those faces
+    would sample whatever terrain colour sits at their (meaningless) UVs.
+    Moving them into their own duplicate, tagged like a normal map's
+    companion object (same ExportGroup/MultitileIndex, so it stays in the
+    piece's group), lets the existing companion colouring handle them.
+
+    Works on the export duplicates only -- the scene objects are untouched.
+    Returns the newly created objects.
+    """
+    import bmesh
+
+    new_objs = []
+    for dup in list(duplicates):
+        if dup.type != "MESH" or not dup.data.get("3mf_is_paint_texture"):
+            continue
+        mesh = dup.data
+        for mat_name in _PAINT_COMPANION_MATERIALS:
+            slot_idx = next(
+                (
+                    i
+                    for i, m in enumerate(mesh.materials)
+                    if m is not None and m.name.split(".")[0] == mat_name
+                ),
+                None,
+            )
+            if slot_idx is None:
+                continue
+            mat = mesh.materials[slot_idx]
+
+            bm = bmesh.new()
+            bm.from_mesh(mesh)
+            if not any(f.material_index == slot_idx for f in bm.faces):
+                bm.free()
+                continue
+
+            part_bm = bm.copy()
+            bmesh.ops.delete(
+                part_bm,
+                geom=[f for f in part_bm.faces if f.material_index != slot_idx],
+                context="FACES",
+            )
+            bmesh.ops.delete(
+                part_bm,
+                geom=[v for v in part_bm.verts if not v.link_faces],
+                context="VERTS",
+            )
+            for f in part_bm.faces:
+                f.material_index = 0
+            part_mesh = bpy.data.meshes.new(f"{mesh.name}_{mat_name}")
+            part_bm.to_mesh(part_mesh)
+            part_bm.free()
+            part_mesh.materials.append(mat)
+
+            bmesh.ops.delete(
+                bm,
+                geom=[f for f in bm.faces if f.material_index == slot_idx],
+                context="FACES",
+            )
+            bmesh.ops.delete(
+                bm, geom=[v for v in bm.verts if not v.link_faces], context="VERTS"
+            )
+            bm.to_mesh(mesh)
+            bm.free()
+            mesh.update()
+
+            part = bpy.data.objects.new(f"{dup.name}_{mat_name}", part_mesh)
+            bpy.context.scene.collection.objects.link(part)
+            part.parent = dup.parent
+            part.matrix_world = dup.matrix_world.copy()
+            part["Object type"] = mat_name
+            for key in ("ExportGroup", "MultitileIndex"):
+                if key in dup:
+                    part[key] = dup[key]
+            duplicates.append(part)
+            new_objs.append(part)
+    return new_objs
+
+
+def auto_export_puzzle(objects, name):
+    """Auto-export a finished puzzle (pieces, holder/frame, trail decals).
+
+    The puzzle generators build their terrain through runTileGeneration,
+    which never exports (its tile is only cut into pieces afterwards), so
+    they call this once everything exists. Same rules as a normal map's
+    auto-export (generation/output.py _rg_export): skipped when "Disable
+    auto export" is on; one 3MF named *name* when the 3MF addon is
+    installed and 3MF export isn't disabled; otherwise one file per object
+    -- OBJ in Paint mode so the per-face colors survive, STL otherwise.
+    """
+    tp3d = bpy.context.scene.tp3d
+    if tp3d.disable_auto_export:
+        print("Auto export disabled, skipping export")
+        return
+
+    alive = []
+    for obj in objects:
+        try:
+            if obj is not None and obj.name in bpy.data.objects:
+                alive.append(obj)
+        except ReferenceError:
+            continue
+    if not alive:
+        return
+
+    if is_3mf_extension_installed() and not tp3d.disable_3mf_export:
+        bpy.ops.object.select_all(action="DESELECT")
+        for obj in alive:
+            obj.select_set(True)
+        bpy.context.view_layer.objects.active = alive[0]
+        export_selected_to_3mf(filename=name, is_auto=True)
+    else:
+        exportformat = "OBJ" if tp3d.elementMode == "PAINT" else "STL"
+        for obj in alive:
+            export_to_STL(obj, exportformat)
+    bpy.ops.object.select_all(action="DESELECT")
+
+
 def export_selected_to_3mf(
     filename: str = "", is_auto: bool = False, manual: bool = False
 ):
@@ -167,6 +295,11 @@ def export_selected_to_3mf(
     tp3d = bpy.context.scene.tp3d
     if tp3d.tex_use_texture:
         import ast
+
+        # Roads/buildings joined into a textured mesh (puzzle pieces, the
+        # sliding-puzzle frame) become their own companion duplicates first,
+        # so the loop below colours them like a normal map's.
+        _split_paint_companion_faces(duplicates)
 
         from .props import texture_trail_active
         from .utils.texture import (
