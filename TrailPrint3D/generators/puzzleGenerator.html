@@ -1350,6 +1350,9 @@
             };
             document.getElementById('send').disabled = true;
             document.getElementById('status').textContent = 'Sending to Blender...';
+            // Keep this window: it shows the progress, then turns into the
+            // Post-processing page (Text and SVG) for the new pieces (picker_ui.js).
+            payload.stay_open = true;
             tp3dPushHistory(tp3dBuildStateSnapshot(), tp3dHistorySummary(), tp3dHistoryThumbnail()).then(function(historyId) {
                 payload.history_id = historyId;
                 return fetch('http://127.0.0.1:' + PORT + '/confirm', {
@@ -1359,7 +1362,14 @@
                     body: JSON.stringify(payload)
                 });
             })
-            .then(function() { window.close(); })
+            .then(function(r) { return r.text(); })
+            .then(function(text) {
+                var reply = null;
+                try { reply = JSON.parse(text); } catch (e) { reply = null; }
+                // An add-on without this answers "ok" and opens its own progress window.
+                if (reply && reply.progressPort) tp3dShowGenerationProgress(reply.progressPort);
+                else window.close();
+            })
             .catch(function() {
                 tp3dAlert('Could not connect to Blender. Ensure the addon is running.');
                 updateSendState();

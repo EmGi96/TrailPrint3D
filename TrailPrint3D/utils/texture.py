@@ -156,6 +156,72 @@ def _compute_local_bbox(terrain_obj):
     return min_x, min_y, max_x - min_x, max_y - min_y
 
 
+def find_paint_image(obj):
+    """obj's MMU_Paint texture: "<mesh name>_MMU_Paint", or else the one
+    its material shows -- puzzle pieces keep the image of the map they were
+    cut from (one shared texture, each piece's UVs on its own part of it)."""
+    mesh = getattr(obj, "data", None)
+    if mesh is None:
+        return None
+    image = bpy.data.images.get(f"{mesh.name}_MMU_Paint")
+    if image is not None:
+        return image
+    for mat in getattr(mesh, "materials", ()):
+        if mat is None or not mat.use_nodes or mat.node_tree is None:
+            continue
+        for node in mat.node_tree.nodes:
+            if node.type == "TEX_IMAGE" and node.image is not None and node.image.name.endswith("_MMU_Paint"):
+                return node.image
+    return None
+
+
+def _uv_frame(terrain_obj, resolution):
+    """(min_x, min_y, width, height) in local space such that the top
+    surface's UVs are u = (x - min_x) / width, v = (y - min_y) / height --
+    read back from the mesh's own UVs (upward faces only: side and bottom
+    loops are pinned to the base color's anchor pixels). For a mesh painted
+    on a texture it doesn't own (a puzzle piece). None if the UVs don't
+    follow such a mapping."""
+    mesh = terrain_obj.data
+    layer = mesh.uv_layers.active
+    if layer is None or not len(mesh.polygons):
+        return None
+    n_loops = len(mesh.loops)
+    uv = np.empty(n_loops * 2, dtype=np.float32)
+    layer.data.foreach_get("uv", uv)
+    uv = uv.reshape(-1, 2)
+    vidx = np.empty(n_loops, dtype=np.int32)
+    mesh.loops.foreach_get("vertex_index", vidx)
+    co = np.empty(len(mesh.vertices) * 3, dtype=np.float32)
+    mesh.vertices.foreach_get("co", co)
+    co = co.reshape(-1, 3)
+    normals = np.empty(len(mesh.polygons) * 3, dtype=np.float32)
+    mesh.polygons.foreach_get("normal", normals)
+    starts = np.empty(len(mesh.polygons), dtype=np.int32)
+    mesh.polygons.foreach_get("loop_start", starts)
+    totals = np.empty(len(mesh.polygons), dtype=np.int32)
+    mesh.polygons.foreach_get("loop_total", totals)
+    up = np.nonzero(normals.reshape(-1, 3)[:, 2] > 0.3)[0]
+    if len(up) < 3:
+        return None
+    loops = np.concatenate([np.arange(starts[i], starts[i] + totals[i]) for i in up])
+    x = co[vidx[loops], 0].astype(np.float64)
+    y = co[vidx[loops], 1].astype(np.float64)
+    u = uv[loops, 0].astype(np.float64)
+    v = uv[loops, 1].astype(np.float64)
+    if np.ptp(x) <= 0 or np.ptp(y) <= 0:
+        return None
+    a, b = np.polyfit(x, u, 1)
+    c, d = np.polyfit(y, v, 1)
+    if a <= 0 or c <= 0:
+        return None
+    # Off by more than two pixels somewhere: not a plain top-down mapping.
+    tol = 2.0 / max(1, resolution)
+    if np.abs(u - (a * x + b)).max() > tol or np.abs(v - (c * y + d)).max() > tol:
+        return None
+    return -b / a, -d / c, 1.0 / a, 1.0 / c
+
+
 def _new_paint_image(name, width, height, pixels):
     """Create (or replace) a packed sRGB Blender Image from a flat RGBA float buffer."""
     if name in bpy.data.images:
@@ -541,13 +607,20 @@ def bake_polygon_into_texture(terrain_obj, polygon, srgb, undo=False):
         return False
 
     mesh = terrain_obj.data
-    img_name = f"{mesh.name}_MMU_Paint"
-    image = bpy.data.images.get(img_name)
+    image = find_paint_image(terrain_obj)
     if image is None:
         return False
 
     resolution = image.size[0]
-    min_x, min_y, width, height = _compute_local_bbox(terrain_obj)
+    if image.name == f"{mesh.name}_MMU_Paint":
+        min_x, min_y, width, height = _compute_local_bbox(terrain_obj)
+    else:
+        # A texture this mesh doesn't own (a puzzle piece painting on the
+        # map it was cut from): where the mesh sits on it, from its UVs.
+        frame = _uv_frame(terrain_obj, resolution)
+        if frame is None:
+            return False
+        min_x, min_y, width, height = frame
     if width <= 0 or height <= 0:
         return False
 
@@ -932,6 +1005,169 @@ def _cached_height_field(mesh, min_x, min_y, width, height, resolution):
     return elev
 
 
+# Side walls can't take a top-down projection, so setup_paint_texture pins
+# every side/bottom loop to the BASE anchor block at (0, 0). Color by Height
+# gives each band its own anchor instead: a _SIDE_CELL x _SIDE_CELL texel
+# block, preferably outside the map's footprint (where no height bake ever
+# paints), that the side-wall faces above the threshold are pinned to.
+_SIDE_CELL = 5
+
+
+def _side_wall_faces(mesh):
+    """(face_nz, side_mask) -- side walls are near-vertical faces; bottoms
+    (nz = -1) stay on the BASE anchor, terrain (nz > 0.1) keeps its UVs."""
+    n_polys = len(mesh.polygons)
+    normals = np.empty(n_polys * 3, dtype=np.float32)
+    mesh.polygons.foreach_get("normal", normals)
+    nz = normals.reshape(-1, 3)[:, 2]
+    return nz, (nz < 0.1) & (nz > -0.9)
+
+
+def _used_side_cells(mesh, resolution):
+    """Anchor cells (row, col) the side-wall loops currently point at,
+    without the BASE anchor cell (0, 0)."""
+    uv_layer = mesh.uv_layers.get(_UV_LAYER_NAME)
+    if uv_layer is None or not len(mesh.polygons):
+        return set()
+    _nz, side = _side_wall_faces(mesh)
+    loop_totals = np.empty(len(mesh.polygons), dtype=np.int32)
+    mesh.polygons.foreach_get("loop_total", loop_totals)
+    side_loops = np.repeat(side, loop_totals)
+    if not side_loops.any():
+        return set()
+    uv = np.empty(len(mesh.loops) * 2, dtype=np.float32)
+    uv_layer.data.foreach_get("uv", uv)
+    uv = uv.reshape(-1, 2)[side_loops]
+    texels = np.clip((uv * resolution).astype(np.int64), 0, resolution - 1)
+    cells = {(int(r), int(c)) for c, r in np.unique(texels // _SIDE_CELL, axis=0)}
+    cells.discard((0, 0))
+    return cells
+
+
+def _free_side_cell(elev, used, resolution):
+    """A cell for a new side-wall anchor: one fully outside the map's
+    footprint if there is one (hexagons, circles, GeoJSON shapes...),
+    otherwise the next one along the bottom edge next to the BASE anchor
+    (a rectangular map covers the whole texture), like the BASE anchor
+    itself overwriting a few texels in the map's corner."""
+    n = resolution // _SIDE_CELL
+    outside = np.isnan(elev[: n * _SIDE_CELL, : n * _SIDE_CELL])
+    outside = outside.reshape(n, _SIDE_CELL, n, _SIDE_CELL).all(axis=(1, 3))
+    outside[0, 0] = False
+    for r, c in np.argwhere(outside):
+        if (int(r), int(c)) not in used:
+            return int(r), int(c)
+    for c in range(1, n):
+        if (0, c) not in used:
+            return 0, c
+    return None
+
+
+def _color_side_walls(mesh, z_threshold, color_f, arr, elev, resolution,
+                      noise_amplitude, noise_scale):
+    """Split the map's side walls at the (noised) threshold and pin the part
+    above it to a new anchor cell painted *color_f* in *arr*.
+
+    The cut follows the same noise as the top surface: every wall vertex is
+    shifted by the noise at its XY, the walls are bisected at the flat
+    threshold, then shifted back -- wall edges are vertical, so a new vertex
+    shares its edge's XY and gets the exact same offset.
+
+    Returns True if any side face was recolored.
+    """
+    import bmesh
+    from mathutils import Vector
+
+    if _UV_LAYER_NAME not in mesh.uv_layers:
+        return False
+
+    bm = bmesh.new()
+    try:
+        bm.from_mesh(mesh)
+        bm.faces.ensure_lookup_table()
+        _nz, side_mask = _side_wall_faces(mesh)
+        side_faces = [bm.faces[i] for i in np.flatnonzero(side_mask)]
+        if not side_faces:
+            return False
+
+        side_set = set(side_faces)
+        verts = {v for f in side_faces for v in f.verts}
+        # Only edges between wall faces (the vertical ones): splitting a
+        # wall's top edge would leave a collinear vertex in the terrain face
+        # next to it.
+        edges = [
+            e for e in {e for f in side_faces for e in f.edges}
+            if all(lf in side_set for lf in e.link_faces)
+        ]
+
+        def _offsets(points):
+            if noise_amplitude <= 0 or not len(points):
+                return np.zeros(len(points))
+            xy = np.array([(v.co.x, v.co.y) for v in points], dtype=np.float64)
+            return _value_noise_field(xy[:, 0], xy[:, 1], noise_scale) * noise_amplitude
+
+        verts = list(verts)
+        original_z = [v.co.z for v in verts]
+        for v, off in zip(verts, _offsets(verts)):
+            v.co.z -= off
+        result = bmesh.ops.bisect_plane(
+            bm,
+            geom=verts + edges + side_faces,
+            plane_co=Vector((0.0, 0.0, z_threshold)),
+            plane_no=Vector((0.0, 0.0, 1.0)),
+            clear_outer=False,
+            clear_inner=False,
+        )
+        for v, z in zip(verts, original_z):
+            v.co.z = z
+        old_verts = set(verts)
+        new_verts = [
+            g for g in result["geom"]
+            if isinstance(g, bmesh.types.BMVert) and g not in old_verts
+        ]
+        for v, off in zip(new_verts, _offsets(new_verts)):
+            v.co.z += off
+        bm.to_mesh(mesh)
+    finally:
+        bm.free()
+    mesh.update()
+
+    _nz, side_mask = _side_wall_faces(mesh)
+    n_polys = len(mesh.polygons)
+    centers = np.empty(n_polys * 3, dtype=np.float64)
+    mesh.polygons.foreach_get("center", centers)
+    centers = centers.reshape(-1, 3)
+    local = np.full(n_polys, float(z_threshold))
+    if noise_amplitude > 0 and side_mask.any():
+        local[side_mask] += _value_noise_field(
+            centers[side_mask, 0], centers[side_mask, 1], noise_scale
+        ) * noise_amplitude
+    above = side_mask & (centers[:, 2] > local)
+    if not above.any():
+        return False
+
+    used = _used_side_cells(mesh, resolution)
+    cell = _free_side_cell(elev, used, resolution)
+    if cell is None:
+        return False
+    r, c = cell
+    r0, c0 = r * _SIDE_CELL, c * _SIDE_CELL
+    arr[r0 : r0 + _SIDE_CELL, c0 : c0 + _SIDE_CELL] = color_f
+
+    loop_totals = np.empty(n_polys, dtype=np.int32)
+    mesh.polygons.foreach_get("loop_total", loop_totals)
+    above_loops = np.repeat(above, loop_totals)
+    uv_layer = mesh.uv_layers[_UV_LAYER_NAME]
+    uv_flat = np.empty(len(mesh.loops) * 2, dtype=np.float32)
+    uv_layer.data.foreach_get("uv", uv_flat)
+    uv = uv_flat.reshape(-1, 2)
+    centre = _SIDE_CELL // 2 + 0.5
+    uv[above_loops] = ((c0 + centre) / resolution, (r0 + centre) / resolution)
+    uv_layer.data.foreach_set("uv", uv_flat)
+    mesh.update()
+    return True
+
+
 def bake_height_layer_into_texture(
     terrain_obj, z_threshold, material=None, noise_amplitude=2.0, noise_scale=0.04
 ):
@@ -994,13 +1230,31 @@ def bake_height_layer_into_texture(
         if material is not None
         else _named_material_srgb("MOUNTAIN")
     )
+    color_f = (srgb[0] / 255.0, srgb[1] / 255.0, srgb[2] / 255.0, 1.0)
+    # Side-wall anchor cells earlier bands painted keep their colour -- only
+    # the wall faces this band moves onto its own cell change.
+    kept_cells = {
+        (r, c): arr[r * _SIDE_CELL : (r + 1) * _SIDE_CELL, c * _SIDE_CELL : (c + 1) * _SIDE_CELL].copy()
+        for r, c in _used_side_cells(mesh, resolution)
+    }
     if mountain_mask.any():
-        color_f = (srgb[0] / 255.0, srgb[1] / 255.0, srgb[2] / 255.0, 1.0)
         arr[mountain_mask] = color_f
         # Re-paint the base-colour anchor block (same as setup_paint_texture):
         # every side/bottom face's UVs are pinned to it, so a mountain pixel
         # landing on the map corner must not turn those faces mountain-coloured.
         arr[0:4, 0:4] = _srgb_to_rgba(_named_material_srgb("BASE"))
+    for (r, c), block in kept_cells.items():
+        arr[r * _SIDE_CELL : (r + 1) * _SIDE_CELL, c * _SIDE_CELL : (c + 1) * _SIDE_CELL] = block
+
+    # Color the side walls above the threshold too, like the page's preview.
+    # Only wall faces change, so the terrain height field stays valid: keep
+    # it cached under the mesh's new vertex/face counts for the next band.
+    sides_colored = _color_side_walls(
+        mesh, z_threshold, color_f, arr, elev, resolution, noise_amplitude, noise_scale
+    )
+    if sides_colored and _height_field_cache is not None:
+        key = (mesh.as_pointer(), len(mesh.vertices), len(mesh.polygons), min_x, min_y, width, height, resolution)
+        _height_field_cache[key] = elev
 
     image.pixels.foreach_set(arr.ravel())
     image.pack()
@@ -1019,7 +1273,7 @@ def bake_height_layer_into_texture(
             "rebuilding the height-bake palette entry."
         )
         palette = {}
-    mountain_hex = _srgb_to_hex(*srgb) if mountain_mask.any() else None
+    mountain_hex = _srgb_to_hex(*srgb) if mountain_mask.any() or sides_colored else None
     _sync_height_bake_palette(mesh, palette, arr, mountain_hex)
     mesh["3mf_paint_extruder_colors"] = str(palette)
 

@@ -56,8 +56,13 @@ def export_to_STL(zobj, force="STL"):
     zobj.select_set(False)  # Select the object
 
 
-def export_selected_to_STL(force="STL"):
+def export_selected_to_STL(force="STL", file_names=None):
+    """Export each selected object to its own file, named after the object
+    -- or *file_names*[object name] when given (the Post-processing page's
+    export name)."""
     from .utils import show_message_box
+
+    file_names = file_names or {}
 
     exportPath = bpy.context.scene.tp3d.get("export_path", None)
     if not exportPath:
@@ -76,10 +81,11 @@ def export_selected_to_STL(force="STL"):
         bpy.ops.object.select_all(action="DESELECT")
         zobj.select_set(True)
         bpy.context.view_layer.objects.active = zobj
+        file_name = _sanitize_filename(file_names.get(zobj.name, zobj.name))
 
         if (zobj.material_slots or force == "OBJ") and force != "STL":
             bpy.ops.wm.obj_export(
-                filepath=exportPath + _sanitize_filename(zobj.name) + ".obj",
+                filepath=exportPath + file_name + ".obj",
                 export_selected_objects=True,
                 export_triangulated_mesh=True,
                 apply_modifiers=True,
@@ -90,7 +96,7 @@ def export_selected_to_STL(force="STL"):
             # show_message_box("File Exported as OBJ because it contains Materials","INFO","OBJ File Exported")
         else:
             bpy.ops.wm.stl_export(
-                filepath=exportPath + _sanitize_filename(zobj.name) + ".stl",
+                filepath=exportPath + file_name + ".stl",
                 export_selected_objects=True,
             )
 

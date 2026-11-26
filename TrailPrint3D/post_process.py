@@ -48,19 +48,25 @@ PROJECTION_OPERATIONS = {"paint", "singleColorMode_remesh", "negative"}
 
 _FALLBACK_SRGB = (200, 200, 200)
 
+# The page's Export button: 3MF (colored models, needs the 3MF add-on), or
+# STL / OBJ (one color).
+EXPORT_FORMATS = ("3mf", "stl", "obj")
+
 
 # ── Which maps the page works on ─────────────────────────────────────────
 
 
-def is_page_map(obj) -> bool:
+def is_page_map(obj, puzzle=False) -> bool:
     """A generated map the page can work on: no puzzle pieces (jigsaw and
-    sliding both stamp PuzzleRow) and no Color by Height pieces."""
+    sliding both stamp PuzzleRow) and no Color by Height pieces. With
+    *puzzle*, only puzzle pieces -- the page's puzzle mode, opened by the
+    puzzle generators' hand-off."""
     try:
         return (
             obj is not None
             and obj.type == "MESH"
             and obj.get("Object type") == "MAP"
-            and "PuzzleRow" not in obj
+            and ("PuzzleRow" in obj) == bool(puzzle)
             and not obj.get("IsMountainPiece")
         )
     except ReferenceError:  # a removed object still held by a PointerProperty
@@ -74,16 +80,17 @@ def _in_scene(scene, obj) -> bool:
         return False
 
 
-def find_page_maps(context) -> list:
+def find_page_maps(context, puzzle=False) -> list:
     """The selected maps, or else the last generated one -- [] if neither.
+    With *puzzle*: the selected puzzle pieces, nothing else.
 
     The last generated map is tp3d.currentMap; if that pointer is empty (or
     points at something gone), the newest map still in the scene: the only
     one, or the one most recently made current (props.LAST_MAP_STAMP_PROP)."""
     from .props import LAST_MAP_STAMP_PROP
 
-    selected = [o for o in context.selected_objects if is_page_map(o)]
-    if selected:
+    selected = [o for o in context.selected_objects if is_page_map(o, puzzle)]
+    if selected or puzzle:
         return sorted(selected, key=lambda o: o.name)
     scene = context.scene
     current = scene.tp3d.currentMap
@@ -119,6 +126,10 @@ def find_companions(context, maps) -> list:
     so any element kind is covered. Never another puzzle piece."""
     names = {m.name for m in maps}
     boxes = [_world_bounds(m) for m in maps]
+    # Multi Tile map connectors lie in a block beside the tiles, not on one
+    # -- they belong by the batch's MultitileIndex (premium
+    # operators_pe._place_map_connectors tags them with it).
+    batch = {m["MultitileIndex"] for m in maps if "MultitileIndex" in m}
     view_layer = context.view_layer
     result = []
     for obj in context.scene.objects:
@@ -135,6 +146,9 @@ def find_companions(context, maps) -> list:
         if parent is not None and getattr(parent, "name", None) in names:
             result.append(obj)
             continue
+        if obj.get("Object type") == "CONNECTOR" and obj.get("MultitileIndex") in batch:
+            result.append(obj)
+            continue
         minx, miny, _minz, maxx, maxy, _maxz = _world_bounds(obj)
         cx, cy = (minx + maxx) / 2, (miny + maxy) / 2
         for bminx, bminy, _bz0, bmaxx, bmaxy, _bz1 in boxes:
@@ -142,6 +156,22 @@ def find_companions(context, maps) -> list:
                 result.append(obj)
                 break
     return result
+
+
+def tile_of(obj, maps):
+    """Name of the map in *maps* that *obj*'s footprint centre lies on
+    (its PARENT first), or None."""
+    parent = obj.get("PARENT")
+    names = {m.name for m in maps}
+    if parent is not None and getattr(parent, "name", None) in names:
+        return parent.name
+    minx, miny, _minz, maxx, maxy, _maxz = _world_bounds(obj)
+    cx, cy = (minx + maxx) / 2, (miny + maxy) / 2
+    for m in maps:
+        bminx, bminy, _bz0, bmaxx, bmaxy, _bz1 = _world_bounds(m)
+        if bminx - 1.0 <= cx <= bmaxx + 1.0 and bminy - 1.0 <= cy <= bmaxy + 1.0:
+            return m.name
+    return None
 
 
 def base_object(map_obj, companions):
@@ -209,10 +239,10 @@ def _ensure_object_mode(context):
 
 
 def _paint_image(obj):
-    data = getattr(obj, "data", None)
-    if data is None:
-        return None
-    return bpy.data.images.get(f"{data.name}_MMU_Paint")
+    # Also a puzzle piece's, which shares the texture of the map it was cut from.
+    from .utils.texture import find_paint_image
+
+    return find_paint_image(obj)
 
 
 def _save_image(image):
@@ -266,11 +296,17 @@ class Snapshot:
         # while the page is open must survive the page's Undo.
         self.created = None
         self.entries = []
+        # Each texture once: puzzle pieces all share their map's.
+        saved_images = set()
         for obj in objects:
             copy = obj.copy()
             if obj.data is not None:
                 copy.data = obj.data.copy()
             image = _paint_image(obj)
+            if image is not None and image.name in saved_images:
+                image = None
+            elif image is not None:
+                saved_images.add(image.name)
             self.entries.append({
                 "name": obj.name,
                 "data_name": obj.data.name if obj.data is not None else None,
@@ -590,6 +626,40 @@ def map_info(context, map_obj, companions, index):
     }
 
 
+def default_export_name(context, maps) -> str:
+    """The scene's Model Name (what the sidebar's 3MF export suggests), else
+    the first map's name."""
+    return (context.scene.tp3d.modelname or "").strip() or maps[0].name
+
+
+def is_multicolor(objects) -> bool:
+    """Whether *objects* print in more than one color: a paint-textured
+    part, or more than one distinct color among the materials their faces
+    actually use (one per part for curves/text)."""
+    from .utils.color import material_to_srgb
+
+    colors = set()
+    for obj in objects:
+        data = getattr(obj, "data", None)
+        if data is None:
+            continue
+        if obj.type == "MESH" and data.get("3mf_is_paint_texture") and _paint_image(obj) is not None:
+            return True
+        materials = list(getattr(data, "materials", []))
+        used = materials[:1]
+        if obj.type == "MESH" and len(materials) > 1 and len(data.polygons):
+            index = np.empty(len(data.polygons), dtype=np.int32)
+            data.polygons.foreach_get("material_index", index)
+            used = [materials[i] for i in np.unique(index) if i < len(materials)]
+        if not used:
+            used = [None]
+        for material in used:
+            colors.add(tuple(material_to_srgb(material)) if material is not None else None)
+        if len(colors) > 1:
+            return True
+    return False
+
+
 # ── Session ──────────────────────────────────────────────────────────────
 
 
@@ -597,8 +667,16 @@ class PostProcessSession:
     """One open Post-processing page: the maps it works on, its undo stack
     and the requests it gets from the page."""
 
-    def __init__(self, map_names):
+    # Puzzle mode: only these -- the rest (Color by Height, magnets,
+    # dovetails...) would break the pieces' fit or doesn't apply to them.
+    # Text and SVG are painted only (see _placement); Bottom Mark marks
+    # every piece.
+    PUZZLE_ACTIONS = ("text", "svg", "bottom_mark")
+
+    def __init__(self, map_names, puzzle=False):
         self.map_names = list(map_names)
+        # Working on puzzle pieces (see is_page_map) -- Text and SVG only.
+        self.puzzle = bool(puzzle)
         self._undo_stack = []
 
     # -- objects --------------------------------------------------------
@@ -607,7 +685,7 @@ class PostProcessSession:
         result = []
         for name in self.map_names:
             obj = context.scene.objects.get(name)
-            if obj is not None and is_page_map(obj):
+            if obj is not None and is_page_map(obj, self.puzzle):
                 result.append(obj)
         return result
 
@@ -622,6 +700,12 @@ class PostProcessSession:
         maps = self.maps(context)
         return maps, find_companions(context, maps)
 
+    def enabled_objects(self, context, disabled):
+        """page_objects without the tiles switched off on the page
+        (*disabled*: map names) -- what an Apply or preview works on."""
+        maps = [m for m in self.maps(context) if m.name not in disabled]
+        return maps, find_companions(context, maps)
+
     # -- requests -------------------------------------------------------
 
     def handle(self, context, request):
@@ -630,14 +714,18 @@ class PostProcessSession:
         kind = request.get("kind")
         action = request.get("action")
         params = request.get("params") or {}
+        # Tiles switched off on the page: Apply and previews leave them alone.
+        disabled = {str(n) for n in (request.get("disabled") or [])}
         if kind == "info":
             return {"rebuild": True}
         if kind == "undo":
             return self.undo(context)
         if kind == "preview":
-            return {"preview": self.preview(context, action, params)}
+            return {"preview": self.preview(context, action, params, disabled)}
         if kind == "apply":
-            return self.apply(context, action, params)
+            return self.apply(context, action, params, disabled)
+        if kind == "export":
+            return self.export(context, params.get("format"), params.get("name", ""))
         return {"messages": [{"level": "ERROR", "text": f"Unknown request {kind!r}"}]}
 
     def info(self, context):
@@ -649,7 +737,75 @@ class PostProcessSession:
             "colorRange": [min(r[0] for r in ranges), max(r[1] for r in ranges)] if ranges else None,
             "undo": [s.label for s in self._undo_stack],
             "premium": bool(temp.PREMIUMVERSION),
+            "puzzle": self.puzzle,
+            # Picks the page's Export choices: 3MF keeps colors, STL/OBJ don't.
+            "colored": is_multicolor(maps + companions),
+            "has3mf": bool(temp.has3mf),
+            # What the page's export-name field starts with.
+            "exportName": default_export_name(context, maps) if maps else "",
         }
+
+    # -- export ---------------------------------------------------------
+
+    def export(self, context, fmt, name=""):
+        """Export everything the page shows (maps and their parts) into the
+        export folder, the same way the sidebar's Export buttons do.
+
+        *name* is the page's export name: the 3MF's file name. STL/OBJ write
+        one file per part -- a single map gets *name* itself, every other
+        part "<name>_<object name>"."""
+        import os
+        import time
+
+        from . import addon_preferences
+        from . import export as tp3d_export
+
+        if fmt not in EXPORT_FORMATS:
+            return {"messages": [{"level": "ERROR", "text": f"Unknown export format {fmt!r}"}]}
+        maps, companions = self.page_objects(context)
+        if not maps:
+            return {"messages": [{"level": "ERROR", "text": _rpt("The map is no longer in the scene.")}]}
+        folder = addon_preferences.get_export_folder(context.scene.tp3d)
+        if not folder or not os.path.isdir(bpy.path.abspath(folder)):
+            return {"messages": [{"level": "ERROR", "text": _rpt("Choose an export folder first.")}]}
+        if fmt == "3mf" and not tp3d_export.is_3mf_extension_installed():
+            return {"messages": [{"level": "ERROR", "text": _rpt("3MF extension is not installed.")}]}
+
+        _ensure_object_mode(context)
+        objects = maps + companions
+        _select_only(context, objects, active=maps[0])
+        name = str(name or "").strip() or default_export_name(context, maps)
+        started = time.time()
+        try:
+            if fmt == "3mf":
+                tp3d_export.export_selected_to_3mf(name, manual=True)
+                names = [name]
+            else:
+                file_names = {o.name: f"{name}_{o.name}" for o in objects}
+                if len(maps) == 1:
+                    file_names[maps[0].name] = name
+                tp3d_export.export_selected_to_STL(fmt.upper(), file_names=file_names)
+                names = [file_names[o.name] for o in objects]
+        finally:
+            _select_only(context, self.maps(context))
+
+        # The export helpers report into Blender's overlay only -- check the
+        # files themselves for the page.
+        paths = [bpy.path.abspath(folder + tp3d_export._sanitize_filename(n) + "." + fmt) for n in names]
+        written = [p for p in paths if os.path.isfile(p) and os.path.getmtime(p) >= started - 2]
+        label = fmt.upper()
+        if not written:
+            return {"messages": [{"level": "ERROR", "text": _rpt(
+                "{fmt} export failed. Check Blender's System Console.").format(fmt=label)}]}
+        if len(written) == 1:
+            text = _rpt("Exported {file}").format(file=os.path.basename(written[0]))
+        else:
+            text = _rpt("Exported {count} {fmt} files").format(count=len(written), fmt=label)
+        messages = [{"level": "INFO", "text": text + "\n" + os.path.dirname(written[0])}]
+        if len(written) < len(paths):
+            messages.append({"level": "WARNING", "text": _rpt(
+                "{count} part(s) were not exported.").format(count=len(paths) - len(written))})
+        return {"messages": messages}
 
     def write_glb(self, context, path):
         maps, companions = self.page_objects(context)
@@ -661,6 +817,8 @@ class PostProcessSession:
                 "name": obj.name,
                 "role": "map" if owner else str(obj.get("Object type") or "part").lower(),
                 "map": owner,
+                # The tile it sits on -- the page greys a switched-off tile's parts too.
+                "tile": owner or tile_of(obj, maps),
             }))
         return write_scene_glb(path, parts, context.evaluated_depsgraph_get())
 
@@ -706,13 +864,19 @@ class PostProcessSession:
         "heightmap": "2D Heightmap",
     }
 
-    def apply(self, context, action, params):
+    def apply(self, context, action, params, disabled=()):
         handler = getattr(self, f"_apply_{action}", None)
         if handler is None or action not in self._LABELS:
             return {"messages": [{"level": "ERROR", "text": f"Unknown action {action!r}"}]}
-        maps, companions = self.page_objects(context)
-        if not maps:
+        if self.puzzle and action not in self.PUZZLE_ACTIONS:
+            return {"messages": [{"level": "ERROR", "text": _rpt(
+                "{action} isn't available for puzzles.").format(action=self._LABELS[action])}]}
+        if not self.maps(context):
             return {"messages": [{"level": "ERROR", "text": _rpt("The map is no longer in the scene.")}]}
+        maps, companions = self.enabled_objects(context, disabled)
+        if not maps:
+            return {"messages": [{"level": "WARNING", "text": _rpt(
+                "Every tile is switched off. Click a tile in the 3D view to switch it back on.")}]}
         _ensure_object_mode(context)
         snapshot = Snapshot(self._LABELS[action], context.scene, maps + companions)
         cursor = context.scene.cursor.location.copy()
@@ -894,14 +1058,15 @@ class PostProcessSession:
             obj["BottomMark"] = True
         return True
 
-    @staticmethod
-    def _placement(params, map_obj):
+    def _placement(self, params, map_obj):
         x = float(params.get("x", map_obj.location.x))
         y = float(params.get("y", map_obj.location.y))
         rotation = math.radians(float(params.get("rotation", 0.0)))
-        bottom = bool(params.get("bottom", False))
+        # Puzzles: painted on top only -- a cut or raised part (or a
+        # bottom-side shape, always cut in) would change the pieces' shape.
+        bottom = bool(params.get("bottom", False)) and not self.puzzle
         operation = params.get("operation", "paint")
-        if operation not in PROJECTION_OPERATIONS:
+        if operation not in PROJECTION_OPERATIONS or self.puzzle:
             operation = "paint"
         color = tuple(float(c) for c in params.get("color", (1.0, 1.0, 1.0)))[:3]
         return x, y, rotation, bottom, operation, color if operation == "paint" else None
@@ -918,15 +1083,26 @@ class PostProcessSession:
         x, y, rotation, bottom, operation, color = self._placement(params, map_obj)
         context.scene.cursor.location = map_obj.location.copy()
         obj = _build_text_object(context, body, params.get("font") or "", float(params.get("size", 10.0)))
-        low, high = getHighestLowest(map_obj)
-        obj.location = (x, y, (low - 0.2) if bottom else (high + 0.2))
+        obj.location = (x, y, map_obj.location.z)
         obj.rotation_euler.z = rotation
         obj.scale.x = -1.0 if bottom else 1.0
         if params.get("font"):
             context.scene.tp3d.textFont = params["font"]
-        error = finish_text_placement(context, map_obj, obj, bottom, operation, color)
-        if error:
-            raise RuntimeError(error)
+
+        # Onto every tile the text reaches, each with its own copy (the
+        # placement consumes it and clips it to that tile).
+        targets = maps_covered_by(context, obj, maps, map_obj)
+        if not targets:
+            messages.append(_off_tiles_only_message())
+            return False
+        pieces = [obj] + [_duplicate(obj) for _ in targets[1:]]
+        for target, piece in zip(targets, pieces):
+            context.scene.cursor.location = target.location.copy()
+            low, high = getHighestLowest(target)
+            piece.location.z = (low - 0.2) if bottom else (high + 0.2)
+            error = finish_text_placement(context, target, piece, bottom, operation, color)
+            if error:
+                raise RuntimeError(error)
         return True
 
     def _apply_svg(self, context, maps, companions, params, messages):
@@ -946,20 +1122,31 @@ class PostProcessSession:
         if svg is None:
             raise RuntimeError(_rpt("The SVG file has no usable shapes."))
         svg.data.materials.clear()
-        if "highestZ" in map_obj and "minThickness" in map_obj:
-            top = map_obj["highestZ"] + map_obj["minThickness"] + 0.5 + map_obj.location.z
-            low = map_obj.location.z - 0.5
-        else:
-            low, top = getHighestLowest(map_obj)
-            low, top = low - 0.2, top + 0.2
-        svg.location = (x, y, low if bottom else top)
+        svg.location = (x, y, map_obj.location.z)
         svg.rotation_euler.z = rotation
         svg.scale.x = -scale if bottom else scale
         svg.scale.y = scale
-        error = finish_svg_placement(context, map_obj, svg, bottom, operation, color)
-        if error:
-            # Fails the action -- the scene is put back, the page shows why.
-            raise RuntimeError(error)
+
+        # Onto every tile the SVG reaches, each with its own copy (the
+        # placement consumes it and clips it to that tile).
+        targets = maps_covered_by(context, svg, maps, map_obj)
+        if not targets:
+            messages.append(_off_tiles_only_message())
+            return False
+        pieces = [svg] + [_duplicate(svg) for _ in targets[1:]]
+        for target, piece in zip(targets, pieces):
+            if "highestZ" in target and "minThickness" in target:
+                top = target["highestZ"] + target["minThickness"] + 0.5 + target.location.z
+                low = target.location.z - 0.5
+            else:
+                low, top = getHighestLowest(target)
+                low, top = low - 0.2, top + 0.2
+            piece.location.z = low if bottom else top
+            context.scene.cursor.location = target.location.copy()
+            error = finish_svg_placement(context, target, piece, bottom, operation, color)
+            if error:
+                # Fails the action -- the scene is put back, the page shows why.
+                raise RuntimeError(error)
         return True
 
     def _apply_heightmap(self, context, maps, companions, params, messages):
@@ -984,14 +1171,23 @@ class PostProcessSession:
         heightmap.location = (x, y, map_obj.location.z - 0.1)
         heightmap.rotation_euler.z = rotation
         heightmap.scale.x = -1
-        operators_pe.finish_heightmap_placement(context, map_obj, heightmap)
+        # Into every tile's underside it reaches, like Text and SVG.
+        targets = maps_covered_by(context, heightmap, maps, map_obj)
+        if not targets:
+            messages.append(_off_tiles_only_message())
+            return False
+        pieces = [heightmap] + [_duplicate(heightmap) for _ in targets[1:]]
+        for target, piece in zip(targets, pieces):
+            piece.location.z = target.location.z - 0.1
+            context.scene.cursor.location = target.location.copy()
+            operators_pe.finish_heightmap_placement(context, target, piece)
         return True
 
     # -- previews (nothing in the scene changes) ------------------------
 
-    def preview(self, context, action, params):
+    def preview(self, context, action, params, disabled=()):
         if action == "magnets":
-            return self._preview_magnets(context, params)
+            return self._preview_magnets(context, params, disabled)
         if action == "text":
             return self._preview_text(context, params)
         if action == "svg":
@@ -1000,7 +1196,7 @@ class PostProcessSession:
             return self._preview_heightmap(context, params)
         return None
 
-    def _preview_magnets(self, context, params):
+    def _preview_magnets(self, context, params, disabled=()):
         from .operators import TP3D_OT_magnet_holes
         from .utils.magnet_layout import dovetail_footprints, magnet_layout
         from .utils.outline import get_bottom_outline, rotation_of
@@ -1009,7 +1205,7 @@ class PostProcessSession:
         diameter = float(params.get("diameter", tp3d.magnetDiameter))
         count = int(params.get("count", tp3d.magnetCount))
         margin = float(params.get("margin", tp3d.magnetMargin))
-        maps, companions = self.page_objects(context)
+        maps, companions = self.enabled_objects(context, disabled)
         result = []
         for obj in maps:
             base = base_object(obj, companions)
@@ -1105,6 +1301,78 @@ def _build_text_object(context, body, font_path, size):
     return obj
 
 
+def _world_footprint(obj, context):
+    """*obj*'s upward-facing triangles in world XY as one Shapely shape, or
+    None if it has none."""
+    from .utils import geometry2d as g2d
+
+    flat = _flat_triangles(obj, context)
+    if not flat:
+        return None
+    mw = obj.matrix_world
+    pts = [mw @ Vector((flat[i], flat[i + 1], 0.0)) for i in range(0, len(flat), 2)]
+    tris = []
+    for i in range(0, len(pts) - 2, 3):
+        tri = g2d.Polygon([(p.x, p.y) for p in pts[i:i + 3]])
+        if tri.is_valid and tri.area > 1e-9:
+            tris.append(tri)
+    if not tris:
+        return None
+    return g2d.union_all(tris)
+
+
+def _map_footprint_world(map_obj):
+    """The map's footprint in world XY (Shapely), or its bounding box when
+    it has no outline."""
+    from shapely import affinity
+
+    from .utils import geometry2d as g2d
+    from .utils.outline import get_bottom_outline
+
+    outline = get_bottom_outline(map_obj)
+    if outline is None:
+        minx, miny, _z0, maxx, maxy, _z1 = _world_bounds(map_obj)
+        return g2d.box(minx, miny, maxx, maxy)
+    m = map_obj.matrix_world
+    return affinity.affine_transform(outline, [m[0][0], m[0][1], m[1][0], m[1][1], m[0][3], m[1][3]])
+
+
+def maps_covered_by(context, obj, maps, primary):
+    """The page maps *obj* (a positioned text/SVG/... shape) lies on: every
+    map its footprint overlaps, *primary* (the map it was placed on) first.
+    Just [primary] if the footprint can't be worked out. *primary* is left
+    out when it isn't one of *maps* (a tile switched off on the page)."""
+    footprint = _world_footprint(obj, context)
+    if footprint is None or footprint.is_empty:
+        return [primary] if primary in maps else []
+    covered = [primary] if primary in maps else []
+    for map_obj in maps:
+        if map_obj is primary:
+            continue
+        try:
+            overlap = footprint.intersection(_map_footprint_world(map_obj)).area
+        except Exception as exc:  # noqa: BLE001 - a broken outline only skips that map
+            print(f"[TP3D post-process] footprint test failed for {map_obj.name}: {exc}")
+            continue
+        if overlap > 0.01:  # mm²: more than a touching edge
+            covered.append(map_obj)
+    return covered
+
+
+def _off_tiles_only_message():
+    return {"level": "WARNING", "text": _rpt(
+        "It only lies on tiles that are switched off. Click a tile in the 3D view to switch it back on.")}
+
+
+def _duplicate(obj):
+    copy = obj.copy()
+    if obj.data is not None:
+        copy.data = obj.data.copy()
+    for collection in obj.users_collection:
+        collection.objects.link(copy)
+    return copy
+
+
 def _flat_triangles(obj, context):
     """Upward-facing triangles of *obj* as a flat [x0, y0, x1, y1, ...]
     list in its local frame -- the 2D shape the page previews."""
@@ -1136,9 +1404,16 @@ def _flat_triangles(obj, context):
 def settings_state(context) -> dict:
     """SETTINGS_STATE for the page: the scene's own post-process values, so
     the page starts where the sidebar is."""
+    from .export import is_3mf_extension_installed
+    from .utils.ui_state import build_online_access_state
+
     tp3d = context.scene.tp3d
     gpx = tp3d.get("file_path", "") or ""
     return {
+        # has3mf / onlineAccess*: the Export button's 3MF install offer
+        # (assets/threemf_promo.js).
+        "has3mf": is_3mf_extension_installed(),
+        **build_online_access_state(),
         "premium": bool(temp.PREMIUMVERSION),
         "mountain_treshold": tp3d.mountain_treshold,
         "mountain_color": list(tp3d.mountain_color),

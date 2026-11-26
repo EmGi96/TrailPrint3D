@@ -560,12 +560,17 @@ def _load_icons(color='white'):
 
 # ── HTTP + browser window ─────────────────────────────────────────────────────
 
-def _run_browser(json_path):
-    import subprocess as sp
+def _serve(json_path, port, embedded=False):
+    """Serve the progress card (/), its state (/state) and /cancel on *port*.
 
-    port = _free_port()
+    *embedded*: the card is shown inside a generator page (an iframe) rather
+    than its own window -- no close button, and /state may be read by that
+    page (another port, so it needs the CORS header)."""
     icons_js = 'var ICONS = ' + json.dumps(_load_icons()) + ';'
-    html = _HTML.replace('__PORT__', str(port)).replace('__ICONS__', icons_js).encode('utf-8')
+    page = _HTML.replace('__PORT__', str(port)).replace('__ICONS__', icons_js)
+    if embedded:
+        page = page.replace('</style>', '.x{display:none}\n</style>', 1)
+    html = page.encode('utf-8')
 
     cancel_path = json_path.parent / 'trailprint_cancel.flag'
     try:
@@ -577,7 +582,7 @@ def _run_browser(json_path):
         def do_GET(self):
             if self.path == '/':
                 self._respond(200, 'text/html; charset=utf-8', html)
-            elif self.path == '/state':
+            elif self.path.split('?')[0] == '/state':
                 try:
                     body = json_path.read_bytes()
                 except OSError:
@@ -602,6 +607,8 @@ def _run_browser(json_path):
             self.send_response(code)
             self.send_header('Content-Type', ctype)
             self.send_header('Content-Length', len(body))
+            if embedded:
+                self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
             self.wfile.write(body)
 
@@ -610,6 +617,39 @@ def _run_browser(json_path):
 
     server = HTTPServer(('127.0.0.1', port), _Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
+def _run_embedded(json_path, port):
+    """No window: the generator page that stays open on Generate shows the
+    card from this server. After generation it waits for Blender's hand-off
+    (SubprocessProgress.hand_off: the next page's address, or none) so the
+    page can read it, then stops."""
+    server = _serve(json_path, port, embedded=True)
+    done_at = None
+    while True:
+        time.sleep(0.25)
+        try:
+            data = json.loads(json_path.read_text(encoding='utf-8'))
+        except (OSError, json.JSONDecodeError, ValueError):
+            continue
+        if data.get('active', True):
+            done_at = None
+            continue
+        done_at = done_at or time.time()
+        waited = time.time() - done_at
+        # The page polls twice a second -- give it time to read the
+        # hand-off, but never linger more than a few minutes.
+        if (data.get('handoff') and waited > 15) or waited > 300:
+            break
+    server.shutdown()
+
+
+def _run_browser(json_path):
+    import subprocess as sp
+
+    port = _free_port()
+    server = _serve(json_path, port)
 
     url     = f'http://127.0.0.1:{port}/'
     browser = _find_chromium()
@@ -697,7 +737,10 @@ if __name__ == '__main__':
     if len(sys.argv) < 2:
         sys.exit(1)
     _path = pathlib.Path(sys.argv[1])
-    if sys.platform in ('win32', 'darwin'):
+    if len(sys.argv) >= 4 and sys.argv[2] == '--embed':
+        # progress_win.py <state.json> --embed <port>
+        _run_embedded(_path, int(sys.argv[3]))
+    elif sys.platform in ('win32', 'darwin'):
         try:
             _run_browser(_path)
         except (OSError, RuntimeError) as e:

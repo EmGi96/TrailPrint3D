@@ -422,6 +422,74 @@ def test_reset_restores_every_default():
         assert _without_skipped(json.load(f)) == _without_skipped(json.loads(json.dumps(expected)))
 
 
+
+
+def test_profile_manager_deletes_and_renames():
+    """The post-process page's profile manager: delete/rename go to the 3MF
+    add-on's storage, and a scene using the profile follows (rename) or falls
+    back to the built-in one (delete). The built-in one can't be touched."""
+    from types import SimpleNamespace
+
+    from TrailPrint3D import picker_server
+
+    stored = ["Bambu P1S", "Prusa MK4"]
+
+    class FakeStorage:
+        @staticmethod
+        def list_profiles():
+            return [SimpleNamespace(name=n) for n in stored]
+
+        @staticmethod
+        def delete_profile(name):
+            if name not in stored:
+                return False
+            stored.remove(name)
+            return True
+
+        @staticmethod
+        def rename_profile(old, new):
+            stored[stored.index(old)] = new
+            return True
+
+    tp3d = SimpleNamespace(slicer_profile_name="Bambu P1S", slicer_profile_id="Bambu P1S")
+    with patch.object(picker_server, "_shared_profile_storage", lambda: FakeStorage):
+        ok, _msg = picker_server._rename_slicer_profile(tp3d, "Bambu P1S", "Prusa MK4")
+        assert not ok and stored == ["Bambu P1S", "Prusa MK4"]  # name taken
+        ok, _msg = picker_server._rename_slicer_profile(tp3d, "Bambu P1S", "  My P1S ")
+        assert ok and stored == ["My P1S", "Prusa MK4"]
+        assert tp3d.slicer_profile_name == "My P1S"
+
+        ok, _msg = picker_server._delete_slicer_profile(tp3d, "Prusa MK4")
+        assert ok and stored == ["My P1S"] and tp3d.slicer_profile_name == "My P1S"
+        ok, _msg = picker_server._delete_slicer_profile(tp3d, "My P1S")
+        assert ok and stored == [] and tp3d.slicer_profile_name == "NONE"
+
+        assert not picker_server._delete_slicer_profile(tp3d, "NONE")[0]
+        assert not picker_server._rename_slicer_profile(tp3d, "NONE", "X")[0]
+        assert not picker_server._delete_slicer_profile(tp3d, "Gone")[0]
+
+
+
+
+
+def test_generator_menu_lists_the_registered_generators():
+    """The page header's generator dropdown: the page's own generator is
+    current, and only registered generators are offered (the Premium ones
+    only in the Premium build)."""
+    from TrailPrint3D import picker_server
+
+    menu = picker_server.build_generator_menu("generators/map_generator.html")
+    ids = [item["id"] for item in menu["items"]]
+    assert menu["current"] == "map_generator", menu
+    for op_id in ("map_generator", "puzzle_configurator", "medal_holder_generator",
+                  "backplate_generator", "post_process_generator"):
+        assert op_id in ids, (op_id, ids)
+    for op_id in ids:
+        assert picker_server._generator_registered(op_id), op_id
+    assert picker_server.build_generator_menu("premium/generators/puzzleGenerator_pe.html")["current"] == "puzzle_configurator"
+    assert picker_server.build_generator_menu("postProcessGenerator.html")["current"] == "post_process_generator"
+
+
 _run("page edits survive into a new session", test_page_edits_survive_into_a_new_session)
 _run("reset restores every default", test_reset_restores_every_default)
 _run("WorldCover keeps its forced element mode", test_worldcover_keeps_its_forced_element_mode)
@@ -444,6 +512,8 @@ _run("default profile pref stores the name, not an index", test_default_profile_
 _run("picking a default profile switches the sidebar", test_picking_a_default_profile_switches_the_sidebar)
 _run("remember last used leaves the sidebar alone", test_remember_last_used_leaves_the_sidebar_alone)
 _run("default profile pref runs its update callback", test_default_profile_pref_runs_its_update_callback)
+_run("profile manager deletes and renames", test_profile_manager_deletes_and_renames)
+_run("generator menu lists the registered generators", test_generator_menu_lists_the_registered_generators)
 
 _TEMP_DIR.cleanup()
 print(f"\n{_passed} passed, {_failed} failed")

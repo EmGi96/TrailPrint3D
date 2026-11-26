@@ -3501,12 +3501,117 @@ def separate_mode_recess_cutter_from_prism(prism, original, map):
     return cutter
 
 
+def _cut_floor_below_terrain(bm, base_z, depth=1.0):
+    """Turn *bm* (a shape clipped to the map, from its base up to its
+    surface) into a cutter reaching *depth* below the deepest terrain point
+    under it: slice it flat there and drop everything below.
+
+    The deepest terrain point is the lowest vertex of an upward-facing face.
+    Not just any vertex above the base -- where the shape covers a recess in
+    the map's underside (bottom text, magnet holes, dovetails) or reaches its
+    edge, those are in the shape too, and a cutter down to them went
+    straight through the map. Returns False (bm untouched) if there's no
+    room for a floor."""
+    bm.normal_update()
+    terrain_z = min(
+        (v.co.z for f in bm.faces if f.normal.z > 0.1 for v in f.verts if v.co.z > base_z + 1e-4),
+        default=None,
+    )
+    if terrain_z is None:
+        return False
+    floor_z = terrain_z - depth
+    if floor_z <= base_z + 1e-4:
+        return False
+    result = bmesh.ops.bisect_plane(
+        bm,
+        geom=bm.verts[:] + bm.edges[:] + bm.faces[:],
+        plane_co=Vector((0.0, 0.0, floor_z)),
+        plane_no=Vector((0.0, 0.0, 1.0)),
+        clear_inner=True,
+    )
+    cut_edges = [g for g in result["geom_cut"] if isinstance(g, bmesh.types.BMEdge)]
+    if cut_edges:
+        bmesh.ops.holes_fill(bm, edges=cut_edges, sides=0)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    return True
+
+
+CUT_IN_WALL_MM = 0.5
+
+
+def _keep_wall_at_map_edge(cutter, map_obj, wall=CUT_IN_WALL_MM):
+    """Trim *cutter* (a "Cut in" solid) so it stays *wall* mm inside the
+    map's outline: a cut reaching the edge would otherwise open up the outer
+    wall and leave thin slivers standing. Returns False (cutter untouched)
+    if the outline can't be worked out or the trim fails."""
+    from . import geometry2d as g2d
+    from .outline import get_bottom_outline
+
+    try:
+        from shapely import affinity
+
+        outline = get_bottom_outline(map_obj)
+        if outline is None:
+            return False
+        m = map_obj.matrix_world
+        inset = affinity.affine_transform(
+            outline, [m[0][0], m[0][1], m[1][0], m[1][1], m[0][3], m[1][3]]
+        ).buffer(-wall, join_style="mitre")
+    except Exception as exc:  # noqa: BLE001 - a broken outline only skips the trim
+        print(f"[TP3D] cut-in wall: outline failed for {map_obj.name}: {exc}")
+        return False
+    polygons = list(g2d.iter_polygons(inset))
+    if not polygons:
+        return False
+
+    corners = [map_obj.matrix_world @ Vector(c) for c in map_obj.bound_box]
+    z_low = min(c.z for c in corners) - 10.0
+    z_high = max(c.z for c in corners) + 10.0
+
+    bm = bmesh.new()
+    for i, poly in enumerate(polygons):
+        part = g2d.polygon_to_mesh(f"TP3D_CutInWall_{i}", poly)
+        if part is None:
+            continue
+        part_mesh = part.data
+        bm.from_mesh(part_mesh)
+        bpy.data.objects.remove(part, do_unlink=True)
+        bpy.data.meshes.remove(part_mesh)
+    if not bm.faces:
+        bm.free()
+        return False
+    for v in bm.verts:
+        v.co.z = z_low
+    extruded = bmesh.ops.extrude_face_region(bm, geom=bm.faces[:])
+    for v in (g for g in extruded["geom"] if isinstance(g, bmesh.types.BMVert)):
+        v.co.z = z_high
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    mesh = bpy.data.meshes.new("TP3D_CutInWall")
+    bm.to_mesh(mesh)
+    bm.free()
+    keep = bpy.data.objects.new("TP3D_CutInWall", mesh)
+    bpy.context.collection.objects.link(keep)
+    try:
+        boolean_operation(cutter, keep, "INTERSECT")
+    finally:
+        bpy.data.objects.remove(keep, do_unlink=True)
+        bpy.data.meshes.remove(mesh)
+    return True
+
+
 def merge_with_map(
     mapobject,
     mergeobject,
     flatBottom=False,
     singleColorMode=False,
+    floor_below_terrain=False,
 ):
+    """Clip *mergeobject* (a flat shape) to the map below it, extruded from
+    the map's base up to its surface.
+
+    floor_below_terrain -- with flatBottom: the shape is a cutter ("Cut in"
+    text/SVG); its bottom ends 1 mm below the terrain under it everywhere,
+    see _cut_floor_below_terrain."""
 
     if mergeobject == None:
         print("func merge_with_map: No Object to merge with Map")
@@ -3623,13 +3728,16 @@ def merge_with_map(
             if lowestprojection + 1e-4 < v.co.z < secondlowestprojection:
                 secondlowestprojection = v.co.z
 
-        bottom_drop = secondlowestprojection - lowestprojection - 1
-        if is_ocean:
-            # Water must never sit below the terrain base.  The selected bottom
-            # face is already flush with the map base (z = lowestprojection);
-            # clamp the skirt so it is never pushed below that plane.
-            bottom_drop = max(bottom_drop, 0.0)
-        bpy.ops.transform.translate(value=(0, 0, bottom_drop), orient_type="LOCAL")
+        if floor_below_terrain and _cut_floor_below_terrain(bm, lowestprojection):
+            pass
+        else:
+            bottom_drop = secondlowestprojection - lowestprojection - 1
+            if is_ocean:
+                # Water must never sit below the terrain base.  The selected bottom
+                # face is already flush with the map base (z = lowestprojection);
+                # clamp the skirt so it is never pushed below that plane.
+                bottom_drop = max(bottom_drop, 0.0)
+            bpy.ops.transform.translate(value=(0, 0, bottom_drop), orient_type="LOCAL")
 
     bmesh.update_edit_mesh(mergeobject.data)
     bpy.ops.object.mode_set(mode="OBJECT")
@@ -3846,6 +3954,7 @@ def projection(operation, Mapobject, obj, color=None):
         remove_objects(thicker)
 
     if operation == "negative":
-        merge_with_map(Mapobject, obj, True)
+        merge_with_map(Mapobject, obj, True, floor_below_terrain=True)
+        _keep_wall_at_map_edge(obj, Mapobject)
         boolean_operation(Mapobject, obj, "DIFFERENCE")
         remove_objects(obj)

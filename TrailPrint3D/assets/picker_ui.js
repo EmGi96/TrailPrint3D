@@ -65,6 +65,69 @@ function tp3dConfirm(message, title, yesLabel, noLabel) {
     });
 }
 
+// Generate without closing the page: /confirm with stay_open answers with
+// progressPort, where the progress window process serves Blender's progress
+// card for this page instead of opening its own window (progress_win.py
+// --embed). Shows that card, then follows Blender's hand-off
+// (progress.SubprocessProgress.hand_off): switch this window to next_url --
+// the Post-processing page for the new map -- or offer to close it.
+// opts.wide: room for the card's progress column (360 px) next to its square
+// tile preview, which progress_win.py sizes to the column's height -- in the
+// default width the column gets squeezed (the Multi Tile Generator's grid).
+function tp3dShowGenerationProgress(progressPort, opts) {
+    opts = opts || {};
+    var base = 'http://127.0.0.1:' + progressPort;
+    var modal = document.createElement('div');
+    modal.className = 'tp3d-modal tp3d-gen-progress open' + (opts.wide ? ' wide' : '');
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-label', 'Generation progress');
+    modal.innerHTML = '<div class="tp3d-modal-box"><div class="modal-header"><span>Generating in Blender…</span></div>'
+        + '<iframe title="Generation progress"></iframe><div class="tp3d-gen-note" role="status"></div>'
+        + '<button type="button" class="btn-send full-width">Close window</button></div>';
+    document.body.appendChild(modal);
+    var title = modal.querySelector('.modal-header span');
+    var frame = modal.querySelector('iframe');
+    var note = modal.querySelector('.tp3d-gen-note');
+    var closeBtn = modal.querySelector('button');
+    closeBtn.style.display = 'none';
+    closeBtn.addEventListener('click', function() { window.close(); });
+
+    var started = Date.now();
+    var frameShown = false;
+    function finished(text) {
+        title.textContent = 'Done';
+        note.textContent = text;
+        closeBtn.style.display = '';
+        closeBtn.focus();
+    }
+    function poll() {
+        fetch(base + '/state', { cache: 'no-store' })
+            .then(function(r) { return r.json(); })
+            .then(function(state) {
+                if (!frameShown) { frameShown = true; frame.src = base + '/'; }
+                if (state.handoff) {
+                    if (state.next_url) {
+                        note.textContent = 'Opening Post-processing…';
+                        window.location.href = state.next_url;
+                    } else {
+                        finished('Generation finished. You can close this window.');
+                    }
+                    return;
+                }
+                setTimeout(poll, 500);
+            })
+            .catch(function() {
+                // The progress process starts with the generation itself.
+                if (!frameShown && Date.now() - started > 60000) {
+                    note.textContent = 'No progress from Blender yet — it may still be busy.';
+                    closeBtn.style.display = '';
+                }
+                setTimeout(poll, 700);
+            });
+    }
+    poll();
+}
+
 // Free-vs-Premium comparison, opened by the "Upgrade" button next to the
 // generator name on the free pages (any button with data-upgrade-panel --
 // the premium pages simply don't have one). Links are the same Patreon /
@@ -452,6 +515,63 @@ document.addEventListener('keydown', function(event) {
         });
         observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] });
         syncDialogs();
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+    else init();
+})();
+
+// Generator switcher: the header's generator name ("Map Generator", ...)
+// becomes a dropdown of every generator. Picking one asks Blender to open
+// it in this same window (POST /switch_generator, picker_server.
+// process_generator_switch) and then goes to its page.
+(function() {
+    function init() {
+        var label = document.querySelector('.sidebar-subtitle');
+        if (!label) return;
+        fetch('/generator_menu', { cache: 'no-store' })
+            .then(function(r) { return r.json(); })
+            .then(function(menu) {
+                var items = (menu && menu.items) || [];
+                if (items.length < 2 || !menu.current) return;
+                var select = document.createElement('select');
+                select.className = 'sidebar-subtitle tp3d-generator-switch';
+                select.title = 'Switch to another generator';
+                select.setAttribute('aria-label', 'Generator');
+                items.forEach(function(item) {
+                    var opt = document.createElement('option');
+                    opt.value = item.id;
+                    opt.textContent = item.label;
+                    select.appendChild(opt);
+                });
+                select.value = menu.current;
+                select.addEventListener('change', function() {
+                    var target = select.value;
+                    if (target === menu.current) return;
+                    select.disabled = true;
+                    fetch('/switch_generator', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ id: target })
+                    })
+                        .then(function(r) { return r.json(); })
+                        .then(function(reply) {
+                            if (reply && reply.ok && reply.next_url) {
+                                window.location.href = reply.next_url;
+                                return;
+                            }
+                            select.value = menu.current;
+                            select.disabled = false;
+                            tp3dAlert((reply && reply.message) || 'Could not open that generator.', 'Generator');
+                        })
+                        .catch(function() {
+                            select.value = menu.current;
+                            select.disabled = false;
+                            tp3dAlert('Could not reach Blender — is it still running?', 'Generator');
+                        });
+                });
+                label.replaceWith(select);
+            })
+            .catch(function() {});
     }
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
     else init();

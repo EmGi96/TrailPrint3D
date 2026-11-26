@@ -4024,6 +4024,28 @@ def _generate_trails(
     return trails
 
 
+def hand_off_puzzle_to_post_process(context, before, back_to):
+    """A puzzle generator's page stayed open on Generate: select the pieces
+    the generation just made (every puzzle piece not in *before*, the scene's
+    object names beforehand) and switch the page to Post-processing for them
+    -- Text and SVG only. With no pieces, the page just closes."""
+    from . import post_process
+
+    pieces = [
+        o for o in context.scene.objects
+        if o.name not in before and post_process.is_page_map(o, puzzle=True)
+    ]
+    if pieces:
+        for obj in context.selected_objects:
+            obj.select_set(False)
+        for piece in pieces:
+            piece.select_set(True)
+        context.view_layer.objects.active = pieces[0]
+    TP3D_OT_map_generator._hand_off_to_post_process(
+        context, bool(pieces), back_to=back_to, puzzle=True
+    )
+
+
 class TP3D_OT_puzzle_configurator(bpy.types.Operator):
     bl_idname = "tp3d.puzzle_configurator"
     bl_label = _("Jigsaw Puzzle Generator")
@@ -4036,6 +4058,10 @@ class TP3D_OT_puzzle_configurator(bpy.types.Operator):
     _result_path: str = ""
     _server = None
 
+    # Set by the Post-processing page's "Back to Configuration": the page's
+    # own window switches here, so no new window is opened.
+    reuse_window: bpy.props.BoolProperty(default=False, options={"HIDDEN", "SKIP_SAVE"})  # type: ignore
+
     def modal(self, context, event):
         if event.type != "TIMER":
             return {"PASS_THROUGH"}
@@ -4043,6 +4069,9 @@ class TP3D_OT_puzzle_configurator(bpy.types.Operator):
         from . import picker_server as mp
 
         if not mp.is_active_server(self._server):  # another generator page took over
+            self._cleanup(context)
+            return {"CANCELLED"}
+        if mp.process_generator_switch(self._server):  # header dropdown: another generator
             self._cleanup(context)
             return {"CANCELLED"}
         for key in mp.drain_pending_toggles():
@@ -4073,8 +4102,11 @@ class TP3D_OT_puzzle_configurator(bpy.types.Operator):
 
         from .utils.osm import exclusions
 
+        stay_open = False
+        before = {o.name for o in context.scene.objects}
         try:
             data = json.loads(rp.read_text(encoding="utf-8"))
+            stay_open = bool(data.get("stay_open"))
             # OSM elements switched off in the picker's prefetch preview --
             # dropped from every fetched tile for this one generation only.
             exclusions.set_excluded(data.get("excluded_ids"))
@@ -4103,7 +4135,11 @@ class TP3D_OT_puzzle_configurator(bpy.types.Operator):
             except OSError:
                 pass
             self._cleanup(context)
+            # Never left over for an unrelated later generation.
+            mp.take_embedded_progress_port()
 
+        if stay_open:
+            hand_off_puzzle_to_post_process(context, before, "puzzle_configurator")
         return {"FINISHED"}
 
     def _start_prefetch(self, context, request):
@@ -4138,6 +4174,7 @@ class TP3D_OT_puzzle_configurator(bpy.types.Operator):
         utils.restore_generator_settings(context.scene.tp3d, "puzzle")
         self._server = mp.start_picker(
             self._result_path,
+            open_browser=not self.reuse_window,
             existing_maps=_collect_existing_maps(),
             existing_trails=_collect_existing_trails(),
             obj_size=context.scene.tp3d.objSize,
@@ -4699,6 +4736,10 @@ class TP3D_OT_map_generator(bpy.types.Operator):
     _server = None
     _processing = False
 
+    # Set by the Post-processing page's "Back to Configuration": its window
+    # switches to this page itself (picker_server.active_url()).
+    reuse_window: bpy.props.BoolProperty(default=False, options={"HIDDEN", "SKIP_SAVE"})  # type: ignore
+
     _TYPE_MAP = {
         "rectangle": "SQUARE",
         "square": "SQUARE",
@@ -4715,6 +4756,9 @@ class TP3D_OT_map_generator(bpy.types.Operator):
         from . import picker_server as mp
 
         if not mp.is_active_server(self._server):  # another generator page took over
+            self._cleanup(context)
+            return {"CANCELLED"}
+        if mp.process_generator_switch(self._server):  # header dropdown: another generator
             self._cleanup(context)
             return {"CANCELLED"}
         for key in mp.drain_pending_toggles():
@@ -4747,13 +4791,17 @@ class TP3D_OT_map_generator(bpy.types.Operator):
             return {"PASS_THROUGH"}
 
         self._processing = True
+        stay_open = False
+        succeeded = False
         try:
             data = json.loads(rp.read_text(encoding="utf-8"))
             try:
                 rp.unlink()
             except OSError:
                 pass
+            stay_open = bool(data.get("stay_open"))
             self._apply_result(context, data)
+            succeeded = True
         except Exception as exc:
             import traceback
 
@@ -4766,8 +4814,38 @@ class TP3D_OT_map_generator(bpy.types.Operator):
         finally:
             self._processing = False
             self._cleanup(context)
+            # Never left over for an unrelated later generation.
+            mp.take_embedded_progress_port()
 
+        if stay_open:
+            self._hand_off_to_post_process(context, succeeded)
         return {"FINISHED"}
+
+    @staticmethod
+    def _hand_off_to_post_process(context, succeeded, back_to="map_generator", puzzle=False):
+        """The page stayed open on Generate and showed the progress card:
+        now switch that same window to the Post-processing page for the new
+        map -- or, if there's nothing to post-process, let it close. Also
+        used by the Multi Tile Generator (premium TP3D_OT_map_picker, with
+        its new tiles selected) and the puzzle generators (*puzzle*, with
+        the new pieces selected -- the page then offers Text and SVG only);
+        *back_to* is the generator the page's "Back to Configuration"
+        reopens (one of TP3D_OT_post_process_generator's _BACK_TARGETS)."""
+        from . import picker_server as mp
+
+        next_url = None
+        # poll() only knows maps, not puzzle pieces -- invoke checks those.
+        if succeeded and (puzzle or bpy.ops.tp3d.post_process_generator.poll()):
+            try:
+                result = bpy.ops.tp3d.post_process_generator(
+                    "INVOKE_DEFAULT", reuse_window=True, back_to=back_to, puzzle=puzzle
+                )
+            except RuntimeError as exc:
+                print(f"{back_to}: could not open Post-processing: {exc}")
+                result = set()
+            if "RUNNING_MODAL" in result:
+                next_url = mp.active_url()
+        _progress.SubprocessProgress.get().hand_off(next_url)
 
     def _start_prefetch(self, context, request):
         from . import picker_server as mp
@@ -4810,6 +4888,7 @@ class TP3D_OT_map_generator(bpy.types.Operator):
             advanced_settings=utils.build_advanced_settings_state(context.scene.tp3d),
             dem_bounds=_dem_coverage_overlay(),
             element_source=context.scene.tp3d.elementSource,
+            open_browser=not self.reuse_window,
         )
 
         wm = context.window_manager
@@ -5543,6 +5622,10 @@ class TP3D_OT_medal_holder_generator(bpy.types.Operator):
     _result_path: str = ""
     _server = None
 
+    # Set when another page switches its window here (Post-processing's
+    # "Back to Configuration", the header's generator dropdown).
+    reuse_window: bpy.props.BoolProperty(default=False, options={"HIDDEN", "SKIP_SAVE"})  # type: ignore
+
     def modal(self, context, event):
         if event.type != "TIMER":
             return {"PASS_THROUGH"}
@@ -5550,6 +5633,9 @@ class TP3D_OT_medal_holder_generator(bpy.types.Operator):
         from . import picker_server as mp
 
         if not mp.is_active_server(self._server):  # another generator page took over
+            self._cleanup(context)
+            return {"CANCELLED"}
+        if mp.process_generator_switch(self._server):  # header dropdown: another generator
             self._cleanup(context)
             return {"CANCELLED"}
         # This page only sends the export-folder button's 'exportFolder'.
@@ -5636,6 +5722,7 @@ class TP3D_OT_medal_holder_generator(bpy.types.Operator):
         self._server = mp.start_picker(
             self._result_path,
             html_path=html_path,
+            open_browser=not self.reuse_window,
             # The page's magnet-hole fields start from the scene's own
             # Magnet Diameter/Height, same as the map tiles' Magnet Holes.
             # has3mf and the online access keys: read by threemf_promo.js.
@@ -5713,6 +5800,10 @@ class TP3D_OT_backplate_generator(bpy.types.Operator):
     _result_path: str = ""
     _server = None
 
+    # Set when another page switches its window here (Post-processing's
+    # "Back to Configuration", the header's generator dropdown).
+    reuse_window: bpy.props.BoolProperty(default=False, options={"HIDDEN", "SKIP_SAVE"})  # type: ignore
+
     def modal(self, context, event):
         if event.type != "TIMER":
             return {"PASS_THROUGH"}
@@ -5720,6 +5811,9 @@ class TP3D_OT_backplate_generator(bpy.types.Operator):
         from . import picker_server as mp
 
         if not mp.is_active_server(self._server):  # another generator page took over
+            self._cleanup(context)
+            return {"CANCELLED"}
+        if mp.process_generator_switch(self._server):  # header dropdown: another generator
             self._cleanup(context)
             return {"CANCELLED"}
         # This page only sends the export-folder button's 'exportFolder'.
@@ -5817,7 +5911,8 @@ class TP3D_OT_backplate_generator(bpy.types.Operator):
         settings_state["has3mf"] = temp.has3mf  # read by threemf_promo.js
         settings_state.update(utils.build_online_access_state())
         self._server = mp.start_picker(
-            self._result_path, html_path=html_path, settings_state=settings_state
+            self._result_path, html_path=html_path, settings_state=settings_state,
+            open_browser=not self.reuse_window,
         )
 
         wm = context.window_manager
@@ -5882,15 +5977,40 @@ class TP3D_OT_post_process_generator(bpy.types.Operator):
     _result_path: str = ""
     _server = None
     _session = None
+    # Set when the page went "Back to Configuration": this server keeps
+    # answering until then, so the page can read the generator's address.
+    _closing_at = None
+
+    # Generator pages the page can go back to (tp3d.<name>, each with its
+    # own reuse_window option).
+    # map_picker is the premium Multi Tile Generator, sliding_puzzle_configurator
+    # the premium Sliding Puzzle Generator.
+    _BACK_TARGETS = (
+        "map_generator", "map_picker", "puzzle_configurator", "sliding_puzzle_configurator",
+    )
+
+    # Set by the map generator's hand-off: its window switches to this page
+    # itself (picker_server.active_url()), so no new window is opened.
+    reuse_window: bpy.props.BoolProperty(default=False, options={"HIDDEN", "SKIP_SAVE"})  # type: ignore
+    # The generator that handed off to this page (one of _BACK_TARGETS) --
+    # shows the page's "Back to Configuration" button. Empty when the page
+    # was opened on its own.
+    back_to: bpy.props.StringProperty(default="", options={"HIDDEN", "SKIP_SAVE"})  # type: ignore
+    # Set by the puzzle generators' hand-off: works on the selected puzzle
+    # pieces, with Text and SVG only (post_process.PostProcessSession.puzzle).
+    puzzle: bpy.props.BoolProperty(default=False, options={"HIDDEN", "SKIP_SAVE"})  # type: ignore
 
     @classmethod
     def poll(cls, context):
         from . import post_process
 
-        if context.scene is None or not post_process.find_page_maps(context):
-            cls.poll_message_set(
-                _("Select a map, or generate one first (puzzle pieces don't count)")
-            )
+        # Puzzle pieces count too (puzzle mode, see invoke) -- the puzzle
+        # generators' hand-off runs through this poll as well.
+        if context.scene is None or not (
+            post_process.find_page_maps(context)
+            or post_process.find_page_maps(context, puzzle=True)
+        ):
+            cls.poll_message_set(_("Select a map or puzzle pieces, or generate a map first"))
             return False
         return True
 
@@ -5900,9 +6020,31 @@ class TP3D_OT_post_process_generator(bpy.types.Operator):
 
         from . import picker_server as mp
 
+        if self._closing_at is not None:
+            if time.time() < self._closing_at:
+                return {"PASS_THROUGH"}
+            self._cleanup(context)
+            return {"FINISHED"}
+
         if not mp.is_active_server(self._server):  # another generator page took over
             self._cleanup(context)
             return {"CANCELLED"}
+        if mp.process_generator_switch(self._server):  # header dropdown: another generator
+            self._cleanup(context)
+            return {"CANCELLED"}
+
+        # The Export button's folder picker ('exportFolder') and its 3MF
+        # add-on install offer (assets/threemf_promo.js).
+        for key, value in mp.drain_pending_settings():
+            utils.apply_setting_update(context.scene.tp3d, key, value)
+        if mp.drain_pending_3mf_install():
+            from . import temp
+
+            bpy.ops.tp3d.install_three_mf()
+            mp.merge_settings_snapshot({"has3mf": temp.has3mf})
+        mp.merge_settings_snapshot(utils.build_online_access_state())
+        # The export dock's Print Profile dropdown and its manager.
+        mp.process_slicer_profile_requests(context.scene.tp3d)
 
         # One request per tick, so the page's status polls get answered
         # between long actions.
@@ -5926,6 +6068,9 @@ class TP3D_OT_post_process_generator(bpy.types.Operator):
 
         job = mp.post_process_job()
         seq = request.get("seq")
+        if request.get("kind") == "back":
+            self._go_back(context, seq)
+            return
         job.update(status="running", seq=seq)
         try:
             result = self._session.handle(context, request)
@@ -5945,13 +6090,47 @@ class TP3D_OT_post_process_generator(bpy.types.Operator):
             return
         job.update(status="done", seq=seq, result=result)
 
+    def _go_back(self, context, seq):
+        """"Back to Configuration": reopen the generator that handed off to
+        this page, in the same window (its page restores its own saved
+        state), and answer the page with that page's address."""
+        from . import picker_server as mp
+
+        next_url = None
+        op = getattr(bpy.ops.tp3d, self.back_to, None) if self.back_to in self._BACK_TARGETS else None
+        if op is not None:
+            # Keep this server answering -- the generator's start_picker
+            # would shut it down before the page reads the address.
+            mp.detach_active_server()
+            try:
+                result = op("INVOKE_DEFAULT", reuse_window=True)
+            except RuntimeError as exc:
+                print(f"Post-processing: could not reopen {self.back_to}: {exc}")
+                result = set()
+            if "RUNNING_MODAL" in result:
+                next_url = mp.active_url()
+        job = mp.post_process_job()  # start_picker reset it -- answer afterwards
+        if next_url:
+            job.update(status="done", seq=seq, result={"messages": [], "next_url": next_url})
+            # The page polls its status twice a second; then this page's
+            # server and session go.
+            self._closing_at = time.time() + 5.0
+        else:
+            job.update(status="done", seq=seq, result={"messages": [{
+                "level": "ERROR", "text": _rpt("Could not reopen the generator."),
+            }]})
+
     def invoke(self, context, event):
         import tempfile
 
         from . import picker_server as mp
         from . import post_process
 
-        maps = post_process.find_page_maps(context)
+        maps = post_process.find_page_maps(context, puzzle=self.puzzle)
+        if not maps and not self.puzzle:
+            # Only puzzle pieces selected: puzzle mode (Text and SVG only).
+            maps = post_process.find_page_maps(context, puzzle=True)
+            self.puzzle = bool(maps)
         if not maps:
             self.report({"ERROR"}, _rpt("Select a map, or generate one first."))
             return {"CANCELLED"}
@@ -5965,12 +6144,18 @@ class TP3D_OT_post_process_generator(bpy.types.Operator):
         if rp.exists():
             rp.unlink()
 
-        self._session = post_process.PostProcessSession([m.name for m in maps])
+        self._session = post_process.PostProcessSession([m.name for m in maps], puzzle=self.puzzle)
         html_path = pathlib.Path(__file__).parent / "generators" / "postProcessGenerator.html"
+        settings = post_process.settings_state(context)
+        # The page shows "Back to Configuration" only when a generator handed off.
+        settings["backTo"] = self.back_to if self.back_to in self._BACK_TARGETS else ""
+        # Puzzle mode: the page shows only its Text and SVG tools.
+        settings["puzzle"] = bool(self.puzzle)
         self._server = mp.start_picker(
             self._result_path,
             html_path=html_path,
-            settings_state=post_process.settings_state(context),
+            settings_state=settings,
+            open_browser=not self.reuse_window,
         )
 
         wm = context.window_manager

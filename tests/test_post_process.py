@@ -135,9 +135,11 @@ def test_find_page_maps_selection_and_fallback():
     _select([a, b, piece])
     assert [o.name for o in post_process.find_page_maps(bpy.context)] == ["TileA", "TileB"]
 
-    _select([piece])  # puzzle pieces never count...
+    _select([piece])  # puzzle pieces aren't maps...
     assert post_process.find_page_maps(bpy.context) == []
-    assert not bpy.ops.tp3d.post_process_generator.poll()
+    # ...but they open the page in puzzle mode (Text and SVG only) -- the
+    # puzzle generators' hand-off goes through this poll.
+    assert bpy.ops.tp3d.post_process_generator.poll()
 
     bpy.context.scene.tp3d.currentMap = a  # ...but the last generated map does
     assert [o.name for o in post_process.find_page_maps(bpy.context)] == ["TileA"]
@@ -505,6 +507,236 @@ def test_svg_apply():
     session.dispose()
 
 
+def test_text_and_svg_across_tiles():
+    """A shape over the seam of two tiles goes onto both, not just the one
+    its center is on -- and one well inside a tile leaves the other alone."""
+    a = _terrain_map("TileA")
+    b = _terrain_map("TileB", offset=(101.0, 0.0))
+    session = _session([a, b])
+
+    def counts():
+        return len(a.data.polygons), len(b.data.polygons)
+
+    start = counts()
+    result = session.apply(bpy.context, "text", {
+        "map": "TileA", "text": "HELLO", "size": 12, "x": 48, "y": 0, "rotation": 0,
+        "bottom": False, "operation": "negative",
+    })
+    assert result["messages"][0]["level"] == "INFO", _messages_text(result)
+    after_text = counts()
+    assert after_text[0] != start[0] and after_text[1] != start[1], (start, after_text)
+
+    result = session.apply(bpy.context, "svg", {
+        # star.svg is ~15 mm across at scale 1 -- this one spans x 30..60.
+        "map": "TileA", "svgPath": os.path.join(_SAMPLES, "star.svg"), "scale": 2.0,
+        "x": 45, "y": 25, "rotation": 0, "bottom": True,
+    })
+    assert result["messages"][0]["level"] == "INFO", _messages_text(result)
+    after_svg = counts()
+    assert after_svg[0] != after_text[0] and after_svg[1] != after_text[1], (after_text, after_svg)
+
+    result = session.apply(bpy.context, "text", {
+        "map": "TileA", "text": "A", "size": 8, "x": -20, "y": 0, "rotation": 0,
+        "bottom": False, "operation": "negative",
+    })
+    assert result["messages"][0]["level"] == "INFO", _messages_text(result)
+    assert counts()[1] == after_svg[1]
+    session.dispose()
+
+
+def test_switched_off_tiles_are_left_alone():
+    """Tiles switched off on the page (request "disabled") get nothing from
+    Apply or the magnet preview -- a shape over the seam only goes onto the
+    tile that's still on, and one only on a switched-off tile changes nothing."""
+    a = _terrain_map("TileA")
+    b = _terrain_map("TileB", offset=(101.0, 0.0))
+    session = _session([a, b])
+
+    def counts():
+        # By name: a refused Apply puts the scene back with fresh objects.
+        objs = bpy.data.objects
+        return len(objs["TileA"].data.polygons), len(objs["TileB"].data.polygons)
+
+    start = counts()
+    result = session.handle(bpy.context, {
+        "kind": "apply", "action": "text", "disabled": ["TileB"],
+        "params": {"map": "TileA", "text": "HELLO", "size": 12, "x": 48, "y": 0, "rotation": 0,
+                   "bottom": False, "operation": "negative"},
+    })
+    assert result["messages"][0]["level"] == "INFO", _messages_text(result)
+    after = counts()
+    assert after[0] != start[0] and after[1] == start[1], (start, after)
+
+    # Placed on the switched-off tile, reaching nothing else.
+    result = session.handle(bpy.context, {
+        "kind": "apply", "action": "text", "disabled": ["TileB"],
+        "params": {"map": "TileB", "text": "A", "size": 8, "x": 121, "y": 0, "rotation": 0,
+                   "bottom": False, "operation": "negative"},
+    })
+    assert result["messages"][0]["level"] == "WARNING", _messages_text(result)
+    assert counts() == after
+    assert len(session._undo_stack) == 1
+
+    result = session.handle(bpy.context, {
+        "kind": "apply", "action": "text", "disabled": ["TileA", "TileB"],
+        "params": {"map": "TileA", "text": "A", "size": 8, "x": 0, "y": 0, "rotation": 0},
+    })
+    assert result["messages"][0]["level"] == "WARNING", _messages_text(result)
+    assert counts() == after
+
+    preview = session.handle(bpy.context, {
+        "kind": "preview", "action": "magnets", "disabled": ["TileB"],
+        "params": {"diameter": 6, "count": 3, "margin": 3},
+    })["preview"]
+    assert [e["map"] for e in preview["magnets"]] == ["TileA"], preview
+    session.dispose()
+
+
+
+
+def test_map_connectors_beside_the_tiles_are_part_of_the_page():
+    """The Multi Tile Generator's map connectors lie in a block beside the
+    tiles, not on one -- they still belong to the page (viewer, export) by
+    the batch's MultitileIndex; another batch's don't."""
+    a = _terrain_map("TileA")
+    b = _terrain_map("TileB", offset=(101.0, 0.0))
+    a["MultitileIndex"] = 5
+    b["MultitileIndex"] = 6
+
+    def connector(name, index):
+        bpy.ops.mesh.primitive_cube_add(size=4, location=(170.0, 0.0, 2.0))
+        obj = bpy.context.object
+        obj.name = name
+        obj["Object type"] = "CONNECTOR"
+        obj["ExportGroup"] = 0
+        obj["MultitileIndex"] = index
+        return obj
+
+    ours = connector("MapConnector2mm", 5)
+    other = connector("MapConnector2mm.other", 9)
+    session = _session([a, b])
+    _maps, companions = session.page_objects(bpy.context)
+    assert ours in companions and other not in companions, [o.name for o in companions]
+    session.dispose()
+
+
+def test_puzzle_mode_paints_text_and_marks_every_piece():
+    """The puzzle generators hand off to the page in puzzle mode: it works
+    on the selected puzzle pieces (never on them otherwise). Text over a
+    seam goes onto both pieces, always painted on top -- even when asked
+    to cut in from below, which would change the pieces' shape. Bottom
+    Mark marks every piece; every other tool is refused."""
+    a = _terrain_map("PieceA")
+    b = _terrain_map("PieceB", offset=(101.0, 0.0))
+    for piece, col in ((a, 0), (b, 1)):
+        piece["PuzzleRow"] = 0
+        piece["PuzzleCol"] = col
+    _select([a, b])
+    assert post_process.find_page_maps(bpy.context) == []
+    assert [o.name for o in post_process.find_page_maps(bpy.context, puzzle=True)] == ["PieceA", "PieceB"]
+
+    session = post_process.PostProcessSession(["PieceA", "PieceB"], puzzle=True)
+    assert session.info(bpy.context)["puzzle"] is True
+    result = session.apply(bpy.context, "magnets", {"count": 2})
+    assert result["messages"][0]["level"] == "ERROR", _messages_text(result)
+
+    def shapes():
+        objs = bpy.data.objects
+        return [tuple(round(v, 3) for c in objs[n].bound_box for v in c) for n in ("PieceA", "PieceB")]
+
+    start = shapes()
+    result = session.apply(bpy.context, "text", {
+        "map": "PieceA", "text": "HELLO", "size": 12, "x": 48, "y": 0, "rotation": 0,
+        "bottom": True, "operation": "negative", "color": [1.0, 0.0, 0.0],
+    })
+    assert result["messages"][0]["level"] == "INFO", _messages_text(result)
+    assert shapes() == start
+    for name in ("PieceA", "PieceB"):
+        mats = [m.name for m in bpy.data.objects[name].data.materials if m]
+        assert any(m.startswith("PAINT_") for m in mats), (name, mats)
+
+    result = session.apply(bpy.context, "bottom_mark", {"cutout": False})
+    assert result["messages"][0]["level"] == "INFO", _messages_text(result)
+    assert all(bpy.data.objects[n]["BottomMark"] for n in ("PieceA", "PieceB"))
+    session.dispose()
+
+
+def test_painted_text_on_puzzle_pieces_goes_into_their_shared_texture():
+    """Puzzle pieces keep the paint texture of the map they were cut from
+    (one image, each piece's UVs on its own part). Painted text is baked
+    into it at the right spot -- not left as per-face materials, which
+    broke pieces -- and the page's Undo takes it back out."""
+    import numpy as np
+
+    res = 128
+    stale = bpy.data.images.get("Whole_MMU_Paint")
+    if stale is not None:
+        bpy.data.images.remove(stale)
+    image = bpy.data.images.new("Whole_MMU_Paint", width=res, height=res)
+    image.pixels.foreach_set([0.1, 0.5, 0.1, 1.0] * (res * res))
+    mat = bpy.data.materials.new("Whole_MMU_Paint")
+    mat.use_nodes = True
+    node = mat.node_tree.nodes.new("ShaderNodeTexImage")
+    node.image = image
+    # The whole puzzle spans world x -50..151, y -50..50.
+    pieces = []
+    for name, offset, col in (("PieceA", 0.0, 0), ("PieceB", 101.0, 1)):
+        piece = _terrain_map(name, offset=(offset, 0.0))
+        piece["PuzzleRow"] = 0
+        piece["PuzzleCol"] = col
+        mesh = piece.data
+        mesh.materials.clear()
+        mesh.materials.append(mat)
+        uv = mesh.uv_layers.new(name="UVMap")
+        for li, loop in enumerate(mesh.loops):
+            v = mesh.vertices[loop.vertex_index].co
+            uv.data[li].uv = ((v.x + offset + 50) / 201, (v.y + 50) / 100)
+        mesh["3mf_is_paint_texture"] = True
+        mesh["3mf_paint_extruder_colors"] = "{}"
+        pieces.append(piece)
+    _select(pieces)
+    session = post_process.PostProcessSession(["PieceA", "PieceB"], puzzle=True)
+    result = session.apply(bpy.context, "text", {
+        "map": "PieceA", "text": "HELLO", "size": 12, "x": 50, "y": 0, "rotation": 0,
+        "bottom": False, "operation": "paint", "color": [1.0, 0.0, 0.0],
+    })
+    assert result["messages"][0]["level"] == "INFO", _messages_text(result)
+    for name in ("PieceA", "PieceB"):
+        mats = [m.name for m in bpy.data.objects[name].data.materials if m]
+        assert mats == ["Whole_MMU_Paint"], (name, mats)
+
+    def red_columns():
+        px = np.empty(res * res * 4, dtype=np.float32)
+        bpy.data.images["Whole_MMU_Paint"].pixels.foreach_get(px)
+        px = px.reshape(res, res, 4)
+        red = (px[:, :, 0] > 0.9) & (px[:, :, 1] < 0.1)
+        return np.nonzero(red.any(axis=0))[0]
+
+    cols = red_columns()
+    # Text centered at world x 50 (u ~0.5), a few cm wide, on both pieces.
+    assert len(cols) and cols.min() < res * 0.5 < cols.max(), cols
+    assert cols.min() > res * 0.25 and cols.max() < res * 0.75, cols
+
+    result = session.undo(bpy.context)
+    assert result["messages"][0]["level"] == "INFO", _messages_text(result)
+    assert not len(red_columns())
+    session.dispose()
+
+
+def test_glb_parts_name_their_tile():
+    """Each part in the viewer's GLB names the tile it sits on, so the page
+    can grey a switched-off tile's parts with it."""
+    a = _terrain_map("TileA")
+    b = _terrain_map("TileB", offset=(101.0, 0.0))
+    trail = _element("TrailB", b)
+    session = _session([a, b])
+    maps, companions = session.page_objects(bpy.context)
+    assert trail in companions
+    assert post_process.tile_of(trail, maps) == "TileB"
+    assert post_process.tile_of(a, maps) == "TileA"
+    session.dispose()
+
+
 def test_svg_cut_in_keeps_a_floor():
     """"Cut in" engraves the SVG -- it must never cut through to the base."""
     from mathutils import Vector
@@ -530,6 +762,72 @@ def test_svg_cut_in_keeps_a_floor():
             assert hit, ("nothing above the base", dx, dy)
             floors.append(loc.z)
     assert min(floors) > 1.0, floors
+    session.dispose()
+
+
+def test_text_cut_in_over_bottom_recess_keeps_a_floor():
+    """"Cut in" text over a recess in the map's underside (bottom text here;
+    side walls, magnet holes and dovetails alike) must still stop 1 mm below
+    the terrain -- not at the recess, which cut straight through."""
+    from mathutils import Vector
+
+    a = _terrain_map("TileA")
+    _select([a])
+    session = _session([a])
+    result = session.apply(bpy.context, "text", {
+        "map": "TileA", "text": "MMMM", "size": 14, "x": 20, "y": 0, "rotation": 0, "bottom": True,
+    })
+    assert result["messages"][0]["level"] == "INFO", _messages_text(result)
+    result = session.apply(bpy.context, "text", {
+        "map": "TileA", "text": "MMMM", "size": 14, "x": 20, "y": 0, "rotation": 0,
+        "bottom": False, "operation": "negative",
+    })
+    assert result["messages"][0]["level"] == "INFO", _messages_text(result)
+    a = bpy.data.objects["TileA"]
+    up = Vector((0, 0, 1))
+    floors = []
+    for dx in range(-16, 17, 2):
+        for dy in range(-5, 6, 2):
+            hit, loc, _n, _i = a.ray_cast(Vector((20 + dx, dy, -5)), up)
+            assert hit and loc.z < 1.0, ("bottom missing -- cut through", dx, dy, hit, loc)
+            hit, loc, _n, _i = a.ray_cast(loc + up * 1e-3, up)
+            assert hit, ("nothing above the underside", dx, dy)
+            floors.append(loc.z)
+    # The terrain is at least 3 mm high, so the cut stops at 2 mm or above.
+    assert min(floors) > 1.5, sorted(floors)[:5]
+    session.dispose()
+
+
+def test_text_cut_in_at_map_edge_keeps_a_wall():
+    """"Cut in" text running off the map's edge leaves a 0.5 mm wall
+    standing there instead of opening up the side."""
+    from mathutils import Vector
+
+    a = _terrain_map("TileA")
+    _select([a])
+    session = _session([a])
+    result = session.apply(bpy.context, "text", {
+        "map": "TileA", "text": "MMMM", "size": 14, "x": 45, "y": 0, "rotation": 0,
+        "bottom": False, "operation": "negative",
+    })
+    assert result["messages"][0]["level"] == "INFO", _messages_text(result)
+    a = bpy.data.objects["TileA"]
+    inward = Vector((-1, 0, 0))
+    walls = []
+    cut_found = False
+    for dy in range(-4, 5, 2):
+        # Between the cut's floor (~2.75 mm) and the terrain (~3.75 mm at
+        # the edge): the outer wall, then the cut.
+        hit, loc, _n, _i = a.ray_cast(Vector((60, dy, 3.3)), inward)
+        assert hit and abs(loc.x - 50) < 1e-3, ("outer wall missing", dy, hit, loc)
+        hit, loc2, _n, _i = a.ray_cast(loc + inward * 1e-3, inward)
+        if hit and loc2.x > 45:
+            cut_found = True
+            walls.append(50 - loc2.x)
+    assert cut_found, "text did not cut near the edge"
+    # Rows through gaps between letters see a thicker wall; the thinnest is
+    # where a letter runs off the edge.
+    assert 0.45 < min(walls) < 0.55, walls
     session.dispose()
 
 
@@ -640,6 +938,47 @@ def test_failed_action_restores_scene():
     assert set(bpy.data.objects.keys()) == before
     assert "Broken" not in bpy.data.objects["TileA"]
     assert session.info(bpy.context)["undo"] == []
+
+
+def test_export_colored_flag():
+    a = _terrain_map("TileA")
+    session = _session([a])
+    assert session.info(bpy.context)["colored"] is False
+    _element("TileA_Trail", a)
+    assert session.info(bpy.context)["colored"] is True
+    session.dispose()
+
+
+def test_export_stl_and_obj():
+    a = _terrain_map("TileA")
+    trail = _element("TileA_Trail", a)
+    tp3d = bpy.context.scene.tp3d
+    folder = os.path.join(_TMP.name, "export_test", "")
+    os.makedirs(folder, exist_ok=True)
+    previous = tp3d.export_path
+    tp3d.export_path = folder
+    try:
+        session = _session([a])
+        tp3d.modelname = ""
+        assert session.info(bpy.context)["exportName"] == "TileA"
+        for fmt in ("stl", "obj"):
+            # Default name: the map's own; the page's name replaces it.
+            for export_name, expected in (("", ("TileA", "TileA_TileA_Trail")),
+                                          ("My Trip", ("My Trip", "My Trip_TileA_Trail"))):
+                result = session.export(bpy.context, fmt, export_name)
+                assert result["messages"][0]["level"] == "INFO", _messages_text(result)
+                for name in expected:
+                    assert os.path.isfile(os.path.join(folder, f"{name}.{fmt}")), (fmt, name)
+        # The page's maps stay selected afterwards, the parts don't.
+        assert a.select_get() and not trail.select_get()
+        assert session.export(bpy.context, "fbx")["messages"][0]["level"] == "ERROR"
+        if not temp.has3mf:
+            assert session.export(bpy.context, "3mf")["messages"][0]["level"] == "ERROR"
+        tp3d.export_path = os.path.join(_TMP.name, "missing", "")
+        assert session.export(bpy.context, "stl")["messages"][0]["level"] == "ERROR"
+        session.dispose()
+    finally:
+        tp3d.export_path = previous
 
 
 def test_server_queue_keeps_every_request():

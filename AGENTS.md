@@ -25,7 +25,7 @@ TrailPrint3D/                 - Blender addon package (installed as a Blender ex
   picker_server.py             - local HTTP map-picker window (draw a bbox, POST coords back to Blender)
   post_process.py              - Post-processing page backend: target maps, own undo snapshots, scene GLB, runs the post-process tools
   progress.py                  - GPU progress overlay + WarningsOverlay
-  progress_win.py              - standalone frameless progress window (subprocess)
+  progress_win.py              - standalone frameless progress window (subprocess); with --embed PORT it only serves the card, shown inside the Map Generator page, which stays open on Generate and then switches to Post-processing
   props.py                     - TP3D_PG_properties (scene property group)
   temp.py                      - runtime flags (PREMIUMVERSION, has3mf)
   threemf_discovery.py         - discovery helper for the bundled 3MF Import/Export addon

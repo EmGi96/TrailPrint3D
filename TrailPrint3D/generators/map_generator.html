@@ -121,7 +121,6 @@
         </div>
         <div id="legend">
             <div class="legend-row"><span class="legend-swatch legend-area"></span>Drawn area</div>
-            <div class="legend-row"><span class="legend-swatch legend-trail"></span>Existing map</div>
             <div class="legend-row"><span class="legend-swatch line legend-trail-outline"></span>Existing trail</div>
             <div class="legend-row"><span class="legend-swatch line legend-selection"></span>Imported GPX</div>
         </div>
@@ -156,7 +155,8 @@
         var geojsonLayer = new L.FeatureGroup();
         map.addLayer(geojsonLayer);
         var existingMapsLayer = new L.FeatureGroup();
-        map.addLayer(existingMapsLayer);
+        // Not drawn: other maps in the scene would only clutter the area. Still
+        // loaded -- the overlap question on Generate needs them.
         var existingTrailsLayer = new L.FeatureGroup();
         map.addLayer(existingTrailsLayer);
 
@@ -1261,6 +1261,9 @@
         function sendPayload(payload) {
             document.getElementById('send').disabled = true;
             document.getElementById('status').textContent = 'Sending to Blender...';
+            // Keep this window: it shows the progress, then turns into the
+            // Post-processing page for the new map (picker_ui.js).
+            payload.stay_open = true;
             tp3dPushHistory(tp3dBuildStateSnapshot(), tp3dHistorySummary(), tp3dHistoryThumbnail()).then(function(historyId) {
                 payload.history_id = historyId;
                 return fetch('http://127.0.0.1:' + PORT + '/confirm', {
@@ -1270,7 +1273,14 @@
                     body: JSON.stringify(payload)
                 });
             })
-            .then(function() { window.close(); })
+            .then(function(r) { return r.text(); })
+            .then(function(text) {
+                var reply = null;
+                try { reply = JSON.parse(text); } catch (e) { reply = null; }
+                // An add-on without this answers "ok" and opens its own progress window.
+                if (reply && reply.progressPort) tp3dShowGenerationProgress(reply.progressPort);
+                else window.close();
+            })
             .catch(function() {
                 tp3dAlert('Could not connect to Blender. Ensure the addon is running.');
                 updateSendState();

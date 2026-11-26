@@ -68,7 +68,7 @@
         '}',
 
         '.tp3d-3mf-dialog-actions {',
-        '  display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px;',
+        '  display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 16px;',
         '}',
 
         '.tp3d-3mf-dialog-actions button {',
@@ -141,8 +141,15 @@
     }
 
     // ── Popup dialog ──────────────────────────────────────────────────────────
-    function showDialog() {
+    // opts (all optional; window.tp3dOffer3mfInstall below): title, intro (HTML
+    // shown above the usual text), extraButtons ([{label, onClick}] -- each
+    // closes the dialog first, e.g. "export as STL instead"), onInstalled
+    // (runs once the install finished).
+    var onInstalledCallback = null;
+    function showDialog(opts) {
         if (document.getElementById('tp3d3mfOverlay')) return; // already open
+        opts = opts || {};
+        onInstalledCallback = typeof opts.onInstalled === 'function' ? opts.onInstalled : null;
 
         var overlay = document.createElement('div');
         overlay.id = 'tp3d3mfOverlay';
@@ -152,7 +159,8 @@
         dialog.className = 'tp3d-3mf-dialog';
 
         dialog.innerHTML = [
-            '<h3>Install 3MF Addon?</h3>',
+            '<h3>' + (opts.title || 'Install 3MF Addon?') + '</h3>',
+            opts.intro ? '<p>' + opts.intro + '</p>' : '',
             '<p>The <strong>3MF Import/Export addon</strong> by Clonephaze is <strong>free</strong> and unlocks:</p>',
             '<ul>',
             '  <li><strong>3MF Export</strong> — export your maps with filament colors</li>',
@@ -169,6 +177,19 @@
 
         overlay.appendChild(dialog);
         document.body.appendChild(overlay);
+
+        var confirm = document.getElementById('tp3d3mfConfirmBtn');
+        (opts.extraButtons || []).forEach(function (extra) {
+            var b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'tp3d-3mf-btn-decline tp3d-3mf-btn-extra';
+            b.textContent = extra.label;
+            b.addEventListener('click', function () {
+                closeDialog();
+                if (typeof extra.onClick === 'function') extra.onClick();
+            });
+            confirm.parentNode.insertBefore(b, confirm);
+        });
 
         document.getElementById('tp3d3mfConfirmBtn').addEventListener('click', function () {
             requestInstall();
@@ -248,6 +269,7 @@
         var declineBtn = document.getElementById('tp3d3mfDeclineBtn');
         if (confirmBtn) confirmBtn.disabled = disabled;
         if (declineBtn) declineBtn.disabled = disabled;
+        document.querySelectorAll('.tp3d-3mf-btn-extra').forEach(function (b) { b.disabled = disabled; });
     }
 
     // ── Install flow ──────────────────────────────────────────────────────────
@@ -299,8 +321,14 @@
         // Unlocks the settings modal's texture fields (settings_modal.js) --
         // absent on pages without that modal.
         if (typeof tp3dRefreshMapTabVisibility === 'function') tp3dRefreshMapTabVisibility();
+        var cb = onInstalledCallback;
+        onInstalledCallback = null;
+        if (cb) cb();
     }
 
     // ── Entry point ───────────────────────────────────────────────────────────
+    // Pages can open the dialog themselves, e.g. the Post-processing page's
+    // Export button for a colored model (only defined while the addon is absent).
+    window.tp3dOffer3mfInstall = showDialog;
     insertInstallButton();
 }());

@@ -31,6 +31,41 @@ from gpu_extras.batch import batch_for_shader
 _CREATE_NO_WINDOW = 0x08000000 if sys.platform == 'win32' else 0
 
 
+def _opt_out_of_power_throttling():
+    """Keep Blender at full speed while it generates, even when it's in the
+    background.
+
+    Windows 11 power-throttles ("EcoQoS") apps whose window is fully covered:
+    on hybrid CPUs their work moves to the efficiency cores at low clock.
+    A generator page that stays open in front of Blender during a generation
+    (Map Generator) made the shape and export steps 10-20x slower. Opting the
+    process and the calling (main) thread out is the documented way to keep
+    them on full-speed scheduling. Harmless elsewhere; no-op off Windows."""
+    if sys.platform != 'win32':
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class _State(ctypes.Structure):  # PROCESS_/THREAD_POWER_THROTTLING_STATE
+            _fields_ = [('Version', wintypes.ULONG), ('ControlMask', wintypes.ULONG),
+                        ('StateMask', wintypes.ULONG)]
+
+        k32 = ctypes.WinDLL('kernel32', use_last_error=True)
+        k32.GetCurrentProcess.restype = wintypes.HANDLE
+        k32.GetCurrentThread.restype = wintypes.HANDLE
+        k32.SetProcessInformation.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+        k32.SetThreadInformation.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+        # Version 1, control EXECUTION_SPEED, state off = never throttle it.
+        state = _State(1, 0x1, 0x0)
+        k32.SetProcessInformation(k32.GetCurrentProcess(), 4,  # ProcessPowerThrottling
+                                  ctypes.byref(state), ctypes.sizeof(state))
+        k32.SetThreadInformation(k32.GetCurrentThread(), 3,  # ThreadPowerThrottling
+                                 ctypes.byref(state), ctypes.sizeof(state))
+    except (OSError, AttributeError, ValueError) as e:
+        print(f'TrailPrint3D: could not opt out of power throttling: {e}')
+
+
 class SubprocessProgress:
     """Drives an external progress window via a shared JSON temp file.
 
@@ -46,6 +81,9 @@ class SubprocessProgress:
 
     def __init__(self):
         self._proc = None
+        # True while the card is shown inside a generator page (it stayed
+        # open on Generate) instead of its own window -- see start().
+        self._embedded = False
 
     @classmethod
     def get(cls):
@@ -59,11 +97,22 @@ class SubprocessProgress:
         return self._cancel_path.exists()
 
     def start(self):
+        if self._embedded and self._proc is not None and self._proc.poll() is None:
+            # A nested start() within one generation: the page's embedded
+            # card is already running -- don't open a second window.
+            return
+        # Every generation starts here, on Blender's main thread.
+        _opt_out_of_power_throttling()
         try:
             self._cancel_path.unlink()
         except OSError:
             pass
         self._write({'active': True, 'percent': 0.0, 'phase': 'Starting…', 'message': ''})
+        # A generator page that stayed open on Generate shows the card itself,
+        # from this port (picker_server's /confirm with stay_open).
+        from . import picker_server
+        embed_port = picker_server.take_embedded_progress_port()
+        self._embedded = embed_port is not None
         if bpy.app.background:
             return
         script = pathlib.Path(__file__).parent / 'progress_win.py'
@@ -71,11 +120,11 @@ class SubprocessProgress:
             print('TrailPrint3D: progress_win.py not found')
             return
 
+        args = [sys.executable, str(script), str(self._json_path)]
+        if self._embedded:
+            args += ['--embed', str(embed_port)]
         try:
-            self._proc = subprocess.Popen(
-                [sys.executable, str(script), str(self._json_path)],
-                creationflags=_CREATE_NO_WINDOW,
-            )
+            self._proc = subprocess.Popen(args, creationflags=_CREATE_NO_WINDOW)
         except OSError as e:
             print(f'TrailPrint3D: Could not launch progress window: {e}')
             self._proc = None
@@ -105,6 +154,10 @@ class SubprocessProgress:
         self._write(data)
         if bpy.app.background:
             return
+        if self._embedded:
+            # Keeps serving until hand_off() -- it stops on its own.
+            self._proc = None
+            return
         if self._proc is not None:
             try:
                 self._proc.wait(timeout=3)
@@ -114,6 +167,22 @@ class SubprocessProgress:
                 except OSError:
                     pass
             self._proc = None
+
+    @property
+    def embedded(self):
+        """True when the last generation's card was shown inside its page."""
+        return self._embedded
+
+    def hand_off(self, next_url=None):
+        """After finish(): tell the page that showed the card where to go
+        next (*next_url*, e.g. the Post-processing page), or that it can
+        close (None). Only meaningful for an embedded card."""
+        data = {'active': False, 'percent': 1.0, 'phase': 'Done', 'message': '',
+                'handoff': True}
+        if next_url:
+            data['next_url'] = str(next_url)
+        self._write(data)
+        self._embedded = False
 
     def _write(self, data):
         try:

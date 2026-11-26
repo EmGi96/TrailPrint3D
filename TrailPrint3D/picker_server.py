@@ -322,6 +322,119 @@ def _open_folder(path: str) -> bool:
     return True
 
 
+def active_url() -> str | None:
+    """Address of the page the latest start_picker() serves."""
+    return _active_url
+
+
+def detach_active_server() -> None:
+    """Stop treating the current page's server as the active one WITHOUT
+    shutting it down, so the next start_picker() leaves it running -- its
+    page still has to read one last answer (the next page's address) from
+    it. The caller shuts it down itself afterwards."""
+    global _active_server
+    _active_server = None
+
+
+# The page header's generator dropdown (picker_ui.js): POST /switch_generator
+# {id} is queued here and handled on the main thread by
+# process_generator_switch, called from every generator operator's modal().
+_pending_generator_switch: 'queue.Queue[dict]' = queue.Queue()
+
+# (operator id under bpy.ops.tp3d, label) of every page the dropdown offers,
+# in menu order. Only the registered ones are listed (map_picker and
+# sliding_puzzle_configurator are Premium).
+GENERATOR_MENU = (
+    ("map_generator", "Map Generator"),
+    ("map_picker", "Multi-tile Generator"),
+    ("puzzle_configurator", "Jigsaw Puzzle Generator"),
+    ("sliding_puzzle_configurator", "Sliding Puzzle Generator"),
+    ("medal_holder_generator", "Medal Holder Generator"),
+    ("backplate_generator", "Backplate Generator"),
+    ("post_process_generator", "Post-processing"),
+)
+
+# Served page (file name without .html) -> its GENERATOR_MENU id.
+_GENERATOR_OF_PAGE = {
+    "map_generator": "map_generator",
+    "map_generator_pe": "map_generator",
+    "multitile_generator": "map_picker",
+    "puzzleGenerator": "puzzle_configurator",
+    "puzzleGenerator_pe": "puzzle_configurator",
+    "slidingPuzzleGenerator": "sliding_puzzle_configurator",
+    "medalHolderGenerator": "medal_holder_generator",
+    "backplateGenerator": "backplate_generator",
+    "postProcessGenerator": "post_process_generator",
+}
+
+
+def _generator_registered(op_id: str) -> bool:
+    import bpy  # type: ignore
+
+    try:
+        getattr(bpy.ops.tp3d, op_id).get_rna_type()
+    except (AttributeError, KeyError, RuntimeError):
+        return False
+    return True
+
+
+def build_generator_menu(html_path) -> dict:
+    """GET /generator_menu: {current, items: [{id, label}]} -- the page's own
+    generator and every other one it can switch to. Main thread only."""
+    current = _GENERATOR_OF_PAGE.get(pathlib.Path(str(html_path)).stem, "")
+    items = [{"id": op_id, "label": label} for op_id, label in GENERATOR_MENU
+             if op_id == current or _generator_registered(op_id)]
+    return {"current": current, "items": items}
+
+
+def process_generator_switch(server) -> bool:
+    """Handle a queued POST /switch_generator from the page served by
+    *server*: open that generator in the page's own window (its operator's
+    reuse_window) and answer the page with the new address. True once
+    switched -- the calling operator is done then: *server* is no longer the
+    active one, so its next modal() tick cleans up. On failure *server*
+    stays active and the page gets the reason. Main thread only."""
+    try:
+        request = _pending_generator_switch.get_nowait()
+    except queue.Empty:
+        return False
+    global _active_server
+    import bpy  # type: ignore
+
+    op_id = request.get("id", "")
+    switched = False
+    if op_id not in {g for g, _label in GENERATOR_MENU} or not _generator_registered(op_id):
+        request["result"] = {"ok": False, "message": "That generator isn't available."}
+    else:
+        # Keep this server answering -- the next page's start_picker would
+        # shut it down before the page reads the new address.
+        detach_active_server()
+        try:
+            result = getattr(bpy.ops.tp3d, op_id)("INVOKE_DEFAULT", reuse_window=True)
+        except (RuntimeError, TypeError) as e:
+            print(f"[TP3D picker] could not open {op_id}: {e}")
+            result = set()
+        if "RUNNING_MODAL" in result:
+            request["result"] = {"ok": True, "next_url": active_url()}
+            switched = True
+        else:
+            _active_server = server
+            message = ("Select a map or generate one first."
+                       if op_id == "post_process_generator" else "Could not open that generator.")
+            request["result"] = {"ok": False, "message": message}
+    request["done"].set()
+    return switched
+
+
+def take_embedded_progress_port() -> int | None:
+    """The port a page that stays open on Generate (/confirm with
+    stay_open) shows the progress card from -- handed to the progress
+    window process once (progress.SubprocessProgress.start), then cleared."""
+    global _embedded_progress_port
+    port, _embedded_progress_port = _embedded_progress_port, None
+    return port
+
+
 def is_active_server(server) -> bool:
     """False once a newer start_picker() replaced *server* (the user opened
     another generator page). The queues and page-load snapshots in this
@@ -545,6 +658,56 @@ def _import_slicer_profile(path: str, name: str, source_file: str):
     return True, f'Saved print profile "{name}".'
 
 
+def _shared_profile_storage():
+    """The 3MF add-on's slicer_profiles package, or None without the add-on."""
+    import importlib
+
+    from .threemf_discovery import get_threemf_api
+
+    api = get_threemf_api()
+    if api is None:
+        return None
+    return importlib.import_module(".slicer_profiles", package=api.__package__)
+
+
+def _delete_slicer_profile(tp3d, name: str):
+    """Delete user print profile *name*; a scene using it goes back to the
+    built-in default. Returns (ok, message)."""
+    sp = _shared_profile_storage()
+    if sp is None:
+        return False, "The 3MF add-on is not installed."
+    if not name or name == 'NONE':
+        return False, "The built-in profile can't be deleted."
+    if not sp.delete_profile(name):
+        return False, f'Could not delete "{name}".'
+    if getattr(tp3d, 'slicer_profile_name', 'NONE') == name or getattr(tp3d, 'slicer_profile_id', '') == name:
+        tp3d.slicer_profile_name = 'NONE'
+    return True, f'Deleted print profile "{name}".'
+
+
+def _rename_slicer_profile(tp3d, name: str, new_name: str):
+    """Rename user print profile *name* to *new_name*; a scene using it
+    follows. Returns (ok, message)."""
+    sp = _shared_profile_storage()
+    if sp is None:
+        return False, "The 3MF add-on is not installed."
+    new_name = new_name.strip()[:64]
+    if not name or name == 'NONE':
+        return False, "The built-in profile can't be renamed."
+    if not new_name or new_name == 'NONE':
+        return False, "Enter a name."
+    if new_name == name:
+        return True, ''
+    if any(p.name == new_name for p in sp.list_profiles()):
+        return False, f'A profile called "{new_name}" already exists.'
+    was_current = getattr(tp3d, 'slicer_profile_name', 'NONE') == name
+    if not sp.rename_profile(name, new_name):
+        return False, f'Could not rename "{name}".'
+    if was_current:
+        tp3d.slicer_profile_name = new_name
+    return True, f'Renamed to "{new_name}".'
+
+
 def process_slicer_profile_requests(tp3d) -> None:
     """Handle the queued /select_slicer_profile, /upload_slicer_profile and
     /set_3mf_export requests, rebuild the /slicer_profiles snapshot and release the waiting
@@ -588,6 +751,15 @@ def process_slicer_profile_requests(tp3d) -> None:
         elif req['action'] == 'disable3mf':
             tp3d.disable_3mf_export = req['disabled']
             req['result'] = {'ok': True, 'message': ''}
+        elif req['action'] in ('delete', 'rename'):
+            try:
+                if req['action'] == 'delete':
+                    ok, message = _delete_slicer_profile(tp3d, req['name'])
+                else:
+                    ok, message = _rename_slicer_profile(tp3d, req['name'], req['new_name'])
+            except (ImportError, AttributeError, OSError) as e:
+                ok, message = False, f"Could not change the profile: {e}"
+            req['result'] = {'ok': ok, 'message': message}
 
     _Handler.slicer_profiles_json = json.dumps(build_slicer_profiles_state(tp3d)).encode('utf-8')
     # A page opening just refreshes (a select with no name).
@@ -764,6 +936,9 @@ def _element_icons_js() -> str:
 
 _PREFERRED_PORT = 27373
 _active_server: HTTPServer | None = None
+_active_url: str | None = None
+# Set by /confirm with stay_open; see take_embedded_progress_port().
+_embedded_progress_port: int | None = None
 _STATE_PATH = pathlib.Path(tempfile.gettempdir()) / 'trailprint_picker_state.json'
 
 # Per-generator generation history (assets/history_panel.js's right-hand
@@ -1224,6 +1399,8 @@ class _Handler(BaseHTTPRequestHandler):
     advanced_settings_json: bytes = b'{}'
     color_styles_json: bytes = b'{}'  # ── COLOR STYLES
     slicer_profiles_json: bytes = b'{"available": false, "profiles": [], "current": "NONE"}'
+    # The page header's generator dropdown, see build_generator_menu.
+    generator_menu_json: bytes = b'{"current": "", "items": []}'
     element_source: str = 'OSM'
     dem_bounds_json: bytes = b'null'
     obj_size: float = 100.0
@@ -1291,6 +1468,15 @@ class _Handler(BaseHTTPRequestHandler):
             # build_color_styles_state / refresh_state_snapshots. Never
             # reads bpy directly here; this is the HTTP server's own thread.
             body = self.color_styles_json
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if self.path == '/generator_menu':
+            # Main-thread-built in start_picker, see build_generator_menu.
+            body = self.generator_menu_json
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self.send_header('Content-Length', str(len(body)))
@@ -1815,7 +2001,29 @@ class _Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(resp)
             return
-        if self.path in ('/select_slicer_profile', '/upload_slicer_profile', '/set_3mf_export'):
+        if self.path == '/switch_generator':
+            # Answered once the main thread has opened the other generator
+            # (process_generator_switch): {ok, next_url | message}.
+            length = int(self.headers.get('Content-Length', 0))
+            try:
+                data = json.loads(self.rfile.read(length) or b'{}')
+            except json.JSONDecodeError:
+                data = {}
+            request = {'id': str(data.get('id') or ''), 'done': threading.Event()}
+            _pending_generator_switch.put(request)
+            if request['done'].wait(timeout=20):
+                reply = request['result']
+            else:
+                reply = {'ok': False, 'message': 'Blender did not respond, please try again.'}
+            out = json.dumps(reply).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(out)))
+            self.end_headers()
+            self.wfile.write(out)
+            return
+        if self.path in ('/select_slicer_profile', '/upload_slicer_profile', '/set_3mf_export',
+                         '/delete_slicer_profile', '/rename_slicer_profile'):
             # Answered once the main thread has handled the request
             # (process_slicer_profile_requests): {ok, message, state}.
             from urllib.parse import unquote
@@ -1836,6 +2044,14 @@ class _Handler(BaseHTTPRequestHandler):
                 except json.JSONDecodeError:
                     data = {}
                 request.update(action='disable3mf', disabled=bool(data.get('disabled')))
+                timeout = 5
+            elif self.path in ('/delete_slicer_profile', '/rename_slicer_profile'):
+                try:
+                    data = json.loads(body) if body else {}
+                except json.JSONDecodeError:
+                    data = {}
+                request.update(action='delete' if self.path == '/delete_slicer_profile' else 'rename',
+                               name=str(data.get('name') or ''), new_name=str(data.get('newName') or ''))
                 timeout = 5
             else:
                 source_file = os.path.basename(unquote(self.headers.get('X-File-Name', '')))
@@ -2097,6 +2313,31 @@ class _Handler(BaseHTTPRequestHandler):
             return
         length = int(self.headers.get('Content-Length', 0))
         body = self.rfile.read(length)
+        try:
+            stay_open = bool(json.loads(body).get('stay_open'))
+        except (ValueError, AttributeError):
+            stay_open = False
+        if stay_open:
+            # The page stays open and shows the progress card itself (served
+            # by the progress window process on this port, see
+            # progress_win.py --embed) -- so Blender isn't pulled in front
+            # of it, and none of the window-closing race below applies.
+            global _embedded_progress_port
+            _embedded_progress_port = _free_port()
+            resp = json.dumps({'progressPort': _embedded_progress_port}).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(resp)))
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(resp)
+            self.wfile.flush()
+            # Only now: the operator's modal timer starts the (blocking)
+            # generation as soon as this file exists, and the page must have
+            # its progress port by then.
+            pathlib.Path(self.result_path).write_text(body.decode('utf-8'), encoding='utf-8')
+            threading.Thread(target=self.server.shutdown, daemon=True).start()
+            return
         # Must run before the response is sent: the picker page calls
         # window.close() as soon as it sees the response, and this function
         # AttachThreadInput's onto that browser window's thread. Doing that
@@ -2127,8 +2368,12 @@ def start_picker(result_path: str, existing_maps: list | None = None, existing_t
                   obj_size: float = 100.0, html_path: 'pathlib.Path | str | None' = None,
                   element_states: dict | None = None, settings_state: dict | None = None,
                   advanced_settings: dict | None = None, dem_bounds: dict | None = None,
-                  element_source: str | None = None) -> HTTPServer:
+                  element_source: str | None = None, open_browser: bool = True) -> HTTPServer:
     """Start the HTTP server, open the page in the browser, and return the server.
+
+    *open_browser* False skips the browser launch -- for a page an already
+    open window switches to itself (active_url() gives its address), like
+    the map generator handing off to the Post-processing page.
 
     The server writes confirmed coordinate JSON to *result_path* on POST /confirm,
     then shuts itself down.  The caller is responsible for removing the result file
@@ -2245,6 +2490,14 @@ def start_picker(result_path: str, existing_maps: list | None = None, existing_t
     _dem_path_job.update(status='idle', scene=dem_scene, path=dem_path, pid=None,
                          api=(settings_state or {}).get('api'))
 
+    # The page's window covers Blender, which serves it -- keep Blender out
+    # of Windows' background throttling (see progress._opt_out_of_power_throttling).
+    try:
+        from .progress import _opt_out_of_power_throttling
+        _opt_out_of_power_throttling()
+    except ImportError:
+        pass
+
     html_path = pathlib.Path(html_path) if html_path else _HTML_PATH
     # Keep the original state filename for multitile_generator.html itself (exact
     # backward compatibility); other pages get their own, keyed by filename,
@@ -2285,6 +2538,10 @@ def start_picker(result_path: str, existing_maps: list | None = None, existing_t
             build_slicer_profiles_state(bpy.context.scene.tp3d)).encode('utf-8')
     except (AttributeError, ImportError) as e:
         print(f"[TP3D picker] could not build slicer profiles state: {e}")
+    try:
+        _Handler.generator_menu_json = json.dumps(build_generator_menu(html_path)).encode('utf-8')
+    except (AttributeError, ImportError) as e:
+        print(f"[TP3D picker] could not build the generator menu: {e}")
     _Handler.element_source = element_source or 'OSM'
     _Handler.dem_bounds_json = json.dumps(dem_bounds).encode('utf-8')
     _Handler.obj_size = obj_size or 100.0
@@ -2299,6 +2556,13 @@ def start_picker(result_path: str, existing_maps: list | None = None, existing_t
     _active_server = server
 
     url = f'http://127.0.0.1:{port}/'
+    global _active_url
+    _active_url = url
+    if not open_browser:
+        # The open window navigates here, and Chromium swaps in a taskbar
+        # icon made from the new page's favicon -- put the crisp one back.
+        threading.Thread(target=_apply_picker_window_icon, daemon=True).start()
+        return server
     browser = _find_chromium()
     if browser:
         # A fresh, unique --user-data-dir forces a genuinely new browser
