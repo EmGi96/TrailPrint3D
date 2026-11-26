@@ -1763,6 +1763,13 @@ class TP3D_MT_generators_menu(bpy.types.Menu):
             layout.operator(
                 "tp3d.terrain_dummy", text=_("Sliding Puzzle Generator"), icon="LOCKED"
             )
+        # Greyed out (with the reason as tooltip) until a map is selected or
+        # one was generated -- see TP3D_OT_post_process_generator.poll.
+        layout.operator(
+            "tp3d.post_process_generator",
+            text=_("Post-processing"),
+            icon="MODIFIER",
+        )
         layout.separator()
         layout.label(text=_("-- Experimental --"))
         layout.operator(

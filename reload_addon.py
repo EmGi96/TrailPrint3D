@@ -180,6 +180,12 @@ else:
 # group, or it bakes in the pre-reload function object.
 importlib.reload(T.props)
 
+# post_process.py (Post-processing page backend) is only imported from inside
+# operator methods, so it may not be loaded yet -- import it explicitly. Its
+# module-scope imports are constants/temp only; operators is deferred.
+_imp("post_process")
+importlib.reload(T.post_process)
+
 # UI and operators (after utils and props)
 importlib.reload(T.panels)
 importlib.reload(T.operators)

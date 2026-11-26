@@ -372,6 +372,24 @@ def boolean_operation(
     return obj_a
 
 
+def cut_from(target, cutter):
+    """Boolean DIFFERENCE of *cutter* from *target* that doesn't silently do
+    nothing: MANIFOLD when both are watertight, else EXACT, and a retry with
+    EXACT if MANIFOLD left *target* untouched (it no-ops on non-manifold or
+    inconsistently wound input -- e.g. an SVG clipped by intersectWithTile).
+    Returns True if *target* changed."""
+
+    def counts():
+        return (len(target.data.vertices), len(target.data.edges), len(target.data.polygons))
+
+    before = counts()
+    solver = "MANIFOLD" if is_mesh_manifold(target) and is_mesh_manifold(cutter) else "EXACT"
+    boolean_operation(target, cutter, "DIFFERENCE", solver=solver)
+    if solver == "MANIFOLD" and counts() == before:
+        boolean_operation(target, cutter, "DIFFERENCE", solver="EXACT")
+    return counts() != before
+
+
 def splitCurves(obj):
     if not obj or obj.type != "CURVE":
         return []
@@ -779,8 +797,12 @@ def RaycastCurveToAnyMesh(curve_obj, offset_z=1000.0, smooth_after=True):
         bpy.ops.object.mode_set(mode="OBJECT")
 
 
-def intersectWithTile(tile, element, extrude_amount=1.0):
-    #'Intersects Element with Tile in x and y so the element fits on the tile shape'
+def intersectWithTile(tile, element, extrude_amount=1.0, solver="EXACT"):
+    """Intersects Element with Tile in x and y so the element fits on the tile shape.
+
+    *solver*: EXACT (default) tolerates a non-manifold element but its result
+    isn't guaranteed watertight; pass MANIFOLD for watertight inputs whose
+    result must stay watertight (a later MANIFOLD boolean needs that)."""
 
     try:
         # Validate input objects
@@ -842,7 +864,7 @@ def intersectWithTile(tile, element, extrude_amount=1.0):
         bool_mod.operation = "INTERSECT"
         bool_mod.object = dup
         # EXACT tolerates non-manifold cutter meshes and reliably clips them to the map.
-        bool_mod.solver = "EXACT"
+        bool_mod.solver = solver
 
         # Apply the boolean modifier
         if bpy.context.mode != "OBJECT":
@@ -3592,9 +3614,13 @@ def merge_with_map(
         bm.verts.ensure_lookup_table()
         bm.faces.ensure_lookup_table()
 
+        # Lowest height, then the lowest one above it (the deepest point of
+        # the terrain surface). Two passes: a single pass lost the second
+        # height whenever a lower vertex came later in the list.
         for v in bm.verts:
             lowestprojection = min(lowestprojection, v.co.z)
-            if lowestprojection < v.co.z < secondlowestprojection:
+        for v in bm.verts:
+            if lowestprojection + 1e-4 < v.co.z < secondlowestprojection:
                 secondlowestprojection = v.co.z
 
         bottom_drop = secondlowestprojection - lowestprojection - 1

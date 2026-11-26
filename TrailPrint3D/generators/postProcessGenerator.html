@@ -1,0 +1,1983 @@
+<!--
+  Copyright (C) 2026 EmGi.
+
+  You are free to modify it under the terms of the GNU General Public
+  License as published by the Free Software Foundation.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script>__PICKER_UI_JS__</script>
+    <title>TrailPrint3D Post-processing</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='4' fill='%23404040'/%3E%3Cpath d='M4 24 L11 13 L16 19 L21 10 L28 24 Z' fill='%23ffffff'/%3E%3Cpath d='M21 10 L24.5 15.5 L22 15 L19.5 13.5 Z' fill='%23356fb4'/%3E%3C/svg%3E">
+    <style>
+__COMMON_CSS__
+        #sidebar { width: 21rem; }
+        #viewportColumn { flex: 1; min-width: 0; position: relative; }
+        #viewport { position: absolute; inset: 0; }
+        #viewport canvas { display: block; outline: none; touch-action: none; }
+        .target-summary { font-size: 12px; color: var(--text-secondary); background: var(--surface-field);
+            border: 1px solid var(--border); border-radius: 4px; padding: 7px 10px; line-height: 1.45; }
+        .target-summary b { color: var(--text-primary); font-weight: 600; }
+        /* ── Tool cards (one open at a time) ── */
+        #tools { display: flex; flex-direction: column; gap: 6px; }
+        .tool { border: 1px solid var(--border); border-radius: 6px; background: var(--surface-panel); }
+        .tool.open { border-color: var(--accent); background: #262a30; }
+        .tool-head { width: 100%; display: flex; align-items: center; gap: 9px; padding: 9px 10px; background: none;
+            border: none; color: var(--text-primary); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+            text-align: left; border-radius: 6px; }
+        .tool-head:hover { background: rgba(255,255,255,0.05); }
+        .tool-head svg { flex-shrink: 0; color: var(--text-secondary); }
+        .tool.open .tool-head svg { color: var(--focus); }
+        .tool-head .tool-title { flex: 1; }
+        .tool-badge { font-size: 10px; font-weight: 600; padding: 1px 7px; border-radius: 9px; background: var(--surface-raised);
+            color: var(--text-secondary); white-space: nowrap; }
+        .tool-badge.done { background: rgba(139,200,155,0.16); color: var(--success); }
+        .tool-badge.locked { background: rgba(239,201,119,0.14); color: var(--warning); }
+        .tool-badge:empty { display: none; }
+        .tool-body { display: none; flex-direction: column; gap: 9px; padding: 2px 10px 12px; }
+        .tool.open .tool-body { display: flex; }
+        .tool-intro { font-size: 12px; color: var(--text-muted); line-height: 1.45; margin: 0; }
+        .field-row input[type=number] { width: 70px; }
+        .field-row input[type=text], .field-row select { flex: 1; min-width: 0; max-width: 190px; background: var(--surface-field);
+            color: var(--text-primary); border: 1px solid var(--border); border-radius: 4px; padding: 4px 6px;
+            font-size: 12px; font-family: inherit; }
+        .field-row input[type=color] { width: 44px; height: 24px; padding: 0 2px; border: 1px solid var(--border);
+            border-radius: 4px; background: var(--surface-field); cursor: pointer; }
+        .field-row input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--accent); margin: 0; cursor: pointer; }
+        .slider-row { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-secondary); }
+        .slider-row .slider-top { display: flex; justify-content: space-between; align-items: center; }
+        .slider-row .slider-top input[type=number] { width: 64px; background: var(--surface-field); color: var(--text-primary);
+            border: 1px solid var(--border); border-radius: 4px; padding: 3px 6px; }
+        .slider-row input[type=range] { width: 100%; accent-color: var(--accent); margin: 0; }
+        /* Color by Height ramp: a vertical bar, 0 % at the bottom. */
+        .ramp-wrap { display: flex; gap: 12px; padding: 8px 0 8px 22px; }
+        .ramp { position: relative; width: 44px; height: 240px; flex-shrink: 0; border: 1px solid var(--border);
+            border-radius: 4px; cursor: copy; touch-action: none;
+            background: repeating-linear-gradient(135deg, #2b2f36 0 6px, #343943 6px 12px); }
+        .ramp-seg { position: absolute; left: 0; right: 0; cursor: pointer; }
+        .ramp-seg:hover { box-shadow: inset 0 0 0 2px rgba(255,255,255,0.35); }
+        .ramp-seg.selected { box-shadow: inset 0 0 0 2px var(--accent); }
+        /* A pin: a line across the bar plus a Blender-style stop marker on
+           its left, filled with the color of the section above it. */
+        .ramp-pin { position: absolute; left: -20px; right: 0; height: 16px; transform: translateY(-50%);
+            cursor: ns-resize; z-index: 2; outline: none; }
+        .ramp-pin::before { content: ''; position: absolute; left: 20px; right: 0; top: 7px; height: 2px; background: #e8e8e8;
+            box-shadow: 0 0 0 1px rgba(0,0,0,0.55); }
+        .ramp-marker { position: absolute; left: 0; top: 1px; width: 16px; height: 14px; background: #1a1a1a;
+            clip-path: polygon(0 0, 65% 0, 100% 50%, 65% 100%, 0 100%); }
+        .ramp-marker i { position: absolute; inset: 2px 5px 2px 2px; clip-path: inherit; }
+        .ramp-pin.selected .ramp-marker, .ramp-pin:focus-visible .ramp-marker { background: #fff; }
+        .ramp-pin.selected::before { background: #fff; }
+        .ramp-tools { display: flex; gap: 4px; }
+        .ramp-tool { width: 28px; height: 24px; padding: 0; background: var(--surface-raised); color: var(--text-primary);
+            border: 1px solid var(--border); border-radius: 4px; cursor: pointer; font: inherit; font-size: 15px; line-height: 1; }
+        .ramp-tool:hover:not(:disabled) { border-color: var(--accent); }
+        .ramp-tool:disabled { opacity: 0.4; cursor: not-allowed; }
+        .ramp-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px; }
+        .ramp-field { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-width: 0;
+            background: var(--surface-field); border: 1px solid var(--border); border-radius: 4px; padding: 2px 4px 2px 8px;
+            font-size: 12px; color: var(--text-secondary); }
+        .ramp-field input { width: 52px; min-width: 0; background: transparent; color: var(--text-primary); border: none;
+            text-align: right; font-variant-numeric: tabular-nums; padding: 3px 2px; }
+        .ramp-color { width: 100%; height: 26px; padding: 0 2px; border: 1px solid var(--border); border-radius: 4px;
+            background: var(--surface-field); cursor: pointer; }
+        .ramp-labels { position: relative; flex: 1; min-width: 0; height: 240px; font-size: 11.5px;
+            color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+        .ramp-label { position: absolute; left: 4px; right: 0; transform: translateY(-50%); white-space: nowrap;
+            overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+        .ramp-label.selected { color: var(--text-primary); font-weight: 600; }
+        .ramp-label.base { color: var(--text-muted); font-style: italic; cursor: default; }
+        .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 4px; }
+        .seg .element-mode-btn { font-size: 11px; padding: 5px 4px; }
+        .seg-narrow { width: 150px; }
+        .pos-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+        .pos-field { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12px; color: var(--text-secondary); }
+        .pos-field span { font-weight: 600; width: 10px; flex-shrink: 0; }
+        .pos-field input { flex: 1; min-width: 0; width: 100%; background: var(--surface-field); color: var(--text-primary);
+            border: 1px solid var(--border); border-radius: 4px; padding: 4px 6px; font-variant-numeric: tabular-nums; }
+        #coordLabel { position: absolute; bottom: 10px; right: 10px; z-index: 10; background: rgba(26,26,26,0.85);
+            border: 1px solid var(--accent); border-radius: 4px; padding: 6px 10px; font-size: 12px; color: var(--text-primary);
+            font-variant-numeric: tabular-nums; pointer-events: none; white-space: pre; }
+        #coordLabel:empty { display: none; }
+        .hint-on { color: #ff8a4c; }
+        .stack, .placement { display: flex; flex-direction: column; gap: 9px; }
+        /* .field-row / .sub-fields set display:flex, which would beat the
+           browser's own [hidden] rule. */
+        [hidden] { display: none !important; }
+        .sub-fields { display: flex; flex-direction: column; gap: 8px; padding-left: 10px; border-left: 2px solid #3a3f47; }
+        .note { font-size: 11.5px; line-height: 1.45; color: var(--text-muted); }
+        .note.warn { color: var(--warning); }
+        .note.error { color: var(--danger); }
+        .note:empty { display: none; }
+        .apply-btn { padding: 9px 14px; background: var(--send-action); color: #fff; border: none; border-radius: 4px;
+            cursor: pointer; font: inherit; font-size: 13px; font-weight: 600; }
+        .apply-btn:hover:not(:disabled) { background: var(--send-action-hover); filter: brightness(1.1); }
+        .apply-btn:disabled { background: var(--border); color: #aaa; cursor: not-allowed; }
+        .small-btn { padding: 4px 10px; background: var(--surface-raised); color: var(--text-primary); border: 1px solid var(--border);
+            border-radius: 4px; cursor: pointer; font: inherit; font-size: 11.5px; }
+        .small-btn:hover:not(:disabled) { border-color: var(--accent); }
+        .small-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-row { display: flex; gap: 6px; flex-wrap: wrap; }
+        .file-pick { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-secondary); }
+        .file-pick .file-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); }
+        .map-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
+        .map-list li { display: flex; justify-content: space-between; gap: 8px; color: var(--text-secondary); }
+        .map-list li span:last-child { color: var(--text-muted); }
+        .map-list li.done span:last-child { color: var(--success); }
+        .locked-box { font-size: 12px; color: var(--warning); background: rgba(239,201,119,0.08); border: 1px solid rgba(239,201,119,0.3);
+            border-radius: 4px; padding: 8px 10px; line-height: 1.45; }
+        /* ── Footer ── */
+        /* Stays in view while the tool list scrolls -- it shows each
+           Apply's result and holds Undo. */
+        #footer { margin-top: auto; display: flex; flex-direction: column; gap: 8px; position: sticky;
+            bottom: calc(-1 * var(--space-4)); padding: 10px 0 var(--space-4); margin-bottom: calc(-1 * var(--space-4));
+            background: var(--surface-panel); box-shadow: 0 -8px 10px -6px rgba(0,0,0,0.45); z-index: 2; }
+        #status { white-space: pre-line; text-align: left; line-height: 1.45; }
+        #status.warn { color: var(--warning); }
+        #status.error { color: var(--danger); }
+        #status.ok { color: var(--success); }
+        #status:empty { display: none; }   /* only shown when there's something to say */
+        .footer-row { display: flex; gap: 8px; }
+        #undoBtn { flex: 1; padding: 10px; background: var(--surface-raised); color: var(--text-primary); border: 1px solid var(--border);
+            border-radius: 4px; cursor: pointer; font: inherit; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        #undoBtn:hover:not(:disabled) { border-color: var(--accent); }
+        #undoBtn:disabled { opacity: 0.45; cursor: not-allowed; }
+        #doneBtn { margin-top: 0; padding: 10px 22px; }
+        /* ── Viewport overlays ── */
+        #viewTools { position: absolute; top: 10px; left: 10px; z-index: 10; display: flex; gap: 6px;
+            background: rgba(26,26,26,0.85); border: 1px solid var(--border); border-radius: 4px; padding: 6px; }
+        #viewTools button { padding: 5px 10px; background: var(--surface-raised); color: var(--text-primary); border: 1px solid var(--border);
+            border-radius: 4px; cursor: pointer; font-size: 12px; font-family: inherit; }
+        #viewTools button:hover { background: var(--border); border-color: var(--accent); }
+        #hint { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 10; background: rgba(26,26,26,0.88);
+            border: 1px solid var(--accent); border-radius: 16px; padding: 6px 14px; font-size: 12px; color: var(--text-primary);
+            pointer-events: none; white-space: nowrap; }
+        #hint:empty { display: none; }
+        #dimsLabel { position: absolute; bottom: 10px; left: 10px; z-index: 10; background: rgba(26,26,26,0.85);
+            border: 1px solid var(--border); border-radius: 4px; padding: 6px 10px; font-size: 12px; color: var(--text-secondary);
+            font-variant-numeric: tabular-nums; pointer-events: none; }
+        #busy { position: absolute; top: 10px; right: 46px; z-index: 10; display: none; align-items: center;
+            background: rgba(26,26,26,0.85); border: 1px solid var(--border); border-radius: 4px; padding: 6px 10px;
+            font-size: 12px; color: var(--text-secondary); }
+        #busy.show { display: flex; }
+        #busy .prefetch-spinner { margin-right: 8px; }
+        .help-wrap { position: absolute; top: 10px; right: 10px; z-index: 10; display: flex; align-items: center; }
+        .help-icon { width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
+            border: 1px solid var(--border); border-radius: 50%; background: var(--surface-raised); color: var(--text-secondary); font-size: 13px;
+            font-weight: bold; cursor: help; user-select: none; }
+        .help-icon:hover, .help-icon:focus { border-color: var(--accent); color: #fff; outline: none; }
+        .help-tip { display: none; position: absolute; top: calc(100% + 8px); right: 0; width: 300px;
+            flex-direction: column; gap: 8px; padding: 10px 12px; background: rgba(26,26,26,0.95);
+            border: 1px solid var(--border); border-radius: 4px; font-size: 12px; color: var(--text-secondary); line-height: 1.45;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4); }
+        .help-wrap:hover .help-tip, .help-icon:focus + .help-tip { display: flex; }
+        #emptyNote { position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+            color: var(--text-muted); font-size: 14px; pointer-events: none; }
+    </style>
+</head>
+<body>
+    <a class="skip-link" href="#viewportColumn">Skip to workspace</a>
+    <div id="sidebar" role="complementary" aria-label="Post-processing tools">
+        <div class="sidebar-heading"><a class="brand-link" href="https://trailprint3d.com" target="_blank" rel="noopener" title="Open trailprint3d.com">TrailPrint3D</a><br>
+            <span class="sidebar-subtitle">Post-processing</span></div>
+
+        <div id="targetSummary" class="target-summary">Loading the map…</div>
+
+        <div id="tools">
+            <!-- Color by Height -->
+            <section class="tool" data-tool="color_height">
+                <button class="tool-head" type="button">
+                    <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 16 L7.5 7 L11 12 L14 8 L18 16 Z"/><path d="M5.2 10.8 H16" stroke-dasharray="2 1.6"/></svg>
+                    <span class="tool-title">Color by Height</span><span class="tool-badge" id="badge_color_height"></span>
+                </button>
+                <div class="tool-body">
+                    <div class="ramp-tools">
+                        <button type="button" class="ramp-tool" id="ch_addBand" title="Add a pin">+</button>
+                        <button type="button" class="ramp-tool" id="ch_pinRemove" title="Remove the selected pin">−</button>
+                    </div>
+                    <div class="ramp-wrap">
+                        <div class="ramp" id="ch_ramp" title="Double-click to add a pin here"></div>
+                        <div class="ramp-labels" id="ch_rampLabels"></div>
+                    </div>
+                    <div class="ramp-fields">
+                        <label class="ramp-field"><span>Pin</span><input type="number" id="ch_pinIndex" min="1" step="1"></label>
+                        <label class="ramp-field"><span>Pos (%)</span><input type="number" id="ch_pinValue" min="0" max="100" step="1"></label>
+                    </div>
+                    <input type="color" id="ch_pinColor" class="ramp-color" aria-label="Color above the selected pin" title="Color above the selected pin">
+                    <div class="field-row"><span>Mode</span></div>
+                    <div class="seg" id="ch_mode">
+                        <button type="button" class="element-mode-btn active" data-mode="paint" title="Recolors the faces above the threshold">Paint</button>
+                        <button type="button" class="element-mode-btn" data-mode="SEM" title="Builds the colored part as its own piece with a tolerance gap (Single Extruder)">Single Extr.</button>
+                        <button type="button" class="element-mode-btn" data-mode="MEM" title="Builds the colored part as a thin shell seated in a recess (Multi Extruder)">Multi Extr.</button>
+                    </div>
+                    <div class="sub-fields" id="ch_sem_fields" hidden>
+                        <div class="field-row"><label for="ch_tolerance">Tolerance (mm)</label><input type="number" id="ch_tolerance" min="0" max="2" step="0.05" value="0.2"></div>
+                    </div>
+                    <div class="sub-fields" id="ch_mem_fields" hidden>
+                        <div class="field-row"><label for="ch_thickness">Thickness (mm)</label><input type="number" id="ch_thickness" min="0.2" max="10" step="0.1" value="1"></div>
+                    </div>
+                    <div class="note" id="ch_modeNote"></div>
+                    <label class="field-row clickable-label"><span>Natural edge (noise)</span><input type="checkbox" id="ch_noise"></label>
+                    <div class="sub-fields" id="ch_noise_fields" hidden>
+                        <div class="slider-row">
+                            <div class="slider-top"><label for="ch_noiseAmp_range">Amplitude (mm)</label>
+                                <input type="number" id="ch_noiseAmp" min="0" max="20" step="0.1" value="1" aria-label="Amplitude in mm"></div>
+                            <input type="range" id="ch_noiseAmp_range" min="0" max="10" step="0.1" value="1">
+                        </div>
+                        <div class="slider-row">
+                            <div class="slider-top"><label for="ch_noiseScale_range">Scale</label>
+                                <input type="number" id="ch_noiseScale" min="0" max="5" step="0.01" value="0.5" aria-label="Scale"></div>
+                            <input type="range" id="ch_noiseScale_range" min="0.01" max="2" step="0.01" value="0.5">
+                        </div>
+                        <div class="note" id="ch_noiseNote"></div>
+                    </div>
+                    <button type="button" class="apply-btn" data-apply="color_height">Apply Color by Height</button>
+                </div>
+            </section>
+
+            <!-- Contour Lines -->
+            <section class="tool" data-tool="contour_lines">
+                <button class="tool-head" type="button">
+                    <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><ellipse cx="10" cy="10" rx="8" ry="6"/><ellipse cx="10" cy="10.5" rx="5" ry="3.4"/><ellipse cx="10" cy="11" rx="2" ry="1.3"/></svg>
+                    <span class="tool-title">Contour Lines</span><span class="tool-badge" id="badge_contour_lines"></span>
+                </button>
+                <div class="tool-body">
+                    <p class="tool-intro">Cuts lines at equal heights into the terrain and adds them as their own part (white), ready for a second color.</p>
+                    <div class="field-row"><span>Units</span>
+                        <div class="seg seg-narrow" id="cl_units">
+                            <button type="button" class="element-mode-btn active" data-units="m" title="Distance and offset in real-world meters of elevation">Meters</button>
+                            <button type="button" class="element-mode-btn" data-units="mm" title="Distance and offset in millimeters on the print">mm</button>
+                        </div>
+                    </div>
+                    <div class="field-row"><label for="cl_distance" id="cl_distanceLabel">Distance (m)</label><input type="number" id="cl_distance" min="0" step="1" value="100"></div>
+                    <div class="field-row"><label for="cl_offset" id="cl_offsetLabel">Offset (m)</label><input type="number" id="cl_offset" step="1" value="0"></div>
+                    <div class="field-row"><label for="cl_thickness">Line thickness (mm)</label><input type="number" id="cl_thickness" min="0.05" max="5" step="0.05" value="0.4"></div>
+                    <div class="note" id="cl_info"></div>
+                    <button type="button" class="apply-btn" data-apply="contour_lines">Apply Contour Lines</button>
+                </div>
+            </section>
+
+            <!-- Magnet Holes -->
+            <section class="tool" data-tool="magnets">
+                <button class="tool-head" type="button">
+                    <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="12" width="16" height="5" rx="1"/><circle cx="6" cy="14.5" r="1.4"/><circle cx="14" cy="14.5" r="1.4"/><path d="M6 3v5M14 3v5M4.5 6.5 6 8l1.5-1.5M12.5 6.5 14 8l1.5-1.5"/></svg>
+                    <span class="tool-title">Magnet Holes</span><span class="tool-badge" id="badge_magnets"></span>
+                </button>
+                <div class="tool-body">
+                    <p class="tool-intro">Cuts round pockets into the underside for magnets. The red discs show where they go — turn the view to see the bottom.</p>
+                    <div class="field-row"><label for="mg_diameter">Diameter (mm)</label><input type="number" id="mg_diameter" min="1" max="40" step="0.1" value="6.3"></div>
+                    <div class="field-row"><label for="mg_depth">Depth (mm)</label><input type="number" id="mg_depth" min="0.2" max="20" step="0.1" value="2.5"></div>
+                    <div class="field-row"><label for="mg_margin">Edge margin (mm)</label><input type="number" id="mg_margin" min="0" max="50" step="0.5" value="3"></div>
+                    <div class="field-row"><label for="mg_count">Count per map</label><input type="number" id="mg_count" min="1" max="12" step="1" value="3"></div>
+                    <div class="note" id="mg_info"></div>
+                    <button type="button" class="apply-btn" data-apply="magnets">Apply Magnet Holes</button>
+                </div>
+            </section>
+
+            <!-- Dovetails -->
+            <section class="tool" data-tool="dovetails">
+                <button class="tool-head" type="button">
+                    <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 5h6l-1.5 4h7L12 5h6v10H2z"/></svg>
+                    <span class="tool-title">Dovetail Connections</span><span class="tool-badge" id="badge_dovetails"></span>
+                </button>
+                <div class="tool-body">
+                    <p class="tool-intro">Cuts dovetail recesses into the bottom edges so tiles can be joined. Click the balls on the edges to choose which sides get one — <span class="hint-on">orange</span> = cut, grey = skip.</p>
+                    <label class="field-row clickable-label"><span>Same sides on every tile</span><input type="checkbox" id="dt_sync" checked></label>
+                    <div class="btn-row">
+                        <button type="button" class="small-btn" id="dt_all">All sides</button>
+                        <button type="button" class="small-btn" id="dt_none">No sides</button>
+                    </div>
+                    <div class="note" id="dt_info"></div>
+                    <button type="button" class="apply-btn" data-apply="dovetails">Apply Dovetails</button>
+                </div>
+            </section>
+
+            <!-- Bottom Mark -->
+            <section class="tool" data-tool="bottom_mark">
+                <button class="tool-head" type="button">
+                    <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="4" width="16" height="12" rx="1.5"/><path d="M6 12.5V8l2 2.6L10 8v4.5M12.5 8h3M14 8v4.5"/></svg>
+                    <span class="tool-title">Bottom Mark</span><span class="tool-badge" id="badge_bottom_mark"></span>
+                </button>
+                <div class="tool-body">
+                    <p class="tool-intro">Writes each map's name onto its underside — handy for telling tiles apart.</p>
+                    <ul class="map-list" id="bm_list"></ul>
+                    <label class="field-row clickable-label" title="On: the name is only cut into the bottom. Off: the cut is filled with the name as its own colored part."><span>Engrave only (no colored inlay)</span><input type="checkbox" id="bm_cutout"></label>
+                    <div class="note" id="bm_info"></div>
+                    <button type="button" class="apply-btn" data-apply="bottom_mark">Apply Bottom Mark</button>
+                </div>
+            </section>
+
+            <!-- Text -->
+            <section class="tool" data-tool="text">
+                <button class="tool-head" type="button">
+                    <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 5V3.5h12V5M10 3.5v13M7.5 16.5h5"/></svg>
+                    <span class="tool-title">Text</span><span class="tool-badge" id="badge_text"></span>
+                </button>
+                <div class="tool-body">
+                    <div class="field-row"><label for="tx_text">Text</label><input type="text" id="tx_text" maxlength="80" placeholder="e.g. Tour du Mont Blanc"></div>
+                    <div class="field-row"><label for="tx_font">Font</label><select id="tx_font"><option value="">Default font</option></select></div>
+                    <div class="slider-row">
+                        <div class="slider-top"><label for="tx_size_range">Size (mm)</label>
+                            <input type="number" id="tx_size" min="1" max="200" step="0.5" value="10" aria-label="Text size in mm"></div>
+                        <input type="range" id="tx_size_range" min="1" max="60" step="0.5" value="10">
+                    </div>
+                    <div class="placement" data-for="tx"></div>
+                    <button type="button" class="apply-btn" data-apply="text">Apply Text</button>
+                </div>
+            </section>
+
+            <!-- SVG -->
+            <section class="tool" data-tool="svg">
+                <button class="tool-head" type="button">
+                    <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10 2.5l2.2 4.6 5 .7-3.6 3.5.9 5-4.5-2.4-4.5 2.4.9-5L2.8 7.8l5-.7z"/></svg>
+                    <span class="tool-title">SVG Import</span><span class="tool-badge" id="badge_svg"></span>
+                </button>
+                <div class="tool-body">
+                    <div class="file-pick"><span class="file-name" id="sv_name">No SVG chosen</span>
+                        <button type="button" class="small-btn" id="sv_pick">Choose SVG…</button>
+                        <input type="file" id="sv_file" accept=".svg,image/svg+xml" hidden></div>
+                    <div class="slider-row">
+                        <div class="slider-top"><label for="sv_scale_range">Scale</label>
+                            <input type="number" id="sv_scale" min="0" max="100" step="0.05" value="1" aria-label="SVG scale"></div>
+                        <input type="range" id="sv_scale_range" min="0.05" max="5" step="0.05" value="1">
+                    </div>
+                    <div class="note" id="sv_dims"></div>
+                    <div class="placement" data-for="sv"></div>
+                    <button type="button" class="apply-btn" data-apply="svg">Apply SVG</button>
+                </div>
+            </section>
+
+            <!-- 2D Heightmap -->
+            <section class="tool" data-tool="heightmap">
+                <button class="tool-head" type="button">
+                    <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 16h16M2 16l3-5 3 2 3-7 3 5 2-2 2 3v4"/></svg>
+                    <span class="tool-title">2D Heightmap</span><span class="tool-badge" id="badge_heightmap"></span>
+                </button>
+                <div class="tool-body">
+                    <p class="tool-intro">Adds the track's elevation profile to the underside of the map.</p>
+                    <div id="hm_locked" class="locked-box" hidden>The 2D Heightmap is part of TrailPrint3D Premium.</div>
+                    <div id="hm_fields" class="stack">
+                        <div class="file-pick"><span class="file-name" id="hm_name">Scene track</span>
+                            <button type="button" class="small-btn" id="hm_pick">Choose GPX…</button>
+                            <input type="file" id="hm_file" accept=".gpx,.igc" hidden></div>
+                        <div class="field-row"><label for="hm_length">Length (mm)</label><input type="number" id="hm_length" min="5" max="500" step="1" value="50"></div>
+                        <div class="field-row"><label for="hm_height">Height (mm)</label><input type="number" id="hm_height" min="3" max="200" step="0.5" value="10"></div>
+                        <div class="placement" data-for="hm"></div>
+                    </div>
+                    <button type="button" class="apply-btn" data-apply="heightmap">Apply 2D Heightmap</button>
+                </div>
+            </section>
+        </div>
+
+        <div id="footer">
+            <div id="status" role="status" aria-live="polite">Loading…</div>
+            <div class="footer-row">
+                <button type="button" id="undoBtn" disabled title="Undo the last applied step">Undo</button>
+                <button type="button" id="doneBtn" class="btn-send" title="Close this page — everything is already applied in Blender">Done</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="viewportColumn" role="main" tabindex="-1" aria-label="3D view">
+        <div id="viewport"></div>
+        <div id="viewTools">
+            <button type="button" id="viewTop" title="Look at the top">Top</button>
+            <button type="button" id="viewBottom" title="Look at the underside">Bottom</button>
+            <button type="button" id="viewFit" title="Fit everything in view">Fit</button>
+        </div>
+        <div id="hint"></div>
+        <div class="help-wrap">
+            <span class="help-icon" tabindex="0" aria-label="3D view help">?</span>
+            <div class="help-tip" role="tooltip">
+                <div><b>Rotate:</b> drag with the left mouse button. <b>Pan:</b> right button. <b>Zoom:</b> mouse wheel.</div>
+                <div><b>Text, SVG, Heightmap:</b> click on the map to place, drag the preview to move it. For exact placement, type the X/Y position (mm from the map center, marked by the blue cross).</div>
+                <div><b>Dovetails:</b> click the balls on the tile edges to switch a side on or off.</div>
+                <div>Every <b>Apply</b> changes the map in Blender right away — <b>Undo</b> takes back the last steps.</div>
+            </div>
+        </div>
+        <div id="busy"><span class="prefetch-spinner"></span><span id="busyText">Working…</span></div>
+        <div id="dimsLabel">–</div>
+        <div id="coordLabel" aria-live="polite"></div>
+        <div id="emptyNote">The map is no longer in the scene.</div>
+    </div>
+
+    <template id="placementTpl">
+        <div class="field-row"><span>Side</span>
+            <div class="seg seg-narrow pl-side">
+                <button type="button" class="element-mode-btn active" data-side="top">Top</button>
+                <button type="button" class="element-mode-btn" data-side="bottom">Bottom</button>
+            </div>
+        </div>
+        <div class="pl-type-wrap stack">
+            <div class="field-row"><span>Type</span></div>
+            <div class="seg pl-type">
+                <button type="button" class="element-mode-btn active" data-op="paint" title="Paints the shape onto the surface in its own color">Paint</button>
+                <button type="button" class="element-mode-btn" data-op="singleColorMode_remesh" title="Builds the shape as its own raised part (Single Extruder)">Raised part</button>
+                <button type="button" class="element-mode-btn" data-op="negative" title="Cuts the shape into the surface">Cut in</button>
+            </div>
+            <div class="field-row pl-color-row"><label>Color</label><input type="color" class="pl-color" value="#ffffff"></div>
+        </div>
+        <div class="slider-row">
+            <div class="slider-top"><label>Rotation (°)</label><input type="number" class="pl-rot-num" min="-180" max="180" step="1" value="0" aria-label="Rotation in degrees"></div>
+            <input type="range" class="pl-rot" min="-180" max="180" step="1" value="0" aria-label="Rotation">
+        </div>
+        <div class="pl-pos stack">
+            <div class="field-row"><span title="Measured from the center of the map it sits on">Position from map center (mm)</span></div>
+            <div class="pos-grid">
+                <label class="pos-field"><span>X</span><input type="number" class="pl-x" step="0.5" aria-label="X position in mm from the map center"></label>
+                <label class="pos-field"><span>Y</span><input type="number" class="pl-y" step="0.5" aria-label="Y position in mm from the map center"></label>
+            </div>
+        </div>
+        <div class="note pl-where">Click on the map to place it.</div>
+    </template>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+        import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+        const PORT = __PORT__;
+        const BASE = 'http://127.0.0.1:' + PORT;
+        // The scene's own post-process values (post_process.settings_state).
+        __SETTINGS_STATE_JS__
+        const S = SETTINGS_STATE || {};
+        const $ = function(id) { return document.getElementById(id); };
+
+        // Latest per-map info from Blender (post_process.PostProcessSession.info).
+        let info = { maps: [], colorRange: null, undo: [], premium: false };
+        let openTool = null;
+
+        // ══ 3D view ═══════════════════════════════════════════════════════
+        const container = $('viewport');
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 0.95;
+        container.appendChild(renderer.domElement);
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color('#3f4247');
+        const pmrem = new THREE.PMREMGenerator(renderer);
+        scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+        const keyLight = new THREE.DirectionalLight(0xffffff, 2.2);
+        keyLight.position.set(-1, 2.2, 1.2);
+        scene.add(keyLight);
+        const underLight = new THREE.DirectionalLight(0xffffff, 1.1);
+        underLight.position.set(1, -2, -1);
+        scene.add(underLight);
+        scene.add(new THREE.HemisphereLight('#c8ccd2', '#3b3b3b', 0.6));
+        const headLight = new THREE.DirectionalLight(0xffffff, 0.9);
+        scene.add(headLight);
+        scene.add(headLight.target);
+
+        const camera = new THREE.PerspectiveCamera(35, 1, 1, 10000);
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.12;
+
+        // Everything from Blender lives in `world`, in Blender's own
+        // coordinates (Z-up, mm); the -90° turn makes Blender's Z three's Y.
+        // So a Blender point (x, y, z) shows at three (x, z, -y).
+        const world = new THREE.Group();
+        world.rotation.x = -Math.PI / 2;
+        scene.add(world);
+        const modelRoot = new THREE.Group();
+        const overlayRoot = new THREE.Group();   // magnets, dovetail balls
+        const placementRoot = new THREE.Group(); // text / svg / heightmap preview
+        const guideRoot = new THREE.Group();     // placement origin marker (never hit-tested)
+        world.add(modelRoot, overlayRoot, placementRoot, guideRoot);
+        let grid = null;
+        let framedOnce = false;
+
+        function resize() {
+            const w = container.clientWidth, h = container.clientHeight;
+            renderer.setSize(w, h);
+            camera.aspect = w / Math.max(1, h);
+            camera.updateProjectionMatrix();
+        }
+        window.addEventListener('resize', resize);
+        new ResizeObserver(resize).observe(container);
+        resize();
+
+        function modelBox() { return new THREE.Box3().setFromObject(modelRoot); }
+
+        function frame(direction) {
+            const box = modelBox();
+            if (box.isEmpty()) return;
+            const center = box.getCenter(new THREE.Vector3());
+            const size = box.getSize(new THREE.Vector3());
+            const radius = Math.max(size.x, size.y, size.z) / 2;
+            const dist = radius / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * 1.25;
+            camera.position.copy(center).addScaledVector(direction.clone().normalize(), dist);
+            camera.near = Math.max(0.1, dist / 200);
+            camera.far = dist * 30;
+            camera.updateProjectionMatrix();
+            controls.target.copy(center);
+            controls.update();
+        }
+        const VIEW_ANGLED = new THREE.Vector3(0.35, 1, 0.85);
+        const VIEW_TOP = new THREE.Vector3(0, 1, 0.0001);
+        // From below with north still up -- the tile turned over sideways,
+        // so the underside (bottom marks, heightmap) reads the right way round.
+        const VIEW_BOTTOM = new THREE.Vector3(0, -1, -0.0001);
+        $('viewTop').addEventListener('click', function() { frame(VIEW_TOP); });
+        $('viewBottom').addEventListener('click', function() { frame(VIEW_BOTTOM); });
+        $('viewFit').addEventListener('click', function() { frame(VIEW_ANGLED); });
+        function viewingBottom() { return camera.position.y < controls.target.y; }
+
+        function updateGrid(box) {
+            const size = box.getSize(new THREE.Vector3());
+            const extent = Math.ceil(Math.max(size.x, size.z) * 1.6 / 10) * 10 + 40;
+            if (grid) { scene.remove(grid); grid.geometry.dispose(); grid.material.dispose(); }
+            grid = new THREE.GridHelper(extent, Math.max(4, Math.round(extent / 10)), 0x6d7178, 0x55595f);
+            const c = box.getCenter(new THREE.Vector3());
+            grid.position.set(c.x, box.min.y - 0.05, c.z);
+            scene.add(grid);
+        }
+
+        // ── Live preview shading ───────────────────────────────────────
+        // Map meshes get a patched standard material: fragments above the
+        // Color by Height threshold that still have the map's base color
+        // turn the chosen color, and Contour Lines draw white bands -- all
+        // on the GPU, so dragging a slider is instant even on big maps.
+        const MAX_BANDS = 8;
+        const shared = {
+            uHeightOn: { value: 0 }, uBandCount: { value: 0 },
+            // Sorted lowest first, so the highest band a fragment is above wins.
+            uBandZ: { value: new Array(MAX_BANDS).fill(0) },
+            uBandColor: { value: Array.from({ length: MAX_BANDS }, function() { return new THREE.Color('#808080'); }) },
+            // Natural edge: the threshold moves up/down by noise * amplitude.
+            uNoiseAmp: { value: 0 }, uNoiseScale: { value: 0.5 },
+            uContourOn: { value: 0 },
+        };
+        function mapMaterial(baseColor) {
+            const mat = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.82, metalness: 0.0 });
+            const own = {
+                uBase: { value: baseColor || new THREE.Color(1, 1, 1) },
+                uContourZ0: { value: 0 }, uContourStep: { value: 1 }, uContourThick: { value: 0.4 },
+                uOrigin: { value: new THREE.Vector2(0, 0) },   // the map's world X/Y
+            };
+            mat.userData.own = own;
+            mat.onBeforeCompile = function(shader) {
+                Object.assign(shader.uniforms, shared, own);
+                shader.vertexShader = 'varying float vBlZ; varying vec2 vBlXY;\n' + shader.vertexShader.replace(
+                    '#include <begin_vertex>', '#include <begin_vertex>\n vBlZ = position.z; vBlXY = position.xy;');
+                shader.fragmentShader = [
+                    'varying float vBlZ; varying vec2 vBlXY;',
+                    'uniform float uHeightOn; uniform int uBandCount; uniform vec3 uBase;',
+                    'uniform float uBandZ[' + MAX_BANDS + ']; uniform vec3 uBandColor[' + MAX_BANDS + '];',
+                    'uniform float uNoiseAmp; uniform float uNoiseScale; uniform vec2 uOrigin;',
+                    'uniform float uContourOn; uniform float uContourZ0; uniform float uContourStep; uniform float uContourThick;',
+                    // Same lattice noise as the texture bake
+                    // (utils/texture._value_noise_field, seed 0), bit for bit.
+                    'float tpHash(ivec2 c) {',
+                    ' uint h = uint(c.x) * 374761393u + uint(c.y) * 668265263u;',
+                    ' h = (h ^ (h >> 13u)) * 1274126177u;',
+                    ' h = h ^ (h >> 16u);',
+                    ' return float(h & 65535u) / 65535.0 * 2.0 - 1.0;',
+                    '}',
+                    'float tpNoise(vec2 p) {',
+                    ' vec2 g = p * uNoiseScale; vec2 f = floor(g); ivec2 c = ivec2(f);',
+                    ' vec2 t = g - f; vec2 s = t * t * (3.0 - 2.0 * t);',
+                    ' float nx0 = mix(tpHash(c), tpHash(c + ivec2(1, 0)), s.x);',
+                    ' float nx1 = mix(tpHash(c + ivec2(0, 1)), tpHash(c + ivec2(1, 1)), s.x);',
+                    ' return mix(nx0, nx1, s.y);',
+                    '}',
+                ].join('\n') + '\n' + shader.fragmentShader.replace('#include <color_fragment>', [
+                    '#include <color_fragment>',
+                    '#ifdef USE_COLOR',
+                    ' if (uHeightOn > 0.5 && distance(vColor.rgb, uBase) < 0.02) {',
+                    '  float shift = uNoiseAmp > 0.0 ? tpNoise(vBlXY - uOrigin) * uNoiseAmp : 0.0;',
+                    '  for (int i = 0; i < ' + MAX_BANDS + '; i++) {',
+                    '   if (i >= uBandCount) break;',
+                    '   if (vBlZ > uBandZ[i] + shift) diffuseColor.rgb = uBandColor[i];',
+                    '  }',
+                    ' }',
+                    '#endif',
+                    ' if (uContourOn > 0.5 && vBlZ >= uContourZ0 && mod(vBlZ - uContourZ0, uContourStep) < uContourThick) diffuseColor.rgb = vec3(0.92);',
+                ].join('\n'));
+            };
+            return mat;
+        }
+
+        // Most common color of a map mesh = its base terrain color.
+        function dominantColor(geometry) {
+            const col = geometry.getAttribute('color');
+            if (!col) return null;
+            const counts = new Map();
+            let best = null, bestN = 0;
+            const stride = Math.max(3, Math.floor(col.count / 30000) * 3);
+            for (let i = 0; i < col.count; i += stride) {
+                const r = col.getX(i), g = col.getY(i), b = col.getZ(i);
+                const key = Math.round(r * 255) + ',' + Math.round(g * 255) + ',' + Math.round(b * 255);
+                const n = (counts.get(key) || 0) + 1;
+                counts.set(key, n);
+                if (n > bestN) { bestN = n; best = [r, g, b]; }
+            }
+            return best ? new THREE.Color(best[0], best[1], best[2]) : null;
+        }
+
+        function disposeModel() {
+            modelRoot.traverse(function(o) {
+                if (o.geometry) o.geometry.dispose();
+                if (o.material) [].concat(o.material).forEach(function(m) { m.dispose(); });
+            });
+            modelRoot.clear();
+        }
+
+        const loader = new GLTFLoader();
+        function loadModel(version) {
+            return new Promise(function(resolve) {
+                loader.load(BASE + '/post_process.glb?v=' + version, function(gltf) {
+                    disposeModel();
+                    const meshes = [];
+                    gltf.scene.traverse(function(o) { if (o.isMesh) meshes.push(o); });
+                    meshes.forEach(function(m) {
+                        const ud = m.userData || {};
+                        m.material.dispose();
+                        if (ud.role === 'map') {
+                            m.material = mapMaterial(dominantColor(m.geometry));
+                        } else {
+                            m.material = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.75, metalness: 0.0 });
+                        }
+                    });
+                    modelRoot.add(gltf.scene);
+                    const box = modelBox();
+                    const empty = box.isEmpty();
+                    $('emptyNote').style.display = empty ? 'flex' : 'none';
+                    if (!empty) {
+                        const size = box.getSize(new THREE.Vector3());
+                        // three's x/y/z = Blender's x/z/y.
+                        $('dimsLabel').textContent = size.x.toFixed(1) + ' × ' + size.z.toFixed(1) + ' × ' + size.y.toFixed(1) + ' mm';
+                        updateGrid(box);
+                        if (!framedOnce) { frame(VIEW_ANGLED); framedOnce = true; }
+                    }
+                    refreshPreviews();
+                    resolve();
+                }, undefined, function(err) {
+                    console.error(err);
+                    setStatus('Could not load the 3D view.', 'error');
+                    resolve();
+                });
+            });
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            // The ground grid would sit between the camera and the underside.
+            if (grid) grid.visible = !viewingBottom();
+            headLight.position.copy(camera.position);
+            headLight.target.position.copy(controls.target);
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        // ══ Talking to Blender ════════════════════════════════════════════
+        // One request at a time; each carries a seq that Blender echoes back
+        // in GET /post_process_status once it's done with it.
+        let seq = 0;
+        let seenVersion = -1;
+        let chain = Promise.resolve();
+        let pendingWork = 0;
+        const previewTokens = {};
+
+        function setBusy(delta, text) {
+            pendingWork = Math.max(0, pendingWork + delta);
+            if (text) $('busyText').textContent = text;
+            $('busy').classList.toggle('show', pendingWork > 0);
+        }
+
+        function pollUntil(mySeq) {
+            return fetch(BASE + '/post_process_status', { cache: 'no-store' })
+                .then(function(r) { return r.json(); })
+                .then(function(job) {
+                    if (job.seq === mySeq && (job.status === 'done' || job.status === 'error')) return job;
+                    return new Promise(function(res) { setTimeout(res, 120); }).then(function() { return pollUntil(mySeq); });
+                })
+                .catch(function() {
+                    return new Promise(function(res) { setTimeout(res, 500); }).then(function() { return pollUntil(mySeq); });
+                });
+        }
+
+        function rawSend(request) {
+            const mySeq = ++seq;
+            request.seq = mySeq;
+            return fetch(BASE + '/post_process_request', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request),
+            }).then(function() { return pollUntil(mySeq); })
+              .then(function(job) {
+                  const result = job.result || {};
+                  let load = Promise.resolve();
+                  if (result.info) applyInfo(result.info);
+                  if (job.version > seenVersion && (result.info || request.kind !== 'preview')) {
+                      seenVersion = job.version;
+                      load = loadModel(job.version);
+                  }
+                  return load.then(function() { return result; });
+              });
+        }
+
+        function send(request, busyText) {
+            setBusy(1, busyText);
+            const p = chain.then(function() { return rawSend(request); });
+            chain = p.catch(function() {}).then(function() { setBusy(-1); });
+            return p.catch(function() {
+                setStatus('Could not reach Blender — is it still running?', 'error');
+                return {};
+            });
+        }
+
+        // Only the newest preview of each kind is worth building.
+        function sendPreview(action, params) {
+            const token = (previewTokens[action] || 0) + 1;
+            previewTokens[action] = token;
+            setBusy(1, 'Updating preview…');
+            const p = chain.then(function() {
+                if (previewTokens[action] !== token) return null;
+                return rawSend({ kind: 'preview', action: action, params: params });
+            });
+            chain = p.catch(function() {}).then(function() { setBusy(-1); });
+            return p.then(function(result) {
+                if (!result || previewTokens[action] !== token) return null;
+                return result.preview || null;
+            }).catch(function() { return null; });
+        }
+
+        function setStatus(text, level) {
+            const el = $('status');
+            el.textContent = text;
+            el.className = level || '';
+        }
+
+        function showMessages(messages) {
+            if (!messages || !messages.length) return;
+            const rank = { ERROR: 3, WARNING: 2, INFO: 1 };
+            let worst = 'INFO';
+            messages.forEach(function(m) { if ((rank[m.level] || 0) > rank[worst]) worst = m.level; });
+            setStatus(messages.map(function(m) { return m.text; }).join('\n'),
+                      worst === 'ERROR' ? 'error' : worst === 'WARNING' ? 'warn' : 'ok');
+        }
+
+        // ══ Info from Blender ═════════════════════════════════════════════
+        function mapByName(name) {
+            return info.maps.find(function(m) { return m.name === name; }) || info.maps[0] || null;
+        }
+
+        function mapAt(x, y) {
+            let best = null, bestD = Infinity;
+            info.maps.forEach(function(m) {
+                const b = m.bounds;
+                if (x >= b[0] && x <= b[3] && y >= b[1] && y <= b[4]) { best = m; bestD = -1; return; }
+                if (bestD < 0) return;
+                const d = Math.hypot(x - (b[0] + b[3]) / 2, y - (b[1] + b[4]) / 2);
+                if (d < bestD) { bestD = d; best = m; }
+            });
+            return best;
+        }
+
+        function applyInfo(next) {
+            info = next;
+            const n = info.maps.length;
+            if (!n) {
+                $('targetSummary').innerHTML = '<b>No map</b> — it was removed from the scene.';
+            } else if (n === 1) {
+                $('targetSummary').innerHTML = 'Working on <b></b>';
+                $('targetSummary').querySelector('b').textContent = info.maps[0].name;
+            } else {
+                $('targetSummary').innerHTML = 'Working on <b>' + n + ' maps</b> (multi-tile)';
+            }
+            const undo = info.undo || [];
+            $('undoBtn').disabled = !undo.length;
+            $('undoBtn').textContent = undo.length ? 'Undo ' + undo[undo.length - 1] : 'Undo';
+            // Dovetail side state: keep what was chosen, default all on.
+            info.maps.forEach(function(m) {
+                if (!dovetailSides[m.name]) dovetailSides[m.name] = new Set(m.dovetailSpots.map(function(s) { return s.index; }));
+            });
+            info.maps.forEach(function(m) {
+                ['tx', 'sv', 'hm'].forEach(function(k) {
+                    if (!placements[k].map) placements[k].map = m.name;
+                });
+            });
+            // General enable first -- the tool updates below may disable
+            // their own button again (nothing to mark, no side chosen...).
+            document.querySelectorAll('.apply-btn').forEach(function(b) { b.disabled = !n || b.dataset.locked === '1'; });
+            updateBadges();
+            updateColorHeightUI();
+            updateContourUI();
+            updateBottomMarkUI();
+            updateDovetailUI();
+        }
+
+        function updateBadges() {
+            const maps = info.maps;
+            const all = function(fn) { return maps.length && maps.every(fn); };
+            const some = function(fn) { return maps.some(fn); };
+            const setBadge = function(id, text, cls) {
+                const el = $('badge_' + id);
+                el.textContent = text || '';
+                el.className = 'tool-badge' + (cls ? ' ' + cls : '');
+            };
+            setBadge('color_height', all(function(m) { return m.colorHeight; }) ? 'Applied' : some(function(m) { return m.colorHeight; }) ? 'Some' : '', 'done');
+            setBadge('contour_lines', all(function(m) { return m.contourLines; }) ? 'Applied' : some(function(m) { return m.contourLines; }) ? 'Some' : '', 'done');
+            setBadge('magnets', all(function(m) { return m.magnetHoles; }) ? 'Added' : some(function(m) { return m.magnetHoles; }) ? 'Some' : '', 'done');
+            setBadge('dovetails', all(function(m) { return m.dovetail; }) ? 'Added' : some(function(m) { return m.dovetail; }) ? 'Some' : '', 'done');
+            setBadge('bottom_mark', all(function(m) { return m.bottomMark === true; }) ? 'Added' : '', 'done');
+            setBadge('heightmap', info.premium ? '' : 'Premium', 'locked');
+        }
+
+        // ══ Tool cards ════════════════════════════════════════════════════
+        const PLACEMENT_TOOLS = { text: 'tx', svg: 'sv', heightmap: 'hm' };
+        document.querySelectorAll('.tool').forEach(function(tool) {
+            tool.querySelector('.tool-head').addEventListener('click', function() {
+                setOpenTool(openTool === tool.dataset.tool ? null : tool.dataset.tool);
+            });
+        });
+
+        function setOpenTool(name) {
+            openTool = name;
+            // Text / SVG / heightmap show up straight away, on the center of
+            // their map -- as a placeholder rectangle until there's text, an
+            // SVG or a GPX profile.
+            const autoKey = PLACEMENT_TOOLS[name];
+            if (autoKey) {
+                const pl = placements[autoKey];
+                const c = mapCenter(pl.map);
+                if (c && (!pl.placed || pl.x === null)) {
+                    pl.x = c.x; pl.y = c.y; pl.placed = true;
+                }
+                // The scene's own track (or the chosen GPX) right away.
+                if (autoKey === 'hm' && !hasShape(pl) && info.premium && (pl.path || S.gpxPath)) requestShape('hm');
+            }
+            document.querySelectorAll('.tool').forEach(function(t) { t.classList.toggle('open', t.dataset.tool === name); });
+            refreshPreviews();
+            saveState();
+            if (name === 'magnets' || name === 'bottom_mark') {
+                if (modelRoot.children.length && !viewingBottom()) frame(VIEW_BOTTOM);
+            } else if (PLACEMENT_TOOLS[name]) {
+                // Straight down on the top (or up at the underside) -- the
+                // view placing is measured in.
+                const pl = placements[PLACEMENT_TOOLS[name]];
+                if (modelRoot.children.length) frame(pl.bottom ? VIEW_BOTTOM : VIEW_TOP);
+            }
+        }
+
+        function refreshPreviews() {
+            shared.uHeightOn.value = openTool === 'color_height' ? 1 : 0;
+            shared.uContourOn.value = openTool === 'contour_lines' ? 1 : 0;
+            if (openTool === 'color_height') updateColorHeightUI();
+            if (openTool === 'contour_lines') updateContourUI();
+            clearOverlay();
+            if (openTool === 'magnets') requestMagnetPreview();
+            if (openTool === 'dovetails') buildDovetailMarkers();
+            updatePlacementPreview();
+            updateHint();
+        }
+
+        function updateHint() {
+            let text = '';
+            if (PLACEMENT_TOOLS[openTool]) {
+                text = placements[PLACEMENT_TOOLS[openTool]].placed
+                    ? 'Drag the preview to move it, or click elsewhere on the map'
+                    : 'Click on the map to place it';
+            } else if (openTool === 'dovetails') {
+                text = 'Click the balls on the edges to switch dovetails on or off';
+            }
+            $('hint').textContent = text;
+        }
+
+        function num(id, fallback) {
+            const v = parseFloat($(id).value);
+            return isFinite(v) ? v : fallback;
+        }
+
+        function hexToRgb01(hex) {
+            const c = new THREE.Color();
+            c.setStyle(hex, THREE.SRGBColorSpace);
+            const out = { r: 0, g: 0, b: 0 };
+            c.getRGB(out, THREE.SRGBColorSpace);
+            return [out.r, out.g, out.b];
+        }
+        function rgb01ToHex(rgb) {
+            const c = new THREE.Color();
+            c.setRGB(rgb[0], rgb[1], rgb[2], THREE.SRGBColorSpace);
+            return '#' + c.getHexString(THREE.SRGBColorSpace);
+        }
+
+        function linkSlider(rangeEl, numEl, onChange) {
+            rangeEl.addEventListener('input', function() { numEl.value = rangeEl.value; onChange(); });
+            numEl.addEventListener('input', function() { if (numEl.value !== '') rangeEl.value = numEl.value; onChange(); });
+        }
+
+        function segValue(segEl, attr) {
+            const a = segEl.querySelector('.element-mode-btn.active');
+            return a ? a.dataset[attr] : null;
+        }
+        function setSeg(segEl, attr, value) {
+            segEl.querySelectorAll('.element-mode-btn').forEach(function(b) { b.classList.toggle('active', b.dataset[attr] === value); });
+        }
+
+        // ── Color by Height ────────────────────────────────────────────
+        let chMode = 'paint';
+        // Each band: everything above `threshold` % turns `color`.
+        let chBands = [{ threshold: 60, color: '#808080' }];
+        const BAND_PALETTE = ['#f2f2f2', '#8b5a2b', '#c9b27a', '#4a7c3a', '#5b7fa6', '#a33b2b', '#6b6b6b', '#e0c341'];
+
+        // The ramp: a vertical bar, 0 % at the bottom. Each pin is a band's
+        // threshold; the section above a pin (up to the next one) is that
+        // band's color. Below the lowest pin the map keeps its own color.
+        let chSel = chBands[0];
+        const rampEls = new Map();   // band -> {seg, pin, swatch, label}
+        let rampClickTimer = null;
+
+        function clampPct(v) { return Math.min(100, Math.max(0, Math.round(v))); }
+        function pctFromY(clientY) {
+            const r = $('ch_ramp').getBoundingClientRect();
+            return clampPct((1 - (clientY - r.top) / r.height) * 100);
+        }
+        function nextColor() {
+            const used = chBands.map(function(b) { return b.color.toLowerCase(); });
+            return BAND_PALETTE.find(function(c) { return used.indexOf(c) < 0; }) || BAND_PALETTE[0];
+        }
+        function selectBand(band) { chSel = band; layoutRamp(); }
+        function bandsChanged() { renderBands(); updateColorHeightUI(); saveState(); }
+        function addPin(pct) {
+            if (chBands.length >= MAX_BANDS) return;
+            const band = { threshold: clampPct(pct), color: nextColor() };
+            chBands.push(band);
+            chSel = band;
+            bandsChanged();
+        }
+        function removePin(band) {
+            if (chBands.length < 2) return;
+            chBands.splice(chBands.indexOf(band), 1);
+            chSel = null;
+            bandsChanged();
+        }
+        // A dragged pin stays between its neighbours, so the order (and
+        // the color of each section) never flips mid-drag.
+        function movePin(band, pct) {
+            const i = chBands.indexOf(band);
+            const lo = i > 0 ? chBands[i - 1].threshold + 1 : 0;
+            const hi = i < chBands.length - 1 ? chBands[i + 1].threshold - 1 : 100;
+            band.threshold = Math.min(hi, Math.max(lo, clampPct(pct)));
+            layoutRamp();
+            updateColorHeightUI();
+        }
+
+        function renderBands() {
+            chBands.sort(function(a, b) { return a.threshold - b.threshold; });
+            if (chBands.indexOf(chSel) < 0) chSel = chBands[chBands.length - 1];
+            const ramp = $('ch_ramp'), labels = $('ch_rampLabels');
+            ramp.innerHTML = ''; labels.innerHTML = '';
+            rampEls.clear();
+            const base = document.createElement('div');
+            base.className = 'ramp-label base'; base.textContent = 'Map color';
+            labels.appendChild(base);
+            chBands.forEach(function(band) {
+                const seg = document.createElement('div');
+                seg.className = 'ramp-seg';
+                seg.title = 'Click to change this color';
+                seg.addEventListener('click', function() {
+                    selectBand(band);
+                    // Wait out a possible double-click (which adds a pin).
+                    clearTimeout(rampClickTimer);
+                    rampClickTimer = setTimeout(function() { $('ch_pinColor').click(); }, 260);
+                });
+                const pin = document.createElement('div');
+                pin.className = 'ramp-pin';
+                pin.tabIndex = 0;
+                pin.setAttribute('role', 'slider');
+                pin.setAttribute('aria-label', 'Height pin');
+                pin.setAttribute('aria-valuemin', '0'); pin.setAttribute('aria-valuemax', '100');
+                const marker = document.createElement('span');
+                marker.className = 'ramp-marker';
+                const swatch = document.createElement('i');
+                marker.appendChild(swatch);
+                pin.appendChild(marker);
+                pin.addEventListener('pointerdown', function(e) {
+                    e.preventDefault(); e.stopPropagation();
+                    selectBand(band);
+                    pin.focus();
+                    pin.setPointerCapture(e.pointerId);
+                    const move = function(ev) { movePin(band, pctFromY(ev.clientY)); };
+                    const up = function() {
+                        pin.removeEventListener('pointermove', move);
+                        pin.removeEventListener('pointerup', up);
+                        pin.removeEventListener('pointercancel', up);
+                        saveState();
+                    };
+                    pin.addEventListener('pointermove', move);
+                    pin.addEventListener('pointerup', up);
+                    pin.addEventListener('pointercancel', up);
+                });
+                pin.addEventListener('dblclick', function(e) { e.stopPropagation(); });
+                pin.addEventListener('keydown', function(e) {
+                    const step = e.shiftKey ? 5 : 1;
+                    if (e.key === 'ArrowUp') { movePin(band, band.threshold + step); saveState(); }
+                    else if (e.key === 'ArrowDown') { movePin(band, band.threshold - step); saveState(); }
+                    else if (e.key === 'Delete' || e.key === 'Backspace') removePin(band);
+                    else return;
+                    e.preventDefault();
+                });
+                const label = document.createElement('div');
+                label.className = 'ramp-label';
+                label.addEventListener('click', function() { selectBand(band); });
+                ramp.append(seg, pin);
+                labels.appendChild(label);
+                rampEls.set(band, { seg: seg, pin: pin, swatch: swatch, label: label });
+            });
+            layoutRamp();
+        }
+
+        // Positions, colors and texts only -- safe to call while dragging.
+        function layoutRamp() {
+            const range = info.colorRange;
+            const span = range ? range[1] - range[0] : null;
+            chBands.forEach(function(band, i) {
+                const el = rampEls.get(band);
+                if (!el) return;
+                const top = i < chBands.length - 1 ? chBands[i + 1].threshold : 100;
+                el.seg.style.bottom = band.threshold + '%';
+                el.seg.style.top = (100 - top) + '%';
+                el.seg.style.background = band.color;
+                el.seg.classList.toggle('selected', band === chSel);
+                el.pin.style.top = (100 - band.threshold) + '%';
+                el.pin.classList.toggle('selected', band === chSel);
+                el.pin.setAttribute('aria-valuenow', String(band.threshold));
+                el.swatch.style.background = band.color;
+                el.label.style.top = (100 - band.threshold) + '%';
+                el.label.textContent = band.threshold + ' %' + (span ? '  ·  ' + (span * band.threshold / 100).toFixed(1) + ' mm' : '');
+                el.label.classList.toggle('selected', band === chSel);
+            });
+            const base = $('ch_rampLabels').querySelector('.base');
+            const lowest = chBands.length ? chBands[0].threshold : 100;
+            if (base) {
+                base.style.top = (100 - lowest / 2) + '%';
+                base.hidden = lowest < 9;
+            }
+            const i = chBands.indexOf(chSel);
+            $('ch_pinIndex').max = String(chBands.length);
+            if (document.activeElement !== $('ch_pinIndex')) $('ch_pinIndex').value = i >= 0 ? i + 1 : '';
+            if (document.activeElement !== $('ch_pinValue')) $('ch_pinValue').value = chSel ? chSel.threshold : '';
+            if (chSel) $('ch_pinColor').value = chSel.color;
+            $('ch_addBand').disabled = chBands.length >= MAX_BANDS;
+            $('ch_pinRemove').disabled = chBands.length < 2;
+        }
+
+        $('ch_ramp').addEventListener('dblclick', function(e) {
+            clearTimeout(rampClickTimer);
+            addPin(pctFromY(e.clientY));
+        });
+        $('ch_addBand').addEventListener('click', function() {
+            // Like Blender: halfway between the selected pin and the next one
+            // up (or the top), else into the widest gap.
+            const i = Math.max(0, chBands.indexOf(chSel));
+            const from = chBands.length ? chBands[i].threshold : 0;
+            const to = i < chBands.length - 1 ? chBands[i + 1].threshold : 100;
+            if (to - from >= 2) { addPin((from + to) / 2); return; }
+            let best = [0, chBands.length ? chBands[0].threshold : 100];
+            chBands.forEach(function(b, j) {
+                const t = j < chBands.length - 1 ? chBands[j + 1].threshold : 100;
+                if (t - b.threshold > best[1] - best[0]) best = [b.threshold, t];
+            });
+            addPin((best[0] + best[1]) / 2);
+        });
+        $('ch_pinRemove').addEventListener('click', function() { if (chSel) removePin(chSel); });
+        $('ch_pinIndex').addEventListener('change', function() {
+            const n = parseInt(this.value, 10);
+            if (n >= 1 && n <= chBands.length) selectBand(chBands[n - 1]);
+            else layoutRamp();
+        });
+        $('ch_pinValue').addEventListener('change', function() {
+            const v = parseFloat(this.value);
+            if (!chSel || !isFinite(v)) { layoutRamp(); return; }
+            chSel.threshold = clampPct(v);   // may pass a neighbour: re-sort
+            bandsChanged();
+        });
+        $('ch_pinColor').addEventListener('input', function() {
+            if (!chSel) return;
+            chSel.color = this.value;
+            layoutRamp(); updateColorHeightUI(); saveState();
+        });
+        renderBands();
+
+        $('ch_noise').addEventListener('change', function() { $('ch_noise_fields').hidden = !this.checked; updateColorHeightUI(); });
+        linkSlider($('ch_noiseAmp_range'), $('ch_noiseAmp'), updateColorHeightUI);
+        linkSlider($('ch_noiseScale_range'), $('ch_noiseScale'), updateColorHeightUI);
+        $('ch_mode').querySelectorAll('.element-mode-btn').forEach(function(b) {
+            b.addEventListener('click', function() {
+                if (b.disabled) return;
+                chMode = b.dataset.mode;
+                setSeg($('ch_mode'), 'mode', chMode);
+                updateColorHeightUI();
+            });
+        });
+
+        function updateColorHeightUI() {
+            layoutRamp();   // mm labels need info.colorRange
+            const range = info.colorRange;
+            const sorted = chBands.slice().sort(function(a, b) { return a.threshold - b.threshold; });
+            shared.uBandCount.value = range ? sorted.length : 0;
+            if (range) {
+                const span = range[1] - range[0];
+                sorted.forEach(function(b, i) {
+                    shared.uBandZ.value[i] = range[0] + span * b.threshold / 100;
+                    shared.uBandColor.value[i].setStyle(b.color);
+                });
+            }
+            const noiseOn = $('ch_noise').checked;
+            shared.uNoiseAmp.value = noiseOn ? Math.max(0, num('ch_noiseAmp', 1)) : 0;
+            shared.uNoiseScale.value = Math.max(0.005, num('ch_noiseScale', 0.5));
+            info.maps.forEach(function(m) {
+                const mat = materialOf(m.name);
+                if (!mat) return;
+                // Blender's noise is centred on the map's own origin (a
+                // generated map's centre). Without it, fall back to the
+                // bounds centre -- never 0, which on a map placed at its real
+                // coordinates puts the noise origin kilometres away, so every
+                // scale step jumps to an unrelated pattern.
+                const hasOrigin = typeof m.originX === 'number' && typeof m.originY === 'number';
+                mat.userData.own.uOrigin.value.set(
+                    hasOrigin ? m.originX : (m.bounds[0] + m.bounds[3]) / 2,
+                    hasOrigin ? m.originY : (m.bounds[1] + m.bounds[4]) / 2);
+            });
+            // Textured maps in Paint mode bake with the very noise the
+            // preview draws; everything else uses Blender's own noise.
+            const exact = chMode === 'paint' && info.maps.length > 0 && info.maps.every(function(m) { return m.textured; });
+            $('ch_noiseNote').textContent = exact ? ''
+                : 'Preview is close: Blender draws the same kind of edge here, the exact wiggles can differ.';
+            // Single / Multi Extruder only where Blender says the maps can be split.
+            const reasons = { SEM: null, MEM: null };
+            info.maps.forEach(function(m) {
+                if (m.splitReasonSEM && !reasons.SEM) reasons.SEM = m.name + ': ' + m.splitReasonSEM;
+                if (m.splitReasonMEM && !reasons.MEM) reasons.MEM = m.name + ': ' + m.splitReasonMEM;
+            });
+            $('ch_mode').querySelectorAll('.element-mode-btn').forEach(function(b) {
+                const r = reasons[b.dataset.mode];
+                b.disabled = !!r;
+                if (r) b.title = r;
+            });
+            if (reasons[chMode]) { chMode = 'paint'; setSeg($('ch_mode'), 'mode', 'paint'); }
+            $('ch_sem_fields').hidden = chMode !== 'SEM';
+            $('ch_mem_fields').hidden = chMode !== 'MEM';
+            const shown = chMode === 'paint' && (reasons.SEM || reasons.MEM)
+                ? 'Extruder modes unavailable: ' + (reasons.SEM || reasons.MEM) : '';
+            $('ch_modeNote').textContent = shown;
+        }
+
+        function colorHeightParams() {
+            return {
+                bands: chBands.map(function(b) { return { threshold: b.threshold, color: hexToRgb01(b.color) }; }),
+                mode: chMode,
+                tolerance: num('ch_tolerance', 0.2), thickness: num('ch_thickness', 1),
+                noise: $('ch_noise').checked, noiseAmplitude: num('ch_noiseAmp', 1), noiseScale: num('ch_noiseScale', 0.5),
+            };
+        }
+
+        // ── Contour Lines ──────────────────────────────────────────────
+        let clUnits = 'm';
+        $('cl_units').querySelectorAll('.element-mode-btn').forEach(function(b) {
+            b.addEventListener('click', function() {
+                clUnits = b.dataset.units;
+                setSeg($('cl_units'), 'units', clUnits);
+                updateContourUI();
+                saveState();
+            });
+        });
+        ['cl_distance', 'cl_offset', 'cl_thickness'].forEach(function(id) {
+            $(id).addEventListener('input', function() { updateContourUI(); saveState(); });
+        });
+
+        function contourValues(m) {
+            const f = clUnits === 'm' ? (m.mmPerMeter || 0) : 1;
+            return { dist: num('cl_distance', 100) * f, offset: num('cl_offset', 0) * f };
+        }
+
+        function updateContourUI() {
+            $('cl_distanceLabel').textContent = 'Distance (' + clUnits + ')';
+            $('cl_offsetLabel').textContent = 'Offset (' + clUnits + ')';
+            $('cl_distance').step = clUnits === 'm' ? '10' : '0.5';
+            $('cl_offset').step = clUnits === 'm' ? '10' : '0.5';
+            const thick = num('cl_thickness', 0.4);
+            const notes = [];
+            let bad = false;
+            info.maps.forEach(function(m) {
+                const v = contourValues(m);
+                const mat = materialOf(m.name);
+                if (mat) {
+                    mat.userData.own.uContourZ0.value = m.originZ + v.offset;
+                    mat.userData.own.uContourStep.value = Math.max(0.01, v.dist);
+                    mat.userData.own.uContourThick.value = thick;
+                }
+                if (!(v.dist > thick)) { bad = true; return; }
+                const extent = m.bounds[5] - m.bounds[2];
+                notes.push(Math.max(0, Math.ceil(extent / v.dist) - 1));
+            });
+            const el = $('cl_info');
+            if (bad) {
+                el.textContent = clUnits === 'm' && info.maps.some(function(m) { return !m.mmPerMeter; })
+                    ? 'This map has no elevation scale — use mm.'
+                    : 'The distance must be larger than the line thickness (' + thick + ' mm).';
+                el.className = 'note warn';
+            } else {
+                el.textContent = notes.length ? '≈ ' + Math.max.apply(null, notes) + ' lines' + (notes.length > 1 ? ' per map' : '') + '.' : '';
+                el.className = 'note';
+            }
+        }
+
+        function materialOf(mapName) {
+            let found = null;
+            modelRoot.traverse(function(o) {
+                if (o.isMesh && o.userData.role === 'map' && o.userData.map === mapName) found = o.material;
+            });
+            return found;
+        }
+
+        // ── Overlays (magnets, dovetails) ──────────────────────────────
+        function clearOverlay() {
+            overlayRoot.traverse(function(o) {
+                if (o.geometry) o.geometry.dispose();
+                if (o.material) o.material.dispose();
+            });
+            overlayRoot.clear();
+        }
+
+        let magnetTimer = null;
+        ['mg_diameter', 'mg_depth', 'mg_margin', 'mg_count'].forEach(function(id) {
+            $(id).addEventListener('input', function() {
+                clearTimeout(magnetTimer);
+                magnetTimer = setTimeout(requestMagnetPreview, 250);
+                saveState();
+            });
+        });
+
+        function magnetParams() {
+            return { diameter: num('mg_diameter', 6.3), depth: num('mg_depth', 2.5), margin: num('mg_margin', 3), count: Math.round(num('mg_count', 3)) };
+        }
+
+        function requestMagnetPreview() {
+            if (openTool !== 'magnets') return;
+            const p = magnetParams();
+            sendPreview('magnets', p).then(function(preview) {
+                if (!preview || openTool !== 'magnets') return;
+                clearOverlay();
+                const notes = [];
+                let level = '';
+                (preview.magnets || []).forEach(function(entry) {
+                    if (entry.already) { notes.push(entry.target + ' already has magnet holes.'); return; }
+                    if (entry.placed < entry.wanted) {
+                        notes.push(entry.target + ': only ' + entry.placed + ' of ' + entry.wanted + ' fit.');
+                        level = 'warn';
+                    }
+                    if (entry.available != null && entry.available - 0.6 < p.depth) {
+                        notes.push(entry.target + ': only ' + Math.max(0, entry.available - 0.6).toFixed(1) + ' mm deep possible.');
+                        level = 'warn';
+                    }
+                    entry.centers.forEach(function(c) {
+                        const r = p.diameter / 2;
+                        const g = new THREE.CylinderGeometry(r, r, p.depth, 40);
+                        const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0xff4a3d, transparent: true, opacity: 0.7, depthTest: false }));
+                        m.rotation.x = Math.PI / 2;  // cylinder axis Y -> Blender Z
+                        m.position.set(c[0], c[1], entry.bottomZ + p.depth / 2 - 0.05);
+                        m.renderOrder = 5;
+                        overlayRoot.add(m);
+                    });
+                });
+                $('mg_info').textContent = notes.join(' ');
+                $('mg_info').className = 'note ' + level;
+            });
+        }
+
+        // Chosen dovetail sides per map name.
+        const dovetailSides = {};
+        let hoveredBall = null;
+        const BALL_ON = 0xff8a4c, BALL_OFF = 0x9aa3ad;
+
+        function buildDovetailMarkers() {
+            if (openTool !== 'dovetails') return;
+            info.maps.forEach(function(m) {
+                const b = m.bounds;
+                const size = Math.max(b[3] - b[0], b[4] - b[1]);
+                const r = Math.max(2.5, Math.min(7, size * 0.035));
+                m.dovetailSpots.forEach(function(s) {
+                    const on = dovetailSides[m.name].has(s.index);
+                    const ball = new THREE.Mesh(new THREE.SphereGeometry(r, 24, 16),
+                        new THREE.MeshBasicMaterial({ color: on ? BALL_ON : BALL_OFF, transparent: true, opacity: on ? 0.9 : 0.55, depthTest: false }));
+                    ball.position.set(s.x + Math.cos(s.angle) * r * 0.6, s.y + Math.sin(s.angle) * r * 0.6, m.bottomZ + 1.5);
+                    ball.userData = { map: m.name, index: s.index, angle: s.angle, r: r };
+                    ball.renderOrder = 6;
+                    overlayRoot.add(ball);
+                });
+            });
+            updateDovetailUI();
+        }
+
+        function toggleSide(mapName, index) {
+            const set = dovetailSides[mapName];
+            const turnOn = !set.has(index);
+            const apply = function(name) {
+                const s = dovetailSides[name];
+                if (!s) return;
+                if (turnOn) s.add(index); else s.delete(index);
+            };
+            if ($('dt_sync').checked) {
+                const shape = mapByName(mapName).shape;
+                info.maps.forEach(function(m) { if (m.shape === shape && m.dovetailSpots.length) apply(m.name); });
+            } else {
+                apply(mapName);
+            }
+            clearOverlay();
+            buildDovetailMarkers();
+        }
+
+        $('dt_all').addEventListener('click', function() {
+            info.maps.forEach(function(m) { dovetailSides[m.name] = new Set(m.dovetailSpots.map(function(s) { return s.index; })); });
+            clearOverlay(); buildDovetailMarkers();
+        });
+        $('dt_none').addEventListener('click', function() {
+            info.maps.forEach(function(m) { dovetailSides[m.name] = new Set(); });
+            clearOverlay(); buildDovetailMarkers();
+        });
+
+        function updateDovetailUI() {
+            const notes = [];
+            let possible = 0, chosen = 0;
+            info.maps.forEach(function(m) {
+                if (m.dovetailReason) notes.push(m.name + ': ' + m.dovetailReason);
+                else { possible++; chosen += (dovetailSides[m.name] || new Set()).size; }
+            });
+            if (possible) notes.unshift(chosen + ' side' + (chosen === 1 ? '' : 's') + ' selected on ' + possible + ' map' + (possible === 1 ? '' : 's') + '.');
+            $('dt_info').textContent = notes.join('\n');
+            $('dt_info').style.whiteSpace = 'pre-line';
+            const btn = document.querySelector('[data-apply="dovetails"]');
+            btn.disabled = !possible || !chosen;
+        }
+
+        // ── Bottom Mark ────────────────────────────────────────────────
+        $('bm_cutout').addEventListener('change', saveState);
+        function updateBottomMarkUI() {
+            const list = $('bm_list');
+            list.innerHTML = '';
+            let todo = 0;
+            info.maps.forEach(function(m) {
+                const li = document.createElement('li');
+                const a = document.createElement('span');
+                a.textContent = m.name.replace(/\.\d{3,}$/, '');
+                const b = document.createElement('span');
+                if (m.bottomMark === null) b.textContent = 'not available';
+                else if (m.bottomMark) { b.textContent = 'marked'; li.className = 'done'; }
+                else { b.textContent = 'will be marked'; todo++; }
+                li.append(a, b);
+                list.appendChild(li);
+            });
+            $('bm_info').textContent = todo ? '' : 'Nothing left to mark.';
+            document.querySelector('[data-apply="bottom_mark"]').disabled = !todo;
+        }
+
+        // ── Text / SVG / Heightmap placement ───────────────────────────
+        // Shared controls (side, type, color, rotation) come from #placementTpl.
+        const placements = {
+            tx: { x: null, y: null, map: null, bottom: false, op: 'paint', color: '#ffffff', rotation: 0, placed: false, shape: null },
+            sv: { x: null, y: null, map: null, bottom: false, op: 'paint', color: '#ffffff', rotation: 0, placed: false, shape: null, scale: 1, path: '', name: '' },
+            hm: { x: null, y: null, map: null, bottom: true, op: 'paint', color: '#ffffff', rotation: 0, placed: false, shape: null, path: '', name: '' },
+        };
+        document.querySelectorAll('.placement').forEach(function(slot) {
+            const key = slot.dataset.for;
+            slot.appendChild($('placementTpl').content.cloneNode(true));
+            const pl = placements[key];
+            if (key === 'hm') {
+                // The heightmap always goes on the underside.
+                slot.querySelector('.pl-side').closest('.field-row').hidden = true;
+                slot.querySelector('.pl-type-wrap').hidden = true;
+            }
+            slot.querySelectorAll('.pl-side .element-mode-btn').forEach(function(b) {
+                b.addEventListener('click', function() {
+                    pl.bottom = b.dataset.side === 'bottom';
+                    syncPlacementControls(key);
+                    if (modelRoot.children.length) frame(pl.bottom ? VIEW_BOTTOM : VIEW_TOP);
+                    updatePlacementPreview();
+                    saveState();
+                });
+            });
+            slot.querySelectorAll('.pl-type .element-mode-btn').forEach(function(b) {
+                b.addEventListener('click', function() { pl.op = b.dataset.op; syncPlacementControls(key); updatePlacementPreview(); saveState(); });
+            });
+            slot.querySelector('.pl-color').addEventListener('input', function() { pl.color = this.value; updatePlacementPreview(); saveState(); });
+            linkSlider(slot.querySelector('.pl-rot'), slot.querySelector('.pl-rot-num'), function() {
+                pl.rotation = parseFloat(slot.querySelector('.pl-rot-num').value) || 0;
+                updatePlacementPreview();
+                saveState();
+            });
+            ['x', 'y'].forEach(function(axis) {
+                slot.querySelector('.pl-' + axis).addEventListener('input', function() {
+                    const v = parseFloat(this.value);
+                    const c = mapCenter(pl.map);
+                    if (!isFinite(v) || !c) return;
+                    if (pl.x === null) { pl.x = c.x; pl.y = c.y; }
+                    pl[axis] = c[axis] + v;
+                    pl.placed = true;
+                    if (!pl.shape) requestShape(key);
+                    updatePlacementPreview(true);
+                    saveState();
+                });
+            });
+        });
+
+        function hasShape(pl) {
+            const s = pl.shape;
+            return !!s && ((s.triangles && s.triangles.length > 0) || (s.outline && s.outline.length > 2));
+        }
+
+        function mapCenter(name) {
+            const m = mapByName(name);
+            if (!m) return null;
+            return { x: (m.bounds[0] + m.bounds[3]) / 2, y: (m.bounds[1] + m.bounds[4]) / 2 };
+        }
+
+        // Position fields, the view's coordinate readout and the cross at
+        // the map center the coordinates are measured from.
+        function syncCoords(key, skipInputs) {
+            const pl = placements[key];
+            const slot = document.querySelector('.placement[data-for="' + key + '"]');
+            const c = mapCenter(pl.map);
+            const placed = pl.placed && pl.x !== null && c;
+            if (!skipInputs) {
+                slot.querySelector('.pl-x').value = placed ? +(pl.x - c.x).toFixed(1) : '';
+                slot.querySelector('.pl-y').value = placed ? +(pl.y - c.y).toFixed(1) : '';
+            }
+            if (PLACEMENT_TOOLS[openTool] !== key) return;
+            $('coordLabel').textContent = placed
+                ? (pl.map || '') + (pl.bottom ? ' (underside)' : '') + '   X ' + (pl.x - c.x).toFixed(1) + '   Y ' + (pl.y - c.y).toFixed(1) + ' mm'
+                : '';
+            updateGuide(key);
+        }
+
+        function updateGuide(key) {
+            guideRoot.traverse(function(o) { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+            guideRoot.clear();
+            if (!key) return;
+            const pl = placements[key];
+            const m = mapByName(pl.map);
+            if (!m) return;
+            const c = mapCenter(pl.map);
+            const z = placementZ(key);
+            const r = Math.max(3, Math.min(m.bounds[3] - m.bounds[0], m.bounds[4] - m.bounds[1]) * 0.04);
+            const pts = [c.x - r, c.y, z, c.x + r, c.y, z, c.x, c.y - r, z, c.x, c.y + r, z];
+            const g = new THREE.BufferGeometry();
+            g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+            const cross = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0x9acbff, transparent: true, opacity: 0.85, depthTest: false }));
+            cross.renderOrder = 6;
+            guideRoot.add(cross);
+        }
+
+        function syncPlacementControls(key, skipInputs) {
+            const pl = placements[key];
+            const slot = document.querySelector('.placement[data-for="' + key + '"]');
+            setSeg(slot.querySelector('.pl-side'), 'side', pl.bottom ? 'bottom' : 'top');
+            setSeg(slot.querySelector('.pl-type'), 'op', pl.op);
+            // Bottom-side shapes are always cut in (like the sidebar popups).
+            if (key !== 'hm') slot.querySelector('.pl-type-wrap').hidden = pl.bottom;
+            slot.querySelector('.pl-color-row').hidden = pl.op !== 'paint';
+            slot.querySelector('.pl-color').value = pl.color;
+            slot.querySelector('.pl-rot').value = pl.rotation;
+            slot.querySelector('.pl-rot-num').value = pl.rotation;
+            const where = slot.querySelector('.pl-where');
+            if (pl.placed && pl.x !== null) {
+                const m = mapByName(pl.map);
+                where.textContent = (!hasShape(pl)
+                    ? ({ tx: 'Enter some text', sv: 'Choose an SVG', hm: 'Choose a GPX track' })[key] + ' — the dashed box marks where it goes. '
+                    : '') + 'Placed on ' + (m ? m.name : '?') + (pl.bottom ? ' (underside)' : '') + ' — drag it in the view to move (hold Shift for 1 mm steps).';
+            } else {
+                where.textContent = 'Click on the map or enter a position to place it.';
+            }
+            syncCoords(key, skipInputs);
+        }
+        ['tx', 'sv', 'hm'].forEach(function(k) { syncPlacementControls(k); });
+
+        function placementZ(key) {
+            const pl = placements[key];
+            const m = mapByName(pl.map);
+            if (!m) return 0;
+            return pl.bottom ? m.bottomZ - 0.25 : m.bounds[5] + 0.3;
+        }
+
+        function clearPlacement() {
+            placementRoot.traverse(function(o) {
+                if (o.geometry) o.geometry.dispose();
+                if (o.material) o.material.dispose();
+            });
+            placementRoot.clear();
+        }
+
+        // skipInputs: don't rewrite the X/Y field the user is typing in.
+        function updatePlacementPreview(skipInputs) {
+            clearPlacement();
+            const key = PLACEMENT_TOOLS[openTool];
+            if (!key) { $('coordLabel').textContent = ''; updateGuide(null); return; }
+            syncPlacementControls(key, skipInputs === true);
+            const pl = placements[key];
+            if (!pl.placed || pl.x === null) { updateHint(); return; }
+            let geometry = null;
+            const placeholder = !hasShape(pl);
+            if (placeholder) {
+                // Blank stand-in: a text line's rough size, a 30 mm square
+                // (times Scale) for the SVG, Length x Height for the profile.
+                const size = num('tx_size', 10);
+                const dims = {
+                    tx: [Math.max(10, size * 5), size * 1.2],
+                    sv: [30, 30],
+                    hm: [Math.max(1, num('hm_length', 50)), Math.max(1, num('hm_height', 10))],
+                }[key];
+                geometry = new THREE.PlaneGeometry(dims[0], dims[1]);
+            } else if (!pl.shape) {
+                updateHint(); return;
+            } else if (pl.shape.triangles && pl.shape.triangles.length) {
+                const t = pl.shape.triangles;
+                const pos = new Float32Array(t.length / 2 * 3);
+                for (let i = 0, j = 0; i < t.length; i += 2, j += 3) { pos[j] = t[i]; pos[j + 1] = t[i + 1]; pos[j + 2] = 0; }
+                geometry = new THREE.BufferGeometry();
+                geometry.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+            } else if (pl.shape.outline && pl.shape.outline.length > 2) {
+                const shape = new THREE.Shape(pl.shape.outline.map(function(p) { return new THREE.Vector2(p[0], p[1]); }));
+                geometry = new THREE.ShapeGeometry(shape);
+            }
+            if (!geometry) { updateHint(); return; }
+            const color = key === 'hm' || pl.bottom ? 0xffd166 : pl.op === 'paint' ? pl.color : pl.op === 'negative' ? 0x2a2a2a : 0xff8a4c;
+            const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
+                color: placeholder ? 0xffffff : color, side: THREE.DoubleSide, transparent: true,
+                opacity: placeholder ? 0.18 : 0.9, depthTest: false,
+            }));
+            if (placeholder) {
+                const frameLine = new THREE.LineSegments(new THREE.EdgesGeometry(geometry),
+                    new THREE.LineDashedMaterial({ color: 0xffffff, dashSize: 2, gapSize: 1.5, transparent: true, opacity: 0.9, depthTest: false }));
+                frameLine.computeLineDistances();
+                frameLine.renderOrder = 8;
+                mesh.add(frameLine);
+            }
+            mesh.position.set(pl.x, pl.y, placementZ(key));
+            mesh.rotation.z = THREE.MathUtils.degToRad(pl.rotation);
+            const s = key === 'sv' ? num('sv_scale', 1) : 1;
+            // Mirrored on the underside so it reads right from below --
+            // exactly what Blender does (scale.x = -1).
+            mesh.scale.set(pl.bottom ? -s : s, s, 1);
+            mesh.renderOrder = 7;
+            mesh.userData.placementKey = key;
+            placementRoot.add(mesh);
+            const box = new THREE.Box3().setFromObject(mesh);
+            if (key === 'sv' && placeholder) {
+                $('sv_dims').textContent = '';
+            } else if (key === 'sv' && !box.isEmpty()) {
+                const sz = box.getSize(new THREE.Vector3());
+                $('sv_dims').textContent = 'Size on the map: ' + sz.x.toFixed(1) + ' × ' + sz.z.toFixed(1) + ' mm';
+            }
+            syncCoords(key, skipInputs === true);
+            updateHint();
+        }
+
+        // Shape previews come from Blender (exact font / SVG / profile).
+        let shapeTimer = {};
+        function requestShape(key) {
+            clearTimeout(shapeTimer[key]);
+            shapeTimer[key] = setTimeout(function() {
+                let action, params;
+                if (key === 'tx') {
+                    action = 'text';
+                    params = { text: $('tx_text').value, font: $('tx_font').value, size: num('tx_size', 10) };
+                    if (!params.text.trim()) { placements.tx.shape = null; updatePlacementPreview(); return; }
+                } else if (key === 'sv') {
+                    action = 'svg';
+                    params = { svgPath: placements.sv.path };
+                    if (!params.svgPath) return;
+                } else {
+                    action = 'heightmap';
+                    params = { gpxPath: placements.hm.path, length: num('hm_length', 50), height: num('hm_height', 10) };
+                }
+                sendPreview(action, params).then(function(preview) {
+                    if (!preview) return;
+                    if (preview.error) setStatus(preview.error, 'warn');
+                    placements[key].shape = preview;
+                    if (key === 'sv' && !(preview.triangles || []).length) $('sv_dims').textContent = '';
+                    updatePlacementPreview();
+                });
+            }, 220);
+        }
+
+        $('tx_text').addEventListener('input', function() { requestShape('tx'); saveState(); });
+        $('tx_font').addEventListener('change', function() { requestShape('tx'); saveState(); });
+        linkSlider($('tx_size_range'), $('tx_size'), function() { requestShape('tx'); saveState(); });
+        linkSlider($('sv_scale_range'), $('sv_scale'), function() { updatePlacementPreview(); saveState(); });
+        ['hm_length', 'hm_height'].forEach(function(id) {
+            $(id).addEventListener('input', function() {
+                if (!hasShape(placements.hm)) updatePlacementPreview();   // resize the dashed box now
+                if (placements.hm.path || S.gpxPath) requestShape('hm');
+                saveState();
+            });
+        });
+
+        function uploadFile(file, endpoint) {
+            return file.arrayBuffer().then(function(buf) {
+                return fetch(BASE + endpoint, { method: 'POST', headers: { 'X-Filename': file.name }, body: buf });
+            }).then(function(r) {
+                if (!r.ok) throw new Error('upload failed');
+                return r.json();
+            });
+        }
+        $('sv_pick').addEventListener('click', function() { $('sv_file').click(); });
+        $('sv_file').addEventListener('change', function() {
+            const file = this.files[0];
+            if (!file) return;
+            uploadFile(file, '/upload_svg').then(function(res) {
+                placements.sv.path = res.path;
+                placements.sv.name = file.name;
+                $('sv_name').textContent = file.name;
+                $('sv_name').title = file.name;
+                saveState();
+                requestShape('sv');
+            }).catch(function() { setStatus('Could not hand the SVG to Blender.', 'error'); });
+            this.value = '';
+        });
+        $('hm_pick').addEventListener('click', function() { $('hm_file').click(); });
+        $('hm_file').addEventListener('change', function() {
+            const file = this.files[0];
+            if (!file) return;
+            uploadFile(file, '/upload_gpx').then(function(res) {
+                placements.hm.path = res.path;
+                placements.hm.name = file.name;
+                $('hm_name').textContent = file.name;
+                $('hm_name').title = file.name;
+                saveState();
+                requestShape('hm');
+            }).catch(function() { setStatus('Could not hand the GPX file to Blender.', 'error'); });
+            this.value = '';
+        });
+
+        function loadFonts() {
+            fetch(BASE + '/list_fonts', { cache: 'no-store' })
+                .then(function(r) { return r.json(); })
+                .then(function(fonts) {
+                    const sel = $('tx_font');
+                    const want = sel.dataset.want || S.textFont || '';
+                    fonts.forEach(function(f) {
+                        const opt = document.createElement('option');
+                        opt.value = f.path;
+                        opt.textContent = f.name;
+                        sel.appendChild(opt);
+                    });
+                    if (want && !Array.from(sel.options).some(function(o) { return o.value === want; })) {
+                        const opt = document.createElement('option');
+                        opt.value = want;
+                        opt.textContent = want.split(/[\\/]/).pop();
+                        sel.appendChild(opt);
+                    }
+                    sel.value = want;
+                })
+                .catch(function() {});
+        }
+
+        // ── Pointer: place / drag / toggle ─────────────────────────────
+        const raycaster = new THREE.Raycaster();
+        const pointer = new THREE.Vector2();
+        function setPointer(ev) {
+            const rect = renderer.domElement.getBoundingClientRect();
+            pointer.set(((ev.clientX - rect.left) / rect.width) * 2 - 1, -((ev.clientY - rect.top) / rect.height) * 2 + 1);
+            raycaster.setFromCamera(pointer, camera);
+        }
+        // Blender XY where the pointer ray crosses the height *z*.
+        function blenderXYAt(z) {
+            const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -z);
+            const hit = raycaster.ray.intersectPlane(plane, new THREE.Vector3());
+            return hit ? { x: hit.x, y: -hit.z } : null;
+        }
+
+        let dragging = null;
+        let downAt = null;
+        renderer.domElement.addEventListener('pointerdown', function(ev) {
+            downAt = [ev.clientX, ev.clientY];
+            if (ev.button !== 0) return;
+            const key = PLACEMENT_TOOLS[openTool];
+            if (!key || !placementRoot.children.length) return;
+            setPointer(ev);
+            if (raycaster.intersectObjects(placementRoot.children, false).length) {
+                dragging = key;
+                controls.enabled = false;
+                renderer.domElement.setPointerCapture(ev.pointerId);
+            }
+        });
+        renderer.domElement.addEventListener('pointermove', function(ev) {
+            setPointer(ev);
+            if (dragging) {
+                movePlacement(dragging, ev.shiftKey);
+                return;
+            }
+            let cursor = '';
+            if (PLACEMENT_TOOLS[openTool] && raycaster.intersectObjects(placementRoot.children, false).length) cursor = 'move';
+            else if (openTool === 'dovetails') {
+                const hit = raycaster.intersectObjects(overlayRoot.children, false)[0];
+                const ball = hit ? hit.object : null;
+                if (ball !== hoveredBall) {
+                    if (hoveredBall && hoveredBall.material) hoveredBall.scale.setScalar(1);
+                    hoveredBall = ball;
+                    if (ball) ball.scale.setScalar(1.25);
+                }
+                if (ball) cursor = 'pointer';
+            } else if (PLACEMENT_TOOLS[openTool]) cursor = 'crosshair';
+            renderer.domElement.style.cursor = cursor;
+        });
+        renderer.domElement.addEventListener('pointerup', function(ev) {
+            if (dragging) {
+                dragging = null;
+                controls.enabled = true;
+                saveState();
+                return;
+            }
+            if (!downAt || Math.hypot(ev.clientX - downAt[0], ev.clientY - downAt[1]) > 5 || ev.button !== 0) return;
+            setPointer(ev);
+            const key = PLACEMENT_TOOLS[openTool];
+            if (key) {
+                if (!movePlacement(key, ev.shiftKey)) return;
+                placements[key].placed = true;
+                if (!placements[key].shape) requestShape(key);
+                updatePlacementPreview();
+                saveState();
+            } else if (openTool === 'dovetails') {
+                const hit = raycaster.intersectObjects(overlayRoot.children, false)[0];
+                if (hit) toggleSide(hit.object.userData.map, hit.object.userData.index);
+            }
+        });
+
+        // Shift while placing/dragging: the position snaps to this grid,
+        // counted from the map center like the X / Y fields.
+        const PLACE_SNAP_MM = 1;
+        function movePlacement(key, snap) {
+            const pl = placements[key];
+            // First find the tile under the pointer, then snap to its surface height.
+            const probe = blenderXYAt(pl.map ? placementZ(key) : 0);
+            if (!probe) return false;
+            const m = mapAt(probe.x, probe.y);
+            if (!m) return false;
+            pl.map = m.name;
+            const p = blenderXYAt(placementZ(key)) || probe;
+            const c = snap ? mapCenter(m.name) : null;
+            const step = function(v, origin) { return origin + Math.round((v - origin) / PLACE_SNAP_MM) * PLACE_SNAP_MM; };
+            pl.x = c ? step(p.x, c.x) : p.x;
+            pl.y = c ? step(p.y, c.y) : p.y;
+            const mesh = placementRoot.children[0];
+            if (mesh) mesh.position.set(pl.x, pl.y, placementZ(key));
+            else updatePlacementPreview();
+            syncCoords(key);
+            return true;
+        }
+
+        // ══ Apply / Undo / Done ═══════════════════════════════════════════
+        function placementParams(key) {
+            const pl = placements[key];
+            return { map: pl.map, x: pl.x, y: pl.y, rotation: pl.rotation, bottom: pl.bottom, operation: pl.op, color: hexToRgb01(pl.color) };
+        }
+
+        const APPLY_PARAMS = {
+            color_height: colorHeightParams,
+            contour_lines: function() {
+                return { realMeters: clUnits === 'm', distance: num('cl_distance', 100), offset: num('cl_offset', 0), thickness: num('cl_thickness', 0.4) };
+            },
+            magnets: magnetParams,
+            dovetails: function() {
+                const sides = {};
+                Object.keys(dovetailSides).forEach(function(k) { sides[k] = Array.from(dovetailSides[k]); });
+                return { sides: sides };
+            },
+            bottom_mark: function() { return { cutout: $('bm_cutout').checked }; },
+            text: function() {
+                return Object.assign(placementParams('tx'), { text: $('tx_text').value, font: $('tx_font').value, size: num('tx_size', 10) });
+            },
+            svg: function() { return Object.assign(placementParams('sv'), { svgPath: placements.sv.path, scale: num('sv_scale', 1) }); },
+            heightmap: function() {
+                return Object.assign(placementParams('hm'), { gpxPath: placements.hm.path, length: num('hm_length', 50), height: num('hm_height', 10) });
+            },
+        };
+
+        function checkBeforeApply(action) {
+            const key = PLACEMENT_TOOLS[action];
+            if (key) {
+                if (key === 'tx' && !$('tx_text').value.trim()) return 'Enter some text first.';
+                if (key === 'sv' && !placements.sv.path) return 'Choose an SVG file first.';
+                if (key === 'sv' && !(num('sv_scale', 1) > 0)) return 'The SVG scale must be larger than 0.';
+                if (!placements[key].placed || placements[key].x === null) return 'Click on the map to place it first.';
+            }
+            return null;
+        }
+
+        document.querySelectorAll('.apply-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                const action = btn.dataset.apply;
+                const problem = checkBeforeApply(action);
+                if (problem) { setStatus(problem, 'warn'); return; }
+                const label = btn.textContent.replace(/^Apply /, '');
+                setStatus('Applying ' + label + '… (Blender is busy)');
+                document.querySelectorAll('.apply-btn').forEach(function(b) { b.disabled = true; });
+                send({ kind: 'apply', action: action, params: APPLY_PARAMS[action]() }, 'Applying ' + label + '…')
+                    .then(function(result) {
+                        showMessages(result.messages);
+                        const key = PLACEMENT_TOOLS[action];
+                        const ok = result.messages && result.messages.length && result.messages[0].level === 'INFO'
+                            && !result.messages.some(function(m) { return m.level === 'ERROR'; });
+                        if (key && ok) {
+                            // Placed for real -- the next click places another one.
+                            placements[key].placed = false;
+                            updatePlacementPreview();
+                        }
+                        if (ok && openTool === action) {
+                            // Done with this tool -- fold its card (and its
+                            // previews) away. A failed Apply stays open.
+                            setOpenTool(null);
+                        } else if (action === 'dovetails' || action === 'magnets') {
+                            refreshPreviews();
+                        }
+                    })
+                    .then(function() { applyInfo(info); });
+            });
+        });
+
+        $('undoBtn').addEventListener('click', function() {
+            $('undoBtn').disabled = true;
+            setStatus('Undoing…');
+            send({ kind: 'undo' }, 'Undoing…').then(function(result) {
+                showMessages(result.messages);
+                refreshPreviews();
+            });
+        });
+
+        $('doneBtn').addEventListener('click', function() {
+            fetch(BASE + '/confirm', {
+                method: 'POST', mode: 'cors', headers: { 'Content-Type': 'application/json' }, body: '{"done":true}',
+            }).then(function() { window.close(); })
+              .catch(function() { window.close(); });
+        });
+
+        // ══ Page state ════════════════════════════════════════════════════
+        // Only what the scene doesn't hold itself (the shared post-process
+        // values always start from the scene, like the sidebar).
+        let saveTimer = null;
+        function saveState() {
+            clearTimeout(saveTimer);
+            saveTimer = setTimeout(function() {
+                const s = {
+                    clUnits: clUnits, chBands: chBands,
+                    text: $('tx_text').value, font: $('tx_font').value, textSize: num('tx_size', 10),
+                    svgPath: placements.sv.path, svgName: placements.sv.name, svgScale: num('sv_scale', 1),
+                    gpxPath: placements.hm.path, gpxName: placements.hm.name,
+                    hmLength: num('hm_length', 50), hmHeight: num('hm_height', 10),
+                    placements: {},
+                };
+                ['tx', 'sv', 'hm'].forEach(function(k) {
+                    const p = placements[k];
+                    s.placements[k] = { bottom: p.bottom, op: p.op, color: p.color, rotation: p.rotation };
+                });
+                fetch(BASE + '/save_state', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(s) })
+                    .catch(function() {});
+            }, 400);
+        }
+
+        function applySceneDefaults() {
+            const setVal = function(id, v) { if (typeof v === 'number' && isFinite(v)) $(id).value = +v.toFixed(3); };
+            chBands = [{
+                threshold: typeof S.mountain_treshold === 'number' ? S.mountain_treshold : 60,
+                color: Array.isArray(S.mountain_color) ? rgb01ToHex(S.mountain_color) : '#808080',
+            }];
+            renderBands();
+            $('ch_noise').checked = !!S.mountain_noise;
+            $('ch_noise_fields').hidden = !S.mountain_noise;
+            setVal('ch_noiseAmp', S.mountain_noise_amplitude); setVal('ch_noiseAmp_range', S.mountain_noise_amplitude);
+            setVal('ch_noiseScale', S.mountain_noise_scale); setVal('ch_noiseScale_range', S.mountain_noise_scale);
+            chMode = S.color_height_SEM ? 'SEM' : S.color_height_MEM ? 'MEM' : 'paint';
+            setSeg($('ch_mode'), 'mode', chMode);
+            setVal('ch_tolerance', S.toleranceElements); setVal('ch_thickness', S.elementShellThickness);
+            if (typeof S.cl_useRealMeters === 'boolean') { clUnits = S.cl_useRealMeters ? 'm' : 'mm'; setSeg($('cl_units'), 'units', clUnits); }
+            setVal('cl_distance', S.cl_distance); setVal('cl_offset', S.cl_offset); setVal('cl_thickness', S.cl_thickness);
+            setVal('mg_diameter', S.magnetDiameter); setVal('mg_depth', S.magnetHeight);
+            setVal('mg_margin', S.magnetMargin); setVal('mg_count', S.magnetCount);
+            $('bm_cutout').checked = !!S.bottomMarkCutout;
+            if (S.gpxPath) {
+                $('hm_name').textContent = 'Scene track: ' + S.gpxPath.split(/[\\/]/).pop();
+                $('hm_name').title = S.gpxPath;
+            } else {
+                $('hm_name').textContent = 'No track — choose a GPX file';
+            }
+            if (!S.premium) {
+                $('hm_locked').hidden = false;
+                $('hm_fields').hidden = true;
+                const b = document.querySelector('[data-apply="heightmap"]');
+                b.dataset.locked = '1';
+                b.disabled = true;
+            }
+        }
+
+        function applySavedState(s) {
+            if (!s || typeof s !== 'object') return;
+            if (s.clUnits === 'm' || s.clUnits === 'mm') { clUnits = s.clUnits; setSeg($('cl_units'), 'units', clUnits); }
+            if (Array.isArray(s.chBands)) {
+                const bands = s.chBands.filter(function(b) {
+                    return b && typeof b.threshold === 'number' && /^#[0-9a-f]{6}$/i.test(b.color);
+                }).slice(0, MAX_BANDS);
+                if (bands.length) { chBands = bands; renderBands(); }
+            }
+            if (typeof s.text === 'string') $('tx_text').value = s.text;
+            if (typeof s.font === 'string') $('tx_font').dataset.want = s.font;
+            if (s.textSize > 0) { $('tx_size').value = s.textSize; $('tx_size_range').value = s.textSize; }
+            if (s.svgPath) {
+                placements.sv.path = s.svgPath; placements.sv.name = s.svgName || '';
+                $('sv_name').textContent = s.svgName || s.svgPath.split(/[\\/]/).pop();
+            }
+            if (s.svgScale > 0) { $('sv_scale').value = s.svgScale; $('sv_scale_range').value = s.svgScale; }
+            if (s.gpxPath) {
+                placements.hm.path = s.gpxPath; placements.hm.name = s.gpxName || '';
+                $('hm_name').textContent = s.gpxName || s.gpxPath.split(/[\\/]/).pop();
+            }
+            if (s.hmLength > 0) $('hm_length').value = s.hmLength;
+            if (s.hmHeight > 0) $('hm_height').value = s.hmHeight;
+            Object.keys(s.placements || {}).forEach(function(k) {
+                if (!placements[k]) return;
+                const p = s.placements[k];
+                if (k !== 'hm') placements[k].bottom = !!p.bottom;
+                if (['paint', 'singleColorMode_remesh', 'negative'].indexOf(p.op) >= 0) placements[k].op = p.op;
+                if (typeof p.color === 'string') placements[k].color = p.color;
+                if (typeof p.rotation === 'number') placements[k].rotation = p.rotation;
+                syncPlacementControls(k);
+            });
+            // The page always starts with every tool card closed.
+        }
+
+        // ══ Start ═════════════════════════════════════════════════════════
+        applySceneDefaults();
+        fetch(BASE + '/get_state', { cache: 'no-store' })
+            .then(function(r) { return r.json(); })
+            .catch(function() { return {}; })
+            .then(function(s) {
+                applySavedState(s);
+                loadFonts();
+                setStatus('Loading the map from Blender…');
+                return send({ kind: 'info' }, 'Loading the map…');
+            })
+            .then(function() {
+                setStatus('');
+                setOpenTool(openTool);
+                requestShape('tx');
+                if (placements.sv.path) requestShape('sv');
+                if (S.premium) requestShape('hm');
+            });
+    </script>
+    <script>__TRANSLATE_JS__</script>
+</body>
+</html>

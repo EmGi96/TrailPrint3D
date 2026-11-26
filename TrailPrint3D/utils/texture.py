@@ -16,6 +16,7 @@ Coordinate conventions
   UV convention and the layout expected by the 3MF addon's segmentation reader.
 """
 
+import contextlib
 from copy import deepcopy
 import zlib
 
@@ -900,6 +901,37 @@ def _rasterize_height_field(mesh, min_x, min_y, width, height, resolution):
     return elev
 
 
+# Height-field reuse across several bakes of one unchanged mesh (the
+# Post-processing page applies every Color by Height band in one go).
+# Off by default -- only active inside reuse_height_field().
+_height_field_cache = None
+
+
+@contextlib.contextmanager
+def reuse_height_field():
+    """Within this block, bake_height_layer_into_texture rasterizes each
+    mesh's height field once and reuses it. Only for bakes that don't change
+    the geometry in between (texture bakes never do)."""
+    global _height_field_cache
+    previous = _height_field_cache
+    _height_field_cache = {}
+    try:
+        yield
+    finally:
+        _height_field_cache = previous
+
+
+def _cached_height_field(mesh, min_x, min_y, width, height, resolution):
+    if _height_field_cache is None:
+        return _rasterize_height_field(mesh, min_x, min_y, width, height, resolution)
+    key = (mesh.as_pointer(), len(mesh.vertices), len(mesh.polygons), min_x, min_y, width, height, resolution)
+    elev = _height_field_cache.get(key)
+    if elev is None:
+        elev = _rasterize_height_field(mesh, min_x, min_y, width, height, resolution)
+        _height_field_cache[key] = elev
+    return elev
+
+
 def bake_height_layer_into_texture(
     terrain_obj, z_threshold, material=None, noise_amplitude=2.0, noise_scale=0.04
 ):
@@ -933,13 +965,16 @@ def bake_height_layer_into_texture(
     if width <= 0 or height <= 0:
         return False
 
-    elev = _rasterize_height_field(mesh, min_x, min_y, width, height, resolution)
+    elev = _cached_height_field(mesh, min_x, min_y, width, height, resolution)
 
-    ys, xs = np.mgrid[0:resolution, 0:resolution]
-    wx = min_x + (xs + 0.5) / resolution * width
-    wy = min_y + (ys + 0.5) / resolution * height
-    noise_field = _value_noise_field(wx, wy, noise_scale)
-    local_thresh = z_threshold + noise_field * noise_amplitude
+    if noise_amplitude > 0:
+        ys, xs = np.mgrid[0:resolution, 0:resolution]
+        wx = min_x + (xs + 0.5) / resolution * width
+        wy = min_y + (ys + 0.5) / resolution * height
+        local_thresh = z_threshold + _value_noise_field(wx, wy, noise_scale) * noise_amplitude
+    else:
+        # A flat threshold -- no need for a full-resolution noise field.
+        local_thresh = z_threshold
 
     mountain_mask = ~np.isnan(elev) & (elev > local_thresh)
 

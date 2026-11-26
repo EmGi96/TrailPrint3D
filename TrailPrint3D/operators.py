@@ -2599,6 +2599,66 @@ class TP3D_OT_import_text(bpy.types.Operator):
         return {"FINISHED"}
 
 
+def finish_text_placement(context, Mapobject, obj, bottom_side=False, operation="paint", color=None):
+    """Turn the positioned text object *obj* into its final form on
+    *Mapobject*: projected into the top surface (paint / single color /
+    negative, see utils.projection) or, with *bottom_side*, sunk into the
+    map's underside. Shared by the Add Text popup and the Post-processing
+    page. Returns None on success, else a user-facing error message."""
+    # The bpy.ops calls below work on the active, selected object.
+    if context.mode != "OBJECT":
+        bpy.ops.object.mode_set(mode="OBJECT")
+    bpy.ops.object.select_all(action="DESELECT")
+    obj.select_set(True)
+    context.view_layer.objects.active = obj
+
+    # Convert to Mesh and Extrude
+    bpy.ops.object.convert(target="MESH")
+    bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
+
+    if not bottom_side:
+        obj.location.z = -1
+        utils.projection(operation, Mapobject, obj, color)
+        return None
+
+    bpy.ops.object.select_all(action="DESELECT")
+    obj.select_set(True)
+    context.view_layer.objects.active = obj
+    if obj.type == "FONT":
+        bpy.ops.object.convert(target="MESH")
+
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.mesh.extrude_region_move()
+    bpy.ops.transform.translate(value=(0, 0, 0.4))
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+    if not Mapobject.data.vertices or not obj.data.vertices:
+        return _rpt("Could not align bottom text because the map or text mesh is empty.")
+
+    context.view_layer.update()
+    map_bottom_z = min(
+        (Mapobject.matrix_world @ vertex.co).z for vertex in Mapobject.data.vertices
+    )
+    text_bottom_z = min((obj.matrix_world @ vertex.co).z for vertex in obj.data.vertices)
+    obj.location.z += map_bottom_z - 0.1 - text_bottom_z
+    context.view_layer.update()
+
+    clipped, clip_message = utils.intersectWithTile(Mapobject, obj)
+    if not clipped:
+        return _rpt("Could not clip text to the map: {message}").format(message=clip_message)
+
+    original_text_z = obj.location.z
+    obj.location.z = original_text_z - 0.01
+    context.view_layer.update()
+    try:
+        utils.cut_from(Mapobject, obj)
+    finally:
+        obj.location.z = original_text_z
+        context.view_layer.update()
+    return None
+
+
 class TP3D_OT_popup_text(bpy.types.Operator):
     bl_idname = "tp3d.popup_text"
     bl_label = _("Import Text")
@@ -2731,104 +2791,18 @@ class TP3D_OT_popup_text(bpy.types.Operator):
         if self.textFont:
             context.scene.tp3d.textFont = self.textFont
 
-        # Convert to Mesh and Extrude
-        bpy.ops.object.convert(target="MESH")
-        bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
-
-        # bpy.ops.object.mode_set(mode='EDIT')
-        # bpy.ops.mesh.select_all(action='SELECT')
-        # Simplified Extrude
-        # bpy.ops.mesh.extrude_region_move(TRANSFORM_OT_translate={"value":(0, 0, 30)})
-        # bpy.ops.object.mode_set(mode='OBJECT')
-
-        # Your custom projection logic
-        Mapobject = context.scene.tp3d.currentMap
-
-        if not self.bottomSide:
-            obj.location.z = -1
-            utils.projection(
-                self.operation,
-                Mapobject,
-                obj,
-                tuple(self.color) if self.operation == "paint" else None,
-            )
-        else:
-            bpy.ops.object.select_all(action="DESELECT")
-
-            if obj.type == "FONT":
-                obj.select_set(True)
-                bpy.context.view_layer.objects.active = obj
-                bpy.ops.object.convert(target="MESH")
-
-            bpy.ops.object.mode_set(mode="EDIT")
-            bpy.ops.mesh.select_all(action="SELECT")
-            bpy.ops.mesh.extrude_region_move()
-            bpy.ops.transform.translate(
-                value=(0, 0, 0.4)
-            )  # bpy.ops.mesh.select_all(action='DESELECT')
-            bpy.ops.object.mode_set(mode="OBJECT")
-
-            if not Mapobject.data.vertices or not obj.data.vertices:
-                self.report(
-                    {"ERROR"},
-                    _rpt("Could not align bottom text because the map or text mesh is empty."),
-                )
-                self.restore_view(context)
-                return {"CANCELLED"}
-
-            context.view_layer.update()
-            map_bottom_z = min(
-                (Mapobject.matrix_world @ vertex.co).z
-                for vertex in Mapobject.data.vertices
-            )
-            text_bottom_z = min(
-                (obj.matrix_world @ vertex.co).z for vertex in obj.data.vertices
-            )
-            obj.location.z += map_bottom_z - 0.1 - text_bottom_z
-            context.view_layer.update()
-
-            clipped, clip_message = utils.intersectWithTile(Mapobject, obj)
-            if not clipped:
-                self.report(
-                    {"ERROR"},
-                    _rpt("Could not clip text to the map: {message}").format(
-                        message=clip_message
-                    ),
-                )
-                self.restore_view(context)
-                return {"CANCELLED"}
-
-            from .utils.mesh_ops import is_mesh_manifold
-
-            before_boolean = (
-                len(Mapobject.data.vertices),
-                len(Mapobject.data.edges),
-                len(Mapobject.data.polygons),
-            )
-            solver = (
-                "MANIFOLD"
-                if is_mesh_manifold(Mapobject) and is_mesh_manifold(obj)
-                else "EXACT"
-            )
-            original_text_z = obj.location.z
-            obj.location.z = original_text_z - 0.01
-            context.view_layer.update()
-            try:
-                utils.boolean_operation(Mapobject, obj, solver=solver)
-
-                after_boolean = (
-                    len(Mapobject.data.vertices),
-                    len(Mapobject.data.edges),
-                    len(Mapobject.data.polygons),
-                )
-                if solver == "MANIFOLD" and after_boolean == before_boolean:
-                    utils.boolean_operation(Mapobject, obj, solver="EXACT")
-            finally:
-                obj.location.z = original_text_z
-                context.view_layer.update()
-
-        # Restore View
+        error = finish_text_placement(
+            context,
+            context.scene.tp3d.currentMap,
+            obj,
+            bottom_side=self.bottomSide,
+            operation=self.operation,
+            color=tuple(self.color) if self.operation == "paint" else None,
+        )
         self.restore_view(context)
+        if error:
+            self.report({"ERROR"}, error)
+            return {"CANCELLED"}
         return {"FINISHED"}
 
     def cancel(self, context):
@@ -2959,6 +2933,89 @@ class TP3D_OT_import_svg(bpy.types.Operator):
         return {"FINISHED"}
 
 
+def _flatten_to_top_faces(obj):
+    """Reduce mesh *obj* to its upward-facing faces, flattened onto local
+    Z = 0 -- a closed SVG solid becomes a flat filled shape."""
+    bm = bmesh.new()
+    try:
+        bm.from_mesh(obj.data)
+        bm.normal_update()
+        top = [f for f in bm.faces if f.normal.z > 0.5]
+        if not top:
+            return
+        bmesh.ops.delete(bm, geom=[f for f in bm.faces if f.normal.z <= 0.5], context="FACES")
+        loose = [v for v in bm.verts if not v.link_faces]
+        if loose:
+            bmesh.ops.delete(bm, geom=loose, context="VERTS")
+        for v in bm.verts:
+            v.co.z = 0.0
+        bm.to_mesh(obj.data)
+    finally:
+        bm.free()
+    obj.data.update()
+
+
+def finish_svg_placement(context, Mapobject, obj, bottom_side=False, operation="paint", color=None):
+    """Merge the positioned SVG mesh *obj* (utils.importSVGtoMerge) into
+    *Mapobject*: projected into the top surface (see utils.projection) or,
+    with *bottom_side*, sunk into the map's underside. Shared by the Import
+    SVG popup and the Post-processing page. Returns None, or a user-facing
+    message when the bottom recess couldn't be cut."""
+    if context.mode != "OBJECT":
+        bpy.ops.object.mode_set(mode="OBJECT")
+    bpy.ops.object.select_all(action="DESELECT")
+    obj.select_set(True)
+    context.view_layer.objects.active = obj
+
+    if "type" not in obj:
+        obj["type"] = "OTHER"
+
+    obj.scale.z = 200
+
+    utils.recalculateNormals(Mapobject)
+    utils.recalculateNormals(obj)
+
+    if not bottom_side:
+        bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
+        # The imported SVG is a thin solid. utils.projection (via
+        # merge_with_map) extrudes every face upward and expects a flat
+        # shape like a converted text -- a solid's bottom cap and walls end up
+        # inside the cutter (the 200x-scaled solid spans the whole map
+        # height), so "Negative" cut straight through. Keep only the top
+        # cap, flat at the origin's height like a converted text.
+        bpy.ops.object.origin_set(type="ORIGIN_CURSOR", center="MEDIAN")
+        _flatten_to_top_faces(obj)
+        obj.location.z = -1
+        utils.projection(operation, Mapobject, obj, color)
+    else:
+        obj.location.z = Mapobject.location.z
+        obj.scale.z = 0.8
+
+        bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
+
+        from .utils.mesh_ops import is_mesh_manifold
+
+        # The recess is cut with the MANIFOLD solver, which silently does
+        # nothing unless its cutter is watertight. The imported SVG is
+        # (utils.importSVGtoMerge cleans it), and clipping it with MANIFOLD
+        # keeps it so -- the EXACT clip left open edges, and no recess got cut.
+        watertight = is_mesh_manifold(obj) and is_mesh_manifold(Mapobject)
+        utils.intersectWithTile(Mapobject, obj, solver="MANIFOLD" if watertight else "EXACT")
+        obj.location.z -= 0.4
+        utils.recalculateNormals(obj)
+
+        before = (len(Mapobject.data.vertices), len(Mapobject.data.polygons))
+        context.view_layer.update()
+        utils.boolean_operation(Mapobject, obj)
+        obj.location.z += 0.4
+        obj.scale.z *= 0.5
+        if (len(Mapobject.data.vertices), len(Mapobject.data.polygons)) == before:
+            return _rpt(
+                "The SVG shape isn't watertight (overlapping or open paths), so no recess could be cut into the bottom."
+            )
+    return None
+
+
 class TP3D_OT_popup_svg(bpy.types.Operator):
     bl_idname = "tp3d.popup_svg"
     bl_label = _("Import SVG")
@@ -3062,41 +3119,16 @@ class TP3D_OT_popup_svg(bpy.types.Operator):
         Mapobject = context.scene.tp3d.currentMap
         obj = bpy.context.view_layer.objects.active
 
-        if "type" not in obj:
-            obj["type"] = "OTHER"
-
-        obj.scale.z = 200
-
-        utils.recalculateNormals(Mapobject)
-        utils.recalculateNormals(obj)
-
-        if not self.bottomSide:
-            bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
-            bpy.ops.object.origin_set(type="ORIGIN_CURSOR", center="MEDIAN")
-            obj.location.z = -1
-            utils.projection(
-                self.operation,
-                Mapobject,
-                obj,
-                tuple(self.color) if self.operation == "paint" else None,
-            )
-        else:
-            obj.location.z = Mapobject.location.z
-            obj.scale.z = 0.8
-
-            bpy.ops.object.select_all(action="DESELECT")
-            obj.select_set(True)
-            bpy.context.view_layer.objects.active = obj
-
-            bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
-
-            utils.intersectWithTile(Mapobject, obj)
-            obj.location.z -= 0.4
-            utils.recalculateNormals(obj)
-
-            utils.boolean_operation(Mapobject, obj)
-            obj.location.z += 0.4
-            obj.scale.z *= 0.5
+        error = finish_svg_placement(
+            context,
+            Mapobject,
+            obj,
+            bottom_side=self.bottomSide,
+            operation=self.operation,
+            color=tuple(self.color) if self.operation == "paint" else None,
+        )
+        if error:
+            self.report({"WARNING"}, error)
 
         self.rv3d.view_rotation = self.orig_rotation
         self.rv3d.view_location = self.orig_location
@@ -5833,6 +5865,134 @@ class TP3D_OT_backplate_generator(bpy.types.Operator):
         if self._server:
             threading.Thread(target=self._server.shutdown, daemon=True).start()
             self._server = None
+
+    def execute(self, context):
+        return {"FINISHED"}
+
+
+class TP3D_OT_post_process_generator(bpy.types.Operator):
+    bl_idname = "tp3d.post_process_generator"
+    bl_label = _("Post-processing")
+    bl_description = _tip(
+        "Open the Post-processing page for the selected maps (or the last generated map): Color by Height, Contour Lines, Magnet Holes, Dovetails, Bottom Mark, Text/SVG and 2D Heightmap with a live 3D view"
+    )
+    bl_options = {"REGISTER", "UNDO"}
+
+    _timer = None
+    _result_path: str = ""
+    _server = None
+    _session = None
+
+    @classmethod
+    def poll(cls, context):
+        from . import post_process
+
+        if context.scene is None or not post_process.find_page_maps(context):
+            cls.poll_message_set(
+                _("Select a map, or generate one first (puzzle pieces don't count)")
+            )
+            return False
+        return True
+
+    def modal(self, context, event):
+        if event.type != "TIMER":
+            return {"PASS_THROUGH"}
+
+        from . import picker_server as mp
+
+        if not mp.is_active_server(self._server):  # another generator page took over
+            self._cleanup(context)
+            return {"CANCELLED"}
+
+        # One request per tick, so the page's status polls get answered
+        # between long actions.
+        request = mp.drain_post_process_request()
+        if request is not None:
+            self._handle(context, request)
+
+        rp = pathlib.Path(self._result_path)
+        if not (rp.exists() and rp.stat().st_size > 0):
+            return {"PASS_THROUGH"}
+        # "Done" on the page -- everything was applied as it went.
+        try:
+            rp.unlink()
+        except OSError:
+            pass
+        self._cleanup(context)
+        return {"FINISHED"}
+
+    def _handle(self, context, request):
+        from . import picker_server as mp
+
+        job = mp.post_process_job()
+        seq = request.get("seq")
+        job.update(status="running", seq=seq)
+        try:
+            result = self._session.handle(context, request)
+            if result.pop("rebuild", False):
+                result["triangles"] = self._session.write_glb(
+                    context, str(mp.post_process_glb_path())
+                )
+                result["info"] = self._session.info(context)
+                job.update(version=job.get("version", 0) + 1)
+        except Exception as exc:  # noqa: BLE001 - surfaced to the page instead of killing the modal
+            import traceback
+
+            traceback.print_exc()
+            job.update(status="error", seq=seq, result={
+                "messages": [{"level": "ERROR", "text": str(exc)}],
+            })
+            return
+        job.update(status="done", seq=seq, result=result)
+
+    def invoke(self, context, event):
+        import tempfile
+
+        from . import picker_server as mp
+        from . import post_process
+
+        maps = post_process.find_page_maps(context)
+        if not maps:
+            self.report({"ERROR"}, _rpt("Select a map, or generate one first."))
+            return {"CANCELLED"}
+        if context.mode != "OBJECT":
+            bpy.ops.object.mode_set(mode="OBJECT")
+
+        self._result_path = str(
+            pathlib.Path(tempfile.gettempdir()) / "trailprint_post_process.json"
+        )
+        rp = pathlib.Path(self._result_path)
+        if rp.exists():
+            rp.unlink()
+
+        self._session = post_process.PostProcessSession([m.name for m in maps])
+        html_path = pathlib.Path(__file__).parent / "generators" / "postProcessGenerator.html"
+        self._server = mp.start_picker(
+            self._result_path,
+            html_path=html_path,
+            settings_state=post_process.settings_state(context),
+        )
+
+        wm = context.window_manager
+        self._timer = wm.event_timer_add(0.1, window=context.window)
+        wm.modal_handler_add(self)
+        self.report(
+            {"INFO"},
+            _rpt("Post-processing open — changes are applied to the map right away"),
+        )
+        return {"RUNNING_MODAL"}
+
+    def _cleanup(self, context):
+        wm = context.window_manager
+        if self._timer:
+            wm.event_timer_remove(self._timer)
+            self._timer = None
+        if self._server:
+            threading.Thread(target=self._server.shutdown, daemon=True).start()
+            self._server = None
+        if self._session is not None:
+            self._session.dispose()
+            self._session = None
 
     def execute(self, context):
         return {"FINISHED"}

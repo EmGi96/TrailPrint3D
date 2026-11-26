@@ -1,3 +1,4 @@
+import math
 import platform
 import random
 import webbrowser
@@ -392,12 +393,14 @@ def show_message_box(message, ic = "ERROR", ti = "ERROR"):
         bpy.context.window_manager.popup_menu(draw, title=ti, icon=ic)
 
 
-def importSVGtoMerge(Mapobject):
+def importSVGtoMerge(Mapobject, svg_path=None):
+    """Import the SVG at *svg_path* (default: the scene's SVG File) as one
+    merged mesh, centred on the 3D cursor."""
     from .mesh_ops import (
         merge_objects,  # deferred to avoid circular import at load time
     )
 
-    svg_path = bpy.context.scene.tp3d.svg_path
+    svg_path = svg_path or bpy.context.scene.tp3d.svg_path
     extrude_depth = 0.01
     scale_factor = 100.0
 
@@ -460,6 +463,15 @@ def importSVGtoMerge(Mapobject):
 
         bpy.ops.mesh.select_all(action='SELECT')
         bpy.ops.mesh.remove_doubles(threshold=0.0001)  # Works in all 2.8+ versions
+        # Straight runs and nearly straight curve segments (e.g. a "q" with
+        # almost collinear points) fill into zero-area sliver triangles. The
+        # EXACT boolean that clips a bottom-side SVG to the map
+        # (intersectWithTile) can drop the whole shape such a triangle
+        # belongs to -- one part of a logo vanished. A tiny-angle limited
+        # dissolve merges the flat faces and drops the collinear points
+        # behind those slivers without visibly changing the outline.
+        bpy.ops.mesh.dissolve_limited(angle_limit=math.radians(0.1))
+        bpy.ops.mesh.dissolve_degenerate(threshold=0.0001)
 
         bpy.ops.object.mode_set(mode='OBJECT')
 

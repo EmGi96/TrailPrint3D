@@ -491,6 +491,22 @@ def _on_color_style_update(self, context):
         print(f"[TP3D colors] Could not load color style {self.color_style}: {exc}")
 
 
+# Stamped on a map whenever it becomes the scene's "last created map", so the
+# newest one can still be found if the currentMap pointer gets cleared.
+LAST_MAP_STAMP_PROP = "tp3dLastMapTime"
+
+
+def _current_map_update(self, context):
+    import time
+
+    obj = self.currentMap
+    if obj is not None:
+        try:
+            obj[LAST_MAP_STAMP_PROP] = time.time()
+        except (AttributeError, TypeError, ReferenceError):
+            pass
+
+
 # Define a Property Group to store variables
 class TP3D_PG_properties(bpy.types.PropertyGroup):
     general_settings_expanded: BoolProperty(
@@ -1889,5 +1905,7 @@ class TP3D_PG_properties(bpy.types.PropertyGroup):
         name=_("OpenTopo Address"), default="https://api.opentopodata.org/v1/"
     )  # type: ignore
 
-    currentMap: PointerProperty(name=_("Map object"), type=bpy.types.Object)  # type: ignore
+    currentMap: PointerProperty(
+        name=_("Map object"), type=bpy.types.Object, update=_current_map_update
+    )  # type: ignore
     currentTrail: PointerProperty(name=_("Trail object"), type=bpy.types.Object)  # type: ignore

@@ -91,6 +91,7 @@ classes = [
     operators.TP3D_OT_map_generator,
     operators.TP3D_OT_medal_holder_generator,
     operators.TP3D_OT_backplate_generator,
+    operators.TP3D_OT_post_process_generator,
     operators.TP3D_OT_special_collection,
     operators.TP3D_OT_append_collection,
     operators.TP3D_OT_append_collection_blank,

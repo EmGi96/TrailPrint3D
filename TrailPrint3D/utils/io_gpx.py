@@ -284,9 +284,9 @@ def read_gpx_directory(directory_path):
     return coordinatesByFile
 
 
-def read_gpx_file():
+def read_gpx_file(filepath=None):
 
-    gpx_file_path = bpy.context.scene.tp3d.get("file_path", None)
+    gpx_file_path = filepath or bpy.context.scene.tp3d.get("file_path", None)
 
     coords = []
     file_extension = os.path.splitext(gpx_file_path)[1].lower()
@@ -309,13 +309,19 @@ def read_gpx_file():
     return coords
 
 
-def read_gpx_and_create_heightmap(length=100.0, height=20.0):
+def gpx_height_profile(filepath=None, length=100.0, height=20.0):
+    """Closed outline [(x, y), ...] (mm) of the track's elevation profile:
+    distance along the track mapped onto -length/2..length/2, elevation onto
+    2..height (a 2 mm base below the lowest point), closed along y = 0.
+    *filepath* defaults to the scene's GPX file. None when there's no usable
+    file or route. Shared by read_gpx_and_create_heightmap and the
+    Post-processing page's 2D Heightmap preview."""
     from .geo import haversine  # deferred to avoid circular import at load time
 
-    gpx_file_path = bpy.context.scene.tp3d.get("file_path", None)
+    gpx_file_path = filepath or bpy.context.scene.tp3d.get("file_path", None)
     if not gpx_file_path or not os.path.exists(gpx_file_path):
         print("Invalid or missing GPX file path.")
-        return
+        return None
 
     points = []
     total_distance = 0.0
@@ -323,10 +329,12 @@ def read_gpx_and_create_heightmap(length=100.0, height=20.0):
     min_elevation = float("inf")
     prev_point = None
 
-    separate_paths = read_gpx_file()
+    separate_paths = read_gpx_file(gpx_file_path)
+    if not separate_paths:
+        return None
     temppoints = [item for sublist in separate_paths for item in sublist]
 
-    for i, pnt in enumerate(temppoints):
+    for pnt in temppoints:
         lat = pnt[0]
         lon = pnt[1]
         ele = pnt[2]
@@ -342,29 +350,35 @@ def read_gpx_and_create_heightmap(length=100.0, height=20.0):
 
     if total_distance == 0 or not points:
         print("No valid points or zero-length route.")
-        return
+        return None
+
+    print(f"Route length: {total_distance:.2f} meters")
+    print(f"Elevation range: {min_elevation:.2f} - {max_elevation:.2f} meters")
+
+    # A dead-flat track would divide by zero below; draw it as a flat band.
+    elevation_range = max_elevation - min_elevation
+    profile_points = []
+    for _lat, _lon, elevation, distance in points:
+        x = (distance / total_distance) * length - length / 2
+        rel = (elevation - min_elevation) / elevation_range if elevation_range > 0 else 0.5
+        profile_points.append((x, rel * (height - 2) + 2))
+
+    bottom_left = (profile_points[0][0], -0.0)
+    bottom_right = (profile_points[-1][0], -0.0)
+
+    return profile_points + [bottom_right, bottom_left]
+
+
+def read_gpx_and_create_heightmap(length=100.0, height=20.0, filepath=None):
+    full_points = gpx_height_profile(filepath, length, height)
+    if full_points is None:
+        return None
 
     curve_data = bpy.data.curves.new(name="RouteProfile", type="CURVE")
     curve_data.dimensions = "2D"
     curve_data.fill_mode = "BOTH"
     spline = curve_data.splines.new("POLY")
     spline.use_cyclic_u = True  # Close the shape
-
-    profile_points = []
-
-    print(f"Min elevation: {min_elevation}")
-
-    for lat, lon, elevation, distance in points:
-        x = (distance / total_distance) * length - length / 2
-        y = ((elevation - min_elevation) / (max_elevation - min_elevation)) * (
-            height - 2
-        ) + 2
-        profile_points.append((x, y))
-
-    bottom_left = (profile_points[0][0], -0.0)
-    bottom_right = (profile_points[-1][0], -0.0)
-
-    full_points = profile_points + [bottom_right, bottom_left]
 
     spline.points.add(len(full_points) - 1)
 
@@ -382,9 +396,6 @@ def read_gpx_and_create_heightmap(length=100.0, height=20.0):
     bpy.ops.mesh.select_all(action="SELECT")
     bpy.ops.mesh.extrude_region_move(TRANSFORM_OT_translate={"value": (0, 0, 1)})
     bpy.ops.object.editmode_toggle()
-
-    print(f"Route length: {total_distance:.2f} meters")
-    print(f"Maximum elevation: {max_elevation:.2f} meters")
 
     curve_obj.location = bpy.context.scene.cursor.location
 

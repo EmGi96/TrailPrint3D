@@ -91,6 +91,7 @@ _TEST_FILES = [
     "test_gpx.py",
     "test_magnet_layout.py",
     "test_osm_pipeline.py",
+    "test_post_process.py",
     "test_prefetch.py",
     "test_satellite.py",
     "test_tile_generation.py",

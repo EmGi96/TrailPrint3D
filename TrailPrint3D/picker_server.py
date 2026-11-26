@@ -92,6 +92,18 @@ _pending_model_previews: 'queue.Queue[dict]' = queue.Queue()
 _model_preview_job: dict = {'status': 'idle', 'version': 0, 'message': ''}
 _MODEL_PREVIEW_PATH = pathlib.Path(tempfile.gettempdir()) / 'trailprint_model_preview.glb'
 
+# Post-processing page (generators/postProcessGenerator.html): POST
+# /post_process_request queues {kind, action, params, seq} -- every one runs,
+# in order, unlike the newest-only model previews above (an Apply must never
+# be dropped). The calling operator's modal() runs them on the main thread
+# (drain_post_process_request), reports into _post_process_job (polled via
+# GET /post_process_status) and, when the scene changed, rewrites
+# _POST_PROCESS_GLB_PATH and bumps 'version' (GET /post_process.glb). Same
+# key-wise-update-only rule as _prefetch_job.
+_pending_post_process: 'queue.Queue[dict]' = queue.Queue()
+_post_process_job: dict = {'status': 'idle', 'seq': None, 'version': 0, 'result': None}
+_POST_PROCESS_GLB_PATH = pathlib.Path(tempfile.gettempdir()) / 'trailprint_post_process.glb'
+
 # Every generator page's export-folder button (assets/export_folder.js).
 # 'scene' is the scene's own Export Path and 'default' the Default Export
 # Folder preference (both read from Blender in start_picker); exports use
@@ -337,6 +349,22 @@ def model_preview_job() -> dict:
 
 def model_preview_path() -> pathlib.Path:
     return _MODEL_PREVIEW_PATH
+
+
+def drain_post_process_request() -> dict | None:
+    """Pop the oldest queued Post-processing page request, or None."""
+    try:
+        return _pending_post_process.get_nowait()
+    except queue.Empty:
+        return None
+
+
+def post_process_job() -> dict:
+    return _post_process_job
+
+
+def post_process_glb_path() -> pathlib.Path:
+    return _POST_PROCESS_GLB_PATH
 
 
 def drain_pending_prefetch() -> list:
@@ -1383,6 +1411,28 @@ class _Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
+        if self.path == '/post_process_status':
+            body = json.dumps(_post_process_job).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if self.path == '/post_process.glb' or self.path.startswith('/post_process.glb?'):
+            try:
+                body = _POST_PROCESS_GLB_PATH.read_bytes()
+            except OSError:
+                self.send_response(404)
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header('Content-Type', 'model/gltf-binary')
+            self.send_header('Content-Length', str(len(body)))
+            self.send_header('Cache-Control', 'no-store')
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if self.path == '/get_existing_maps':
             body = self.existing_maps_json
             self.send_response(200)
@@ -1650,6 +1700,22 @@ class _Handler(BaseHTTPRequestHandler):
             if isinstance(payload, dict):
                 _model_preview_job.update(status='queued', message='')
                 _pending_model_previews.put(payload)
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/plain')
+            self.send_header('Content-Length', '2')
+            self.end_headers()
+            self.wfile.write(b'ok')
+            return
+        if self.path == '/post_process_request':
+            length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(length)
+            try:
+                payload = json.loads(body)
+            except json.JSONDecodeError:
+                payload = None
+            if isinstance(payload, dict):
+                _post_process_job.update(status='queued')
+                _pending_post_process.put(payload)
             self.send_response(200)
             self.send_header('Content-Type', 'text/plain')
             self.send_header('Content-Length', '2')
@@ -2138,6 +2204,7 @@ def start_picker(result_path: str, existing_maps: list | None = None, existing_t
     """
     global _active_server, _pending_toggles, _pending_settings, _pending_advanced_settings, _pending_prefetch
     global _pending_model_previews, _pending_3mf_install, _pending_color_styles, _pending_slicer_profiles
+    global _pending_post_process
     if _active_server is not None:
         try:
             _active_server.shutdown()
@@ -2153,6 +2220,8 @@ def start_picker(result_path: str, existing_maps: list | None = None, existing_t
     _pending_model_previews = queue.Queue()
     _pending_3mf_install = queue.Queue()
     _model_preview_job.update(status='idle', message='', seq=None)
+    _pending_post_process = queue.Queue()
+    _post_process_job.update(status='idle', seq=None, result=None)
     # An in-flight worker from a previous session keeps a reference to the
     # OLD job dict only if it was handed the dict itself -- it's handed the
     # live one, so replace contents instead of rebinding (see prefetch_job()).

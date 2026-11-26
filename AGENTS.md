@@ -6,7 +6,7 @@ This is a **Blender 5.1+ Python addon** using the Blender Extensions platform. A
 
 ## Terminology
 
-When the user says **"generators"**, they usually mean the HTML configurator pages as a group — `generators/map_generator.html`, `premium/generators/map_generator_pe.html`, `generators/puzzleGenerator.html`, `premium/generators/puzzleGenerator_pe.html`, `premium/generators/multitile_generator.html`, `premium/generators/slidingPuzzleGenerator.html` (plus `generators/medalHolderGenerator.html`) — the browser-based picker UIs served by `picker_server.py`. All six share the same served-page machinery (`__PORT__`, `__COMMON_CSS__`, `__SETTINGS_MODAL_JS__`, etc. tokens substituted in `picker_server.py`'s `do_GET`), so a change to that shared plumbing (or to "every generator") applies to all six, not just the four puzzle/multitile ones. Default to that reading unless the surrounding request is clearly about the Blender-side mesh-generation pipeline instead (`utils/generation.py`, `runGeneration()`).
+When the user says **"generators"**, they usually mean the HTML configurator pages as a group — `generators/map_generator.html`, `premium/generators/map_generator_pe.html`, `generators/puzzleGenerator.html`, `premium/generators/puzzleGenerator_pe.html`, `premium/generators/multitile_generator.html`, `premium/generators/slidingPuzzleGenerator.html` (plus `generators/medalHolderGenerator.html`, `generators/backplateGenerator.html` and `generators/postProcessGenerator.html`) — the browser-based picker UIs served by `picker_server.py`. All six share the same served-page machinery (`__PORT__`, `__COMMON_CSS__`, `__SETTINGS_MODAL_JS__`, etc. tokens substituted in `picker_server.py`'s `do_GET`), so a change to that shared plumbing (or to "every generator") applies to all six, not just the four puzzle/multitile ones. Default to that reading unless the surrounding request is clearly about the Blender-side mesh-generation pipeline instead (`utils/generation.py`, `runGeneration()`).
 
 ---
 
@@ -23,6 +23,7 @@ TrailPrint3D/                 - Blender addon package (installed as a Blender ex
   operators.py                 - all bpy.types.Operator subclasses
   panels.py                    - all bpy.types.Panel subclasses
   picker_server.py             - local HTTP map-picker window (draw a bbox, POST coords back to Blender)
+  post_process.py              - Post-processing page backend: target maps, own undo snapshots, scene GLB, runs the post-process tools
   progress.py                  - GPU progress overlay + WarningsOverlay
   progress_win.py              - standalone frameless progress window (subprocess)
   props.py                     - TP3D_PG_properties (scene property group)
@@ -35,6 +36,7 @@ TrailPrint3D/                 - Blender addon package (installed as a Blender ex
     puzzleGenerator.html        - free Puzzle Configurator
     medalHolderGenerator.html   - Medal Holder Generator (3D-preview page)
     backplateGenerator.html     - Backplate Generator (3D-preview page, Shape Extras solid plate)
+    postProcessGenerator.html   - Post-processing page (3D view of existing maps + every sidebar Post-Process tool; backed by post_process.py)
   assets/                      - .blend asset libraries (connectors, holder, other) + progress-overlay SVG icons
   sample_files/                - bundled sample files, e.g. GPX tracks (for tutorials and example generations)
     BetweenLakes.gpx            - Lake Como to Lake Ceresio route (komoot export)
@@ -86,6 +88,7 @@ tests/                         - standalone test suite, run inside Blender's own
   test_geometry2d.py            - unit tests for utils/geometry2d.py
   test_gpx.py                   - tests for the GPX reader
   test_osm_pipeline.py          - unit/integration tests for the OSM data pipeline
+  test_post_process.py          - Post-processing page backend: targets, apply/undo of every tool, GLB, previews
   test_updater.py               - unit tests for updater.py
   Resources/                    - GPX/GeoJSON fixture files used by the tests above
 ```
