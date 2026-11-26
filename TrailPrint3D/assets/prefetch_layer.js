@@ -523,13 +523,10 @@ document.getElementById('clearPrefetch').addEventListener('click', function() {
 });
 
 // ---- Shift/Alt+drag region toggle ---------------------------------------------
-// Hold Shift OR Alt and drag a box over the map to bulk-toggle every
-// currently VISIBLE prefetched element (i.e. not hidden via the legend --
-// see prefetchFeatureVisible) that box overlaps. Uses the same "anything in
-// the set currently on? turn the whole set off, else turn it all on" rule as
-// the legend's own per-kind count toggle (renderPrefetchInfo's click handler
-// above), so a drag over a mixed on/off area gives one predictable result
-// instead of leaving it half-toggled.
+// Hold Shift OR Alt and drag a box over the map to toggle every currently
+// VISIBLE prefetched element (i.e. not hidden via the legend -- see
+// prefetchFeatureVisible) that box overlaps. Each element is flipped on its
+// own: enabled ones get disabled and disabled ones get enabled.
 //
 // Alt is also already overloaded for a PLAIN CLICK (no drag) on a road --
 // that's prefetchFollowRoad, wired up in drawPrefetchResult's own 'click'
@@ -572,15 +569,21 @@ function prefetchOnSelectMouseUp(e) {
         return prefetchFeatureVisible(f) && bounds.intersects(f.layer.getBounds());
     });
     if (!ids.length) return;
-    var anyOn = ids.some(function(id) { return !prefetchExcluded[id]; });
+    var disabled = 0, enabled = 0;
     ids.forEach(function(id) {
-        if (anyOn) prefetchExcluded[id] = true; else delete prefetchExcluded[id];
+        if (prefetchExcluded[id]) { delete prefetchExcluded[id]; enabled++; }
+        else { prefetchExcluded[id] = true; disabled++; }
         prefetchRestyle(id);
     });
     renderPrefetchInfo();
     prefetchPersist();
+    var plural = function(n) { return n + ' element' + (n === 1 ? '' : 's'); };
+    var parts = [];
+    if (disabled) parts.push('disabled ' + plural(disabled));
+    if (enabled) parts.push('enabled ' + plural(enabled));
+    var msg = parts.join(', ');
     document.getElementById('status').textContent =
-        (anyOn ? 'Disabled ' : 'Enabled ') + ids.length + ' element' + (ids.length === 1 ? '' : 's') + ' in the selected area.';
+        msg.charAt(0).toUpperCase() + msg.slice(1) + ' in the selected area.';
 }
 
 function prefetchOnSelectMouseDown(e) {

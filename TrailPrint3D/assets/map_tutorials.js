@@ -752,7 +752,6 @@ function tp3dPrefetchElementStep(key, title, text, waitText, wanted) {
         demo: tp3dDemoSetupElement(key, wanted),
         waitFor: tp3dTutorial.waitUntil(function() { return tp3dElementMatches(key, wanted); }),
         waitText: waitText,
-        skippable: true,
         onEnter: wanted ? function() { tp3dHoldFlyoutOpen(key); } : undefined,
         onExit: wanted ? function() { tp3dReleaseFlyout(key); } : undefined
     };
@@ -860,8 +859,8 @@ function tp3dMapTutorialPrefetch() {
             interactive: true,
             title: 'Shortcuts',
             text: '<ul class="tp3d-tut-list">' +
-                  '<li><b>Shift + drag</b> (or <b>Alt + drag</b>): draw a box to switch every element in it off. ' +
-                  'If they are all off already, they are switched back on.</li>' +
+                  '<li><b>Shift + drag</b> (or <b>Alt + drag</b>): draw a box to flip every element in it: ' +
+                  'elements that are on get switched off, and elements that are off get switched back on.</li>' +
                   '<li><b>Alt + click</b> on a road: switches the whole road off, not just the clicked segment. ' +
                   'It follows the road through junctions as long as it keeps going straight.</li>' +
                   '</ul>' +
