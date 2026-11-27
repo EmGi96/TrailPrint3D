@@ -269,6 +269,18 @@ def run_prefetch(plan, job):
             plan["kind_tasks"], threading.Semaphore(1), settings=plan["settings"],
             progress_callback=report,
         )
+        # A kind with no tiles at all is one whose Overpass request failed
+        # (a successful but empty answer still stores {"elements": []}).
+        failed = [kind for kind, tiles in fetched.items() if not tiles]
+        if failed and len(failed) == len(fetched):
+            while elevation_thread and elevation_thread.is_alive():
+                elevation_thread.join(0.25)
+            job.update(
+                status="error",
+                message="Overpass API is busy or unreachable — no elements could be "
+                        "fetched. Try again in a minute.",
+            )
+            return
         job.update(message="Building preview…")
         features, truncated = features_from_tiles(fetched, progress_callback=report)
         while elevation_thread and elevation_thread.is_alive():
@@ -286,6 +298,7 @@ def run_prefetch(plan, job):
                 "features": features,
                 "counts": counts,
                 "skipped": plan["skipped"],
+                "failed": failed,
                 "truncated": truncated,
                 "bbox": plan["bbox"],
             },
@@ -427,7 +440,9 @@ def features_from_tiles(fetched, progress_callback=None):
     seen = set()
     truncated = False
 
-    for kind, tiles in fetched.items():
+    # Buildings last: a city easily has more of them than MAX_FEATURES, and
+    # taking them first would leave no budget for roads, water, etc.
+    for kind, tiles in sorted(fetched.items(), key=lambda item: item[0] == "BUILDINGS"):
         if progress_callback is not None:
             progress_callback(f"Building preview: {kind.title()}…")
         for bbox, (data, _from_cache) in tiles.items():

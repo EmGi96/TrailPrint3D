@@ -111,6 +111,35 @@ def _read_with_progress(response, progress_callback, label):
     return b"".join(chunks)
 
 
+# Statuses an overloaded Overpass server answers with (429 rate limit, 502/503/
+# 504 "at capacity, request queue full"). It asks clients to back off
+# exponentially, so the wait doubles per attempt instead of hammering it.
+_OVERLOAD_STATUSES = frozenset({429, 502, 503, 504})
+_BACKOFF_BASE_S = 5
+_BACKOFF_MAX_S = 60
+
+
+def _backoff_delay(attempt, response=None):
+    """Seconds to wait before attempt *attempt* + 2: the server's Retry-After
+    if it sent a usable one, otherwise 5, 10, 20, 40, 60, 60, ..."""
+    retry_after = response.headers.get("Retry-After") if response is not None else None
+    if isinstance(retry_after, str) and retry_after.strip().isdigit():
+        return min(_BACKOFF_MAX_S, max(1, int(retry_after)))
+    return min(_BACKOFF_MAX_S, _BACKOFF_BASE_S * 2 ** attempt)
+
+
+def _runtime_error_remark(data):
+    """Overpass reports a query that hit its time or memory limit as HTTP 200
+    with a "remark" ("runtime error: Query timed out ...") and whatever
+    elements it managed to collect -- an incomplete answer that must not be
+    treated (or cached for 30 days) as the full data. Returns the remark or
+    None."""
+    remark = data.get("remark") if isinstance(data, dict) else None
+    if isinstance(remark, str) and "runtime error" in remark.lower():
+        return remark
+    return None
+
+
 def _overpass_request(
     query,
     overpass_url,
@@ -167,15 +196,28 @@ def _overpass_request(
             if response.status_code == 200:
                 try:
                     if stream:
-                        return json.loads(
+                        data = json.loads(
                             _read_with_progress(response, progress_callback, progress_label)
                         )
-                    return response.json()
+                    else:
+                        data = response.json()
                 except ValueError as e:
                     last_error = e
                     last_status = response.status_code
                     print(f"Attempt {attempt + 1}: Invalid JSON response")
-                    # fall through to retry
+                    data = None
+                if data is not None:
+                    remark = _runtime_error_remark(data)
+                    if remark is None:
+                        return data
+                    last_error = RuntimeError(remark)
+                    print(f"Overpass API: incomplete answer (attempt {attempt + 1}/{max_retries}): {remark}")
+                    if log_callback:
+                        log_callback(f"Overpass API: query hit the server's limit — retrying {attempt + 2}/{max_retries}"
+                                     if attempt + 2 <= max_retries else
+                                     f"Overpass API: query hit the server's limit after {max_retries} attempts")
+                if attempt + 1 < max_retries:
+                    time.sleep(_backoff_delay(attempt))
             else:
                 last_status = response.status_code
                 next_attempt = attempt + 2
@@ -199,7 +241,11 @@ def _overpass_request(
                                 extra=f"after {max_retries} attempts",
                             )
                         )
-                time.sleep(5 + attempt)
+                if next_attempt <= max_retries:
+                    if response.status_code in _OVERLOAD_STATUSES:
+                        time.sleep(_backoff_delay(attempt, response))
+                    else:
+                        time.sleep(_BACKOFF_BASE_S + attempt)
 
         except requests.exceptions.Timeout as e:
             last_error = e
@@ -222,13 +268,18 @@ def _overpass_request(
                             extra=f"after {max_retries} attempts",
                         )
                     )
-            time.sleep(5)
+            # A query the client gave up on keeps running on the server and
+            # holds one of our (two) rate-limit slots until it finishes --
+            # back off instead of queueing straight behind it.
+            if next_attempt <= max_retries:
+                time.sleep(_backoff_delay(attempt))
         except requests.RequestException as e:
             last_error = e
             print(format_api_error("Overpass API", e))
             if log_callback:
                 log_callback(format_api_error("Overpass API", e))
-            time.sleep(5)
+            if attempt + 1 < max_retries:
+                time.sleep(_backoff_delay(attempt))
 
     print(
         format_api_error(

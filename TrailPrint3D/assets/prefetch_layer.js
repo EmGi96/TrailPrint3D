@@ -450,6 +450,11 @@ function drawPrefetchResult(result) {
     });
     var skippedLabels = Object.keys(skipped).map(function(k) { return PREFETCH_KIND_STYLE[k] ? PREFETCH_KIND_STYLE[k].label : k; });
     if (skippedLabels.length) prefetchShowToast('The area is too big to generate these elements: ' + skippedLabels.join(', '));
+    var failedLabels = (result.failed || []).map(function(k) { return PREFETCH_KIND_STYLE[k] ? PREFETCH_KIND_STYLE[k].label : k; });
+    if (failedLabels.length) {
+        notes.push(failedLabels.join(', ') + ' could not be downloaded (Overpass API busy) — prefetch again to retry');
+        prefetchShowToast('Could not download: ' + failedLabels.join(', ') + ' — the Overpass API is busy, try again in a minute.');
+    }
     if (result.truncated) notes.push('too many elements — only the first ' + features.length + ' are clickable');
     document.getElementById('status').textContent = features.length
         ? 'Prefetched ' + features.length + ' elements — click one to disable it.' + (notes.length ? ' ' + notes.join('; ') + '.' : '')

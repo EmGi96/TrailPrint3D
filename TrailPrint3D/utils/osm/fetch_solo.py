@@ -339,7 +339,9 @@ def fetch_osm_data(
         query,
         overpass_url,
         method="POST",
-        timeout=60,
+        # Above the query's own [timeout:60], which doesn't include the wait
+        # for a free slot on a busy server.
+        timeout=90,
         max_retries=apiRetries,
         log_callback=_log,
     )

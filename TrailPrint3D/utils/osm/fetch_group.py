@@ -18,6 +18,11 @@ from .fetch_utils import (
 )
 
 
+# Seconds without a byte before a combined request is given up on; see
+# fetch_osm_combined.
+_CLIENT_TIMEOUT_S = 180
+
+
 def _make_cache_path(bbox, kind, settings=None):
     """Return the cache file path for a given bbox + kind + settings.
 
@@ -418,25 +423,25 @@ def fetch_osm_combined(
         if progress_callback is not None else {}
     )
     report(f"Waiting for Overpass{tile_label}…")
-    if semaphore is not None:
-        with semaphore:
-            data = _overpass_request(
-                query,
-                overpass_url,
-                method="POST",
-                timeout=120,
-                max_retries=api_retries,
-                **progress_kwargs,
-            )
-    else:
-        data = _overpass_request(
+
+    def _request():
+        # The query itself may run for its full [timeout:120] budget, plus the
+        # time it waits for a free slot on a busy server -- a client timeout
+        # equal to that budget cut off answers that were just about to arrive.
+        return _overpass_request(
             query,
             overpass_url,
             method="POST",
-            timeout=120,
+            timeout=_CLIENT_TIMEOUT_S,
             max_retries=api_retries,
             **progress_kwargs,
         )
+
+    if semaphore is not None:
+        with semaphore:
+            data = _request()
+    else:
+        data = _request()
 
     if data is None:
         _progress.WarningsOverlay.add_warning(
@@ -460,6 +465,10 @@ def fetch_osm_combined(
     # returns None for them, but extract_multipolygon_bodies needs them to
     # stitch the polygon rings.
     per_kind: dict = {kind: {"elements": []} for kind in missing}
+    # (type, id) of everything already in each bucket -- kept alongside the
+    # list so adding a relation's member ways doesn't rescan the whole bucket
+    # for every relation. Keyed by type too: node/way/relation ids overlap.
+    per_kind_seen: dict = {kind: set() for kind in missing}
     for element in elements:
         if element.get("type") == "node":
             continue
@@ -470,15 +479,19 @@ def fetch_osm_combined(
         for kind in kinds_hit:
             if kind is None:
                 continue
+            seen = per_kind_seen[kind]
+            element_key = (element.get("type"), element["id"])
+            if element_key in seen:
+                continue
             per_kind[kind]["elements"].append(element)
+            seen.add(element_key)
             if element.get("type") == "relation":
-                seen = {e["id"] for e in per_kind[kind]["elements"]}
                 for member in element.get("members", []):
                     if member.get("type") == "way":
                         way = all_ways.get(member["ref"])
-                        if way is not None and way["id"] not in seen:
+                        if way is not None and ("way", way["id"]) not in seen:
                             per_kind[kind]["elements"].append(way)
-                            seen.add(way["id"])
+                            seen.add(("way", way["id"]))
 
     # Second pass: add only the nodes that are actually referenced by each
     # kind's ways.  Including every node from every kind in every bucket

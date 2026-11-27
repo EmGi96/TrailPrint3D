@@ -256,6 +256,41 @@ def test_overpass_request_progress_callback_streams_body():
     assert any(m.startswith("Downloading") for m in messages), messages
 
 
+def test_overpass_request_runtime_error_remark_is_retried():
+    """HTTP 200 with a "runtime error" remark is an incomplete answer -- retried, never returned."""
+    from unittest.mock import patch
+
+    from TrailPrint3D.utils.osm.fetch_utils import _overpass_request
+
+    partial = _make_response(200, {"elements": [{"type": "node", "id": 1}],
+                                   "remark": "runtime error: Query timed out in \"query\" at line 3 after 121 seconds."})
+    ok = _make_response(200, {"elements": []})
+    with patch("TrailPrint3D.utils.osm.fetch_utils.requests.post", side_effect=[partial, ok]), \
+         patch("TrailPrint3D.utils.osm.fetch_utils.time.sleep"):
+        result = _overpass_request("query", "https://example.com", max_retries=3)
+    assert result == {"elements": []}, result
+
+    with patch("TrailPrint3D.utils.osm.fetch_utils.requests.post", return_value=partial), \
+         patch("TrailPrint3D.utils.osm.fetch_utils.time.sleep"):
+        result = _overpass_request("query", "https://example.com", max_retries=2)
+    assert result is None, "a remark on every attempt must count as a failure"
+
+
+def test_overpass_request_overload_backs_off_exponentially():
+    """502/429 "at capacity" answers wait 5, 10, 20 s ... and not after the last attempt."""
+    from unittest.mock import patch
+
+    from TrailPrint3D.utils.osm.fetch_utils import _overpass_request
+
+    fail = _make_response(502)
+    fail.headers = {}
+    with patch("TrailPrint3D.utils.osm.fetch_utils.requests.post", return_value=fail), \
+         patch("TrailPrint3D.utils.osm.fetch_utils.time.sleep") as sleep:
+        _overpass_request("query", "https://example.com", max_retries=4)
+    waits = [c.args[0] for c in sleep.call_args_list]
+    assert waits == [5, 10, 20], waits
+
+
 def test_overpass_request_get_method():
     """method='GET' uses requests.get, not requests.post."""
     from unittest.mock import patch
@@ -1341,6 +1376,8 @@ if __name__ == "__main__":
     _run("overpass request: Timeout triggers retry",      test_overpass_request_timeout_triggers_retry)
     _run("overpass request: log_callback fired on error", test_overpass_request_log_callback_called_on_error)
     _run("overpass request: progress_callback streams body", test_overpass_request_progress_callback_streams_body)
+    _run("overpass request: runtime-error remark retried", test_overpass_request_runtime_error_remark_is_retried)
+    _run("overpass request: overload exponential backoff", test_overpass_request_overload_backs_off_exponentially)
     _run("overpass request: GET method uses requests.get",test_overpass_request_get_method)
 
     # Per-tile parallel fetcher
