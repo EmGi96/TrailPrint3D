@@ -658,6 +658,15 @@ function tp3dApplyHistorySettings(entry) {
     document.body.appendChild(toggleBtn);
     document.body.appendChild(panel);
 
+    // Back from Post-processing (or a map opened from "My Maps"): this page
+    // already starts with the fields that map was generated with (its
+    // /get_state answer); put back the rest -- Settings popup values,
+    // elements, colors -- like picking it in this drawer does.
+    fetch('http://127.0.0.1:' + PORT + '/history_restore', { cache: 'no-store' })
+        .then(function(r) { return r.json(); })
+        .then(function(entry) { if (entry && entry.id) tp3dApplyHistorySettings(entry); })
+        .catch(function() {});
+
     // Never blocks the actual Send-to-Blender request chained after it (see
     // each page's onclick) -- resolves to null on any failure instead of
     // rejecting, same as the old fire-and-forget behavior, just with a

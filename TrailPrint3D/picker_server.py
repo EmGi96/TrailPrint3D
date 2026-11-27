@@ -379,12 +379,55 @@ def _generator_registered(op_id: str) -> bool:
 
 
 def build_generator_menu(html_path) -> dict:
-    """GET /generator_menu: {current, items: [{id, label}]} -- the page's own
-    generator and every other one it can switch to. Main thread only."""
+    """GET /generator_menu: {current, items: [{id, label}], hasModel} -- the
+    page's own generator, every other one it can switch to, and whether a
+    map this generator made is in the scene (the header's
+    Configuration / Model switch then offers going to it). Main thread only."""
     current = _GENERATOR_OF_PAGE.get(pathlib.Path(str(html_path)).stem, "")
     items = [{"id": op_id, "label": label} for op_id, label in GENERATOR_MENU
              if op_id == current or _generator_registered(op_id)]
-    return {"current": current, "items": items}
+    has_model = current != "post_process_generator" and model_collection(current) is not None
+    return {"current": current, "items": items, "hasModel": has_model}
+
+
+def model_collection(op_id):
+    """The newest generation collection in the scene made by generator
+    *op_id* that holds maps or puzzle pieces, or None. Main thread only."""
+    import bpy  # type: ignore
+
+    from .post_process import collection_targets
+    from .utils.scene import GENERATOR_PROP
+
+    found = None
+    for collection in bpy.context.scene.collection.children_recursive:
+        if collection.get(GENERATOR_PROP) != op_id:
+            continue
+        names, _puzzle = collection_targets(collection)
+        if names:
+            found = collection
+    return found
+
+
+def _select_model(op_id) -> None:
+    """Select the maps of generator *op_id*'s model, so Post-processing
+    opens on them."""
+    import bpy  # type: ignore
+
+    from .post_process import collection_targets
+
+    collection = model_collection(op_id)
+    if collection is None:
+        return
+    names, _puzzle = collection_targets(collection)
+    objects = [o for o in (bpy.context.scene.objects.get(n) for n in names) if o is not None]
+    if bpy.context.mode != "OBJECT":
+        bpy.ops.object.mode_set(mode="OBJECT")
+    for obj in bpy.context.selected_objects:
+        obj.select_set(False)
+    for obj in objects:
+        obj.select_set(True)
+    if objects:
+        bpy.context.view_layer.objects.active = objects[0]
 
 
 def process_generator_switch(server) -> bool:
@@ -406,24 +449,187 @@ def process_generator_switch(server) -> bool:
     if op_id not in {g for g, _label in GENERATOR_MENU} or not _generator_registered(op_id):
         request["result"] = {"ok": False, "message": "That generator isn't available."}
     else:
-        # Keep this server answering -- the next page's start_picker would
-        # shut it down before the page reads the new address.
-        detach_active_server()
-        try:
-            result = getattr(bpy.ops.tp3d, op_id)("INVOKE_DEFAULT", reuse_window=True)
-        except (RuntimeError, TypeError) as e:
-            print(f"[TP3D picker] could not open {op_id}: {e}")
-            result = set()
-        if "RUNNING_MODAL" in result:
-            request["result"] = {"ok": True, "next_url": active_url()}
-            switched = True
-        else:
-            _active_server = server
-            message = ("Select a map or generate one first."
-                       if op_id == "post_process_generator" else "Could not open that generator.")
-            request["result"] = {"ok": False, "message": message}
+        message = ("Select a map or generate one first."
+                   if op_id == "post_process_generator" else "Could not open that generator.")
+        origin = _page_origin.get(id(server))
+        if origin is not None and origin[0] == op_id:
+            set_pending_restore(origin[1])
+        # The Configuration / Model switch's "Model": that generator's map.
+        if op_id == "post_process_generator" and request.get("from"):
+            _select_model(request["from"])
+        request["result"] = _open_in_window(server, op_id, message)
+        switched = request["result"]["ok"]
     request["done"].set()
     return switched
+
+
+# Post-processing pages: id(server) -> (generator op id, history entry) of
+# the map they show, so switching to that generator restores its settings.
+_page_origin: dict = {}
+
+
+def set_page_origin(server, op_id, entry) -> None:
+    if server is None:
+        return
+    if len(_page_origin) > 20:
+        _page_origin.clear()
+    _page_origin[id(server)] = (op_id, entry)
+
+
+def _open_in_window(server, op_id, failure_message) -> dict:
+    """Open generator *op_id* in the window *server*'s page is showing (its
+    reuse_window). {ok, next_url} -- or {ok: False, message} with *server*
+    still the active one. Main thread only."""
+    global _active_server
+    import bpy  # type: ignore
+
+    # Keep this server answering -- the next page's start_picker would
+    # shut it down before the page reads the new address.
+    detach_active_server()
+    try:
+        result = getattr(bpy.ops.tp3d, op_id)("INVOKE_DEFAULT", reuse_window=True)
+    except (RuntimeError, TypeError) as e:
+        print(f"[TP3D picker] could not open {op_id}: {e}")
+        result = set()
+    if "RUNNING_MODAL" in result:
+        return {"ok": True, "next_url": active_url()}
+    _active_server = server
+    return {"ok": False, "message": failure_message}
+
+
+# "My Maps" (picker_ui.js): POST /library_open {id} and /library_delete {id},
+# handled on the main thread by process_library_requests -- called next to
+# process_generator_switch from every generator operator's modal().
+_pending_library: 'queue.Queue[dict]' = queue.Queue()
+
+
+def process_library_requests(server) -> bool:
+    """Handle a queued "My Maps" request from the page served by *server*.
+    Open: put the saved map into the scene (unless it's there already),
+    select it and switch the page's window to Post-processing for it --
+    True then, like process_generator_switch. Delete: remove the entry's
+    files; a copy in the scene stays but isn't saved anymore. Main thread
+    only."""
+    try:
+        request = _pending_library.get_nowait()
+    except queue.Empty:
+        return False
+    import bpy  # type: ignore
+
+    from . import library, post_process
+
+    switched = False
+    map_id = request.get("id", "")
+    scene = bpy.context.scene
+    try:
+        if request["action"] == "open":
+            if bpy.context.mode != "OBJECT":
+                bpy.ops.object.mode_set(mode="OBJECT")
+            # Only one map in the scene at a time: the others are taken out
+            # first, so many switches don't pile up in Blender. (The page
+            # offers to save unsaved changes before it asks for this.)
+            already = library.find_in_scene(scene, map_id) if library.valid_id(map_id) else None
+            if already is not None or library.has_map(library.library_dir(), map_id):
+                from .utils.scene import clear_previous_generations
+
+                clear_previous_generations(scene, keep=already)
+            collection = library.load_map(scene, map_id)
+            if collection is None:
+                request["result"] = {"ok": False, "message": "That map isn't in the library anymore."}
+            else:
+                names, _puzzle = post_process.collection_targets(collection)
+                objects = [scene.objects.get(n) for n in names]
+                objects = [o for o in objects if o is not None]
+                if bpy.context.mode != "OBJECT":
+                    bpy.ops.object.mode_set(mode="OBJECT")
+                for obj in bpy.context.selected_objects:
+                    obj.select_set(False)
+                for obj in objects:
+                    obj.select_set(True)
+                if objects:
+                    bpy.context.view_layer.objects.active = objects[0]
+                request["result"] = _open_in_window(
+                    server, "post_process_generator",
+                    "The map was loaded into Blender, but Post-processing couldn't open it.")
+                switched = request["result"]["ok"]
+        elif request["action"] == "rename":
+            name = library.rename_map(scene, map_id, request.get("name", ""))
+            request["result"] = ({"ok": True, "name": name} if name
+                                 else {"ok": False, "message": "Enter a name."})
+        elif request["action"] == "delete":
+            if library.delete_map(library.library_dir(), map_id):
+                existing = library.find_in_scene(scene, map_id)
+                if existing is not None:
+                    del existing[library.LIBRARY_ID_PROP]
+                request["result"] = {"ok": True, "message": ""}
+            else:
+                request["result"] = {"ok": False, "message": "That map isn't in the library anymore."}
+        else:
+            request["result"] = {"ok": False, "message": "Unknown request."}
+    except (OSError, RuntimeError, ValueError, KeyError) as e:
+        print(f"[TP3D picker] My Maps {request.get('action')} failed: {e}")
+        request["result"] = {"ok": False, "message": f"That didn't work: {e}"}
+    request["done"].set()
+    return switched
+
+
+# ── Settings a map was generated with ───────────────────────────────────
+# A generation's history entry (what its page pushed right before Generate)
+# is kept on its collection (utils.scene.generation_collection), so going
+# back from Post-processing -- or opening a saved map from "My Maps" and then
+# going back -- puts the generator page exactly as it was for that map.
+
+def history_entry(history_id):
+    """The active page's history entry *history_id* (without its thumbnail
+    images), tagged with the page it belongs to ('page'), or None. Main
+    thread, while the generating page's server is the active one."""
+    if not history_id:
+        return None
+    path = getattr(_Handler, 'history_path', None)
+    html_path = getattr(_Handler, 'html_path', None)
+    if path is None or html_path is None:
+        return None
+    for entry in _read_history(pathlib.Path(path)):
+        if isinstance(entry, dict) and entry.get('id') == history_id:
+            entry = {k: v for k, v in entry.items() if k not in ('thumbnail', 'render')}
+            entry['page'] = _history_key(pathlib.Path(html_path))
+            return entry
+    return None
+
+
+# The entry the next opened generator page of that kind starts with: its
+# settings through GET /get_state (the page's normal startup restore), the
+# rest (Settings popup values, elements, colors) through GET /history_restore
+# for history_panel.js to push back to Blender. Each part is handed out once;
+# the whole thing expires so it can't surface on some much later page.
+_pending_restore: dict | None = None
+_PENDING_RESTORE_SECONDS = 60.0
+
+
+def set_pending_restore(entry) -> None:
+    global _pending_restore
+    if not isinstance(entry, dict) or not entry.get('page'):
+        _pending_restore = None
+        return
+    _pending_restore = {'entry': entry, 'state': True, 'settings': True, 'at': time.time()}
+
+
+def _take_pending_restore(page_key, part):
+    """The pending entry for *page_key* if its *part* ('state' / 'settings')
+    hasn't been handed out yet."""
+    global _pending_restore
+    pending = _pending_restore
+    if pending is None:
+        return None
+    if time.time() - pending['at'] > _PENDING_RESTORE_SECONDS:
+        _pending_restore = None
+        return None
+    if pending['entry'].get('page') != page_key or not pending.get(part):
+        return None
+    pending[part] = False
+    if not pending['state'] and not pending['settings']:
+        _pending_restore = None
+    return pending['entry']
 
 
 def take_embedded_progress_port() -> int | None:
@@ -1401,6 +1607,8 @@ class _Handler(BaseHTTPRequestHandler):
     slicer_profiles_json: bytes = b'{"available": false, "profiles": [], "current": "NONE"}'
     # The page header's generator dropdown, see build_generator_menu.
     generator_menu_json: bytes = b'{"current": "", "items": []}'
+    # "My Maps": the library folder (library.library_dir), set in start_picker.
+    library_dir: str = ""
     element_source: str = 'OSM'
     dem_bounds_json: bytes = b'null'
     obj_size: float = 100.0
@@ -1470,6 +1678,39 @@ class _Handler(BaseHTTPRequestHandler):
             body = self.color_styles_json
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if self.path == '/library':
+            # "My Maps": the saved maps, newest first (library.list_maps).
+            from . import library
+
+            body = json.dumps({'folder': self.library_dir,
+                               'maps': library.list_maps(self.library_dir) if self.library_dir else []}).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Cache-Control', 'no-store')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if self.path.startswith('/library_thumb'):
+            from urllib.parse import parse_qs, urlparse
+
+            from . import library
+
+            map_id = parse_qs(urlparse(self.path).query).get('id', [''])[0]
+            path = library.thumbnail_path(self.library_dir, map_id) if self.library_dir else None
+            if path is None:
+                self.send_response(404)
+                self.end_headers()
+                return
+            with open(path, 'rb') as f:
+                body = f.read()
+            self.send_response(200)
+            self.send_header('Content-Type', 'image/png')
+            self.send_header('Cache-Control', 'no-store')
             self.send_header('Content-Length', str(len(body)))
             self.end_headers()
             self.wfile.write(body)
@@ -1635,7 +1876,29 @@ class _Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
+        if self.path == '/history_restore':
+            # history_panel.js: the rest of a pending restore (see
+            # set_pending_restore) -- {} when there's none for this page.
+            entry = _take_pending_restore(_history_key(pathlib.Path(self.html_path)), 'settings')
+            body = json.dumps(entry or {}).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if self.path == '/get_state':
+            # Going back to a map's generator: the settings it was made with
+            # instead of the page's last saved state (set_pending_restore).
+            entry = _take_pending_restore(_history_key(pathlib.Path(self.html_path)), 'state')
+            if entry is not None and isinstance(entry.get('settings'), dict):
+                body = json.dumps(entry['settings']).encode('utf-8')
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
             try:
                 body = self.state_path.read_bytes()
                 print(f"[TP3D picker] /get_state read {len(body)} bytes from {self.state_path}")
@@ -2001,6 +2264,29 @@ class _Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(resp)
             return
+        if self.path in ('/library_open', '/library_delete', '/library_rename'):
+            # Answered once the main thread has handled it
+            # (process_library_requests): {ok, next_url | message}.
+            length = int(self.headers.get('Content-Length', 0))
+            try:
+                data = json.loads(self.rfile.read(length) or b'{}')
+            except json.JSONDecodeError:
+                data = {}
+            request = {'action': self.path[len('/library_'):],
+                       'id': str(data.get('id') or ''), 'name': str(data.get('name') or ''),
+                       'done': threading.Event()}
+            _pending_library.put(request)
+            if request['done'].wait(timeout=60):
+                reply = request['result']
+            else:
+                reply = {'ok': False, 'message': 'Blender did not respond, please try again.'}
+            out = json.dumps(reply).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(out)))
+            self.end_headers()
+            self.wfile.write(out)
+            return
         if self.path == '/switch_generator':
             # Answered once the main thread has opened the other generator
             # (process_generator_switch): {ok, next_url | message}.
@@ -2009,7 +2295,8 @@ class _Handler(BaseHTTPRequestHandler):
                 data = json.loads(self.rfile.read(length) or b'{}')
             except json.JSONDecodeError:
                 data = {}
-            request = {'id': str(data.get('id') or ''), 'done': threading.Event()}
+            request = {'id': str(data.get('id') or ''), 'from': str(data.get('from') or ''),
+                       'done': threading.Event()}
             _pending_generator_switch.put(request)
             if request['done'].wait(timeout=20):
                 reply = request['result']
@@ -2542,6 +2829,12 @@ def start_picker(result_path: str, existing_maps: list | None = None, existing_t
         _Handler.generator_menu_json = json.dumps(build_generator_menu(html_path)).encode('utf-8')
     except (AttributeError, ImportError) as e:
         print(f"[TP3D picker] could not build the generator menu: {e}")
+    try:
+        from . import library
+
+        _Handler.library_dir = library.library_dir()
+    except (AttributeError, ImportError, KeyError) as e:
+        print(f"[TP3D picker] no map library folder: {e}")
     _Handler.element_source = element_source or 'OSM'
     _Handler.dem_bounds_json = json.dumps(dem_bounds).encode('utf-8')
     _Handler.obj_size = obj_size or 100.0

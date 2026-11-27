@@ -27,6 +27,7 @@ import inspect
 import json
 import math
 import struct
+import time
 
 import bpy  # type: ignore
 import numpy as np
@@ -51,6 +52,15 @@ _FALLBACK_SRGB = (200, 200, 200)
 # The page's Export button: 3MF (colored models, needs the 3MF add-on), or
 # STL / OBJ (one color).
 EXPORT_FORMATS = ("3mf", "stl", "obj")
+
+# Trees: real-world sized, so only maps at 1:10,000 or closer -- a 10 m wide
+# tree prints 1 mm wide there; any smaller and it's a speck, not a tree.
+TREE_MIN_MM_PER_M = 0.1
+# A tree narrower than this (two 0.4 mm nozzle lines) can't print as one.
+TREE_MIN_PRINT_MM = 0.8
+# Upper bound per Apply -- each tree is ~25 vertices.
+MAX_TREES = 30000
+TREE_SHAPES = ("pine", "round", "mixed")
 
 
 # ── Which maps the page works on ─────────────────────────────────────────
@@ -131,8 +141,17 @@ def find_companions(context, maps) -> list:
     # operators_pe._place_map_connectors tags them with it).
     batch = {m["MultitileIndex"] for m in maps if "MultitileIndex" in m}
     view_layer = context.view_layer
+    # Maps in generation collections: only their own collections' objects --
+    # another generation lying on the same spot isn't part of this one.
+    from .utils.scene import GENERATION_COLLECTION_PROP
+
+    homes = {home_collection(m) for m in maps}
+    if maps and all(h is not None and h.get(GENERATION_COLLECTION_PROP) for h in homes):
+        candidates = {o for h in homes for o in h.all_objects}
+    else:
+        candidates = context.scene.objects
     result = []
-    for obj in context.scene.objects:
+    for obj in candidates:
         if obj.name in names or obj.type not in {"MESH", "CURVE", "FONT"}:
             continue
         if not _is_addon_object(obj) or "PuzzleRow" in obj:
@@ -156,6 +175,25 @@ def find_companions(context, maps) -> list:
                 result.append(obj)
                 break
     return result
+
+
+# ── Generation collections (utils.scene.generation_collection) ──────────
+
+
+def collection_targets(collection):
+    """(map names, puzzle) the page works on for *collection*: its maps, or
+    else its puzzle pieces (puzzle mode)."""
+    objects = list(collection.all_objects)
+    maps = sorted(o.name for o in objects if is_page_map(o))
+    if maps:
+        return maps, False
+    return sorted(o.name for o in objects if is_page_map(o, puzzle=True)), True
+
+
+def home_collection(obj):
+    """The collection *obj* sits in (its first), or None."""
+    collections = list(getattr(obj, "users_collection", ()))
+    return collections[0] if collections else None
 
 
 def tile_of(obj, maps):
@@ -284,6 +322,53 @@ def _remove_object(obj):
             bpy.data.curves.remove(data)
 
 
+def _save_material_color(material):
+    from .utils.color import COLOR_DECODED_PROP
+
+    bsdf = None
+    if material.use_nodes and material.node_tree is not None:
+        bsdf = next((n for n in material.node_tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
+    return {
+        "diffuse": tuple(material.diffuse_color),
+        "base": tuple(bsdf.inputs["Base Color"].default_value) if bsdf is not None else None,
+        "decoded": material.get(COLOR_DECODED_PROP),
+    }
+
+
+def _restore_material_color(material, state):
+    from .utils.color import COLOR_DECODED_PROP
+
+    material.diffuse_color = state["diffuse"]
+    if state["base"] is not None and material.use_nodes and material.node_tree is not None:
+        bsdf = next((n for n in material.node_tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
+        if bsdf is not None:
+            bsdf.inputs["Base Color"].default_value = state["base"]
+    if state["decoded"] is None:
+        if COLOR_DECODED_PROP in material:
+            del material[COLOR_DECODED_PROP]
+    else:
+        material[COLOR_DECODED_PROP] = state["decoded"]
+
+
+def _save_palette(scene):
+    from .utils import color_styles
+
+    tp3d = scene.tp3d
+    return tp3d.color_style, color_styles.scene_colors(tp3d)
+
+
+def _restore_palette(scene, palette):
+    from .utils import color_styles
+
+    style, colors = palette
+    tp3d = scene.tp3d
+    color_styles.set_scene_colors(tp3d, colors)
+    try:
+        tp3d.color_style = style
+    except TypeError:  # a saved style deleted since
+        pass
+
+
 class Snapshot:
     """Everything needed to put *objects* back the way they are now."""
 
@@ -314,6 +399,19 @@ class Snapshot:
                 "collections": [c.name for c in obj.users_collection],
                 "image": _save_image(image) if image is not None else None,
             })
+        # Material colors: the mesh copies above share their materials, and
+        # a palette change recolors a map's own (tagged) materials in place.
+        self.materials = {}
+        for obj in objects:
+            for slot in getattr(obj, "material_slots", ()):
+                material = slot.material
+                if material is not None and material.name not in self.materials:
+                    self.materials[material.name] = _save_material_color(material)
+        # The scene's palette (tp3d color_style + element colors) -- put back
+        # only by an action that changes it (the palette's "colors"), so
+        # undoing anything else never reverts a palette picked meanwhile.
+        self.palette = _save_palette(scene)
+        self.restore_palette = False
 
     def mark_done(self, scene):
         """Record what the action created -- call right after it ran."""
@@ -334,12 +432,18 @@ class Snapshot:
         return True
 
     def restore(self, scene):
+        created_names = set((self.created or {}).values())
         for obj in list(scene.objects):
             ptr = obj.as_pointer()
             if self.created is None:  # mid-action failure: everything new goes
                 new = self.before.get(ptr) != obj.name
             else:
-                new = self.created.get(ptr) == obj.name
+                # By pointer -- or by name for an object a later snapshot
+                # put back as a copy (a refused Apply restores its own
+                # copies of everything on the page, made after this action
+                # created the object), which this snapshot never saw.
+                new = self.created.get(ptr) == obj.name or (
+                    ptr not in self.before and obj.name in created_names)
             if new:
                 _remove_object(obj)
         for entry in self.entries:
@@ -366,6 +470,12 @@ class Snapshot:
                 copy.data.name = entry["data_name"]
             if entry["image"] is not None:
                 _restore_image(entry["image"])
+        if self.restore_palette:
+            for name, state in self.materials.items():
+                material = bpy.data.materials.get(name)
+                if material is not None:
+                    _restore_material_color(material, state)
+            _restore_palette(scene, self.palette)
         self.entries = []
 
     def discard(self):
@@ -452,10 +562,16 @@ def _object_triangles(obj, depsgraph, image_cache):
                     layer.data.foreach_get("uv", uv)
                     uv = uv.reshape(-1, 2)
                 h, w = value.shape[:2]
-                corner_uv = uv[tri_loops[mask]]
-                px = np.clip((corner_uv[:, 0] * w).astype(np.int64), 0, w - 1)
-                py = np.clip((corner_uv[:, 1] * h).astype(np.int64), 0, h - 1)
-                colors[mask] = _srgb_to_linear(value[py, px, :3])
+                # One color per triangle, read at its centre: per-corner
+                # colors get blended across triangles that straddle two
+                # paint colors, and those in-between shades exist neither in
+                # the print nor for the page's Color by Height preview (it
+                # recolors exact base-color matches only, so the blended
+                # rim around every element kept a base-colored halo).
+                centre_uv = uv[tri_loops[mask]].reshape(-1, 3, 2).mean(axis=1)
+                px = np.clip((centre_uv[:, 0] * w).astype(np.int64), 0, w - 1)
+                py = np.clip((centre_uv[:, 1] * h).astype(np.int64), 0, h - 1)
+                colors[mask] = np.repeat(_srgb_to_linear(value[py, px, :3]), 3, axis=0)
             else:
                 colors[mask] = value
         return positions, colors
@@ -572,6 +688,77 @@ def _mm_per_meter(obj):
     return distance
 
 
+def map_base_color(map_obj):
+    """Hex sRGB of *map_obj*'s base terrain color, or None if unknown.
+
+    The page's Color by Height preview recolors only this color, like
+    Blender (face paint skips element materials; texture maps start from
+    their recorded BASE role). Guessing it from the most common vertex
+    color picks forest or mountain rock on maps where those cover more of
+    the terrain than the base does.
+    """
+    from . import operators
+    from .utils.color import material_to_srgb
+    from .utils.color_styles import (
+        COLOR_ROLES_PROP,
+        material_role,
+        read_mesh_color_roles,
+        srgb_to_hex,
+    )
+
+    mesh = map_obj.data
+    if operators._paint_texture_state(mesh) == "texture":
+        if not mesh.get(COLOR_ROLES_PROP):
+            return None
+        rgb = read_mesh_color_roles(mesh, {}).get("BASE")
+        return srgb_to_hex(rgb) if rgb else None
+    for material in mesh.materials:
+        if material_role(material) == "BASE":
+            return srgb_to_hex(material_to_srgb(material))
+    return None
+
+
+def _palette_from_params(colors):
+    """{ROLE: (r, g, b)} from a page's {ROLE: "#RRGGBB"}, known roles only."""
+    from .utils import color_styles
+
+    result = {}
+    for role, value in (colors or {}).items() if isinstance(colors, dict) else ():
+        if role not in color_styles.ROLE_NAMES:
+            continue
+        try:
+            result[role] = color_styles.hex_to_srgb(value)
+        except (TypeError, ValueError):
+            continue
+    return result
+
+
+def map_palette(map_obj, companions):
+    """{ROLE: "#RRGGBB"} the map is colored with now: the roles recorded
+    with its paint texture, then the role materials of it and its parts --
+    the page's palette panel starts from these, not from the scene's
+    palette (the map may have been made with another one)."""
+    from . import operators
+    from .utils.color import material_to_srgb
+    from .utils.color_styles import (
+        COLOR_ROLES_PROP,
+        material_role,
+        read_mesh_color_roles,
+        srgb_to_hex,
+    )
+
+    colors = {}
+    mesh = map_obj.data
+    if operators._paint_texture_state(mesh) == "texture" and mesh.get(COLOR_ROLES_PROP):
+        colors.update({role: srgb_to_hex(rgb) for role, rgb in read_mesh_color_roles(mesh, {}).items()})
+    for obj in [map_obj] + list(companions):
+        for slot in getattr(obj, "material_slots", ()):
+            role = material_role(slot.material)
+            if role and role not in colors:
+                colors[role] = srgb_to_hex(material_to_srgb(slot.material))
+    return colors
+
+
 def map_info(context, map_obj, companions, index):
     from . import operators
 
@@ -587,8 +774,20 @@ def map_info(context, map_obj, companions, index):
         dovetail_reason = _rpt("Dovetails need a Square, Hexagon, or Octagon shape")
     height_range = operators._color_height_range(map_obj)
     offset = map_obj.matrix_world.translation.z
-    sem = operators._mountain_split_ineligible_reason(map_obj, tp3d, mode=operators.SPLIT_SINGLE_EXTRUDER)
-    mem = operators._mountain_split_ineligible_reason(map_obj, tp3d, mode=operators.SPLIT_MULTI_EXTRUDER)
+    # check_paint: a textured map that already has colors greys out both
+    # extruder modes (one image scan, shared by the two checks).
+    painted = (
+        operators._paint_texture_state(map_obj.data) == "texture"
+        and operators._paint_texture_has_colors(map_obj.data)
+    )
+    sem = operators._mountain_split_ineligible_reason(
+        map_obj, tp3d, mode=operators.SPLIT_SINGLE_EXTRUDER, check_paint=False)
+    mem = operators._mountain_split_ineligible_reason(
+        map_obj, tp3d, mode=operators.SPLIT_MULTI_EXTRUDER, check_paint=False)
+    if painted:
+        colored = _rpt("Only single-colored maps or height pieces can be split")
+        sem = sem or colored
+        mem = mem or colored
     try:
         mm_per_meter = _mm_per_meter(map_obj)
     except (KeyError, TypeError, ValueError, ZeroDivisionError):
@@ -606,8 +805,13 @@ def map_info(context, map_obj, companions, index):
         "originY": map_obj.matrix_world.translation.y,
         "base": base.name,
         "colorRange": [height_range[0] + offset, height_range[1] + offset] if height_range else None,
+        # The color the Color by Height preview recolors (map_base_color).
+        "baseColor": map_base_color(map_obj),
         "splitReasonSEM": sem,
         "splitReasonMEM": mem,
+        # Already colored (painted texture, or faces in several colors): the
+        # page explains the greyed-out extruder modes with that.
+        "hasColors": painted or operators._mountain_uniform_material(map_obj) is None,
         "textured": operators._paint_texture_state(map_obj.data) == "texture",
         # Every Color by Height path (paint, texture, Single/Multi Extruder)
         # records its last cut on the map.
@@ -618,6 +822,12 @@ def map_info(context, map_obj, companions, index):
             for o in context.scene.objects
         ),
         "mmPerMeter": mm_per_meter,
+        # Trees: print mm per real ground meter, and why they can't go on
+        # this map (too small a scale, no forest, already planted) or None.
+        "groundMmPerMeter": ground_mm_per_meter(map_obj),
+        "treesReason": trees_ineligible_reason(map_obj, companions),
+        "trees": bool(map_obj.get(TREES_PROP)),
+        "snow": bool(map_obj.get(SNOW_PROP)),
         "magnetHoles": bool(base.get("MagnetHoles")),
         "dovetail": bool(base.get("Dovetail")),
         "dovetailReason": dovetail_reason,
@@ -627,8 +837,15 @@ def map_info(context, map_obj, companions, index):
 
 
 def default_export_name(context, maps) -> str:
-    """The scene's Model Name (what the sidebar's 3MF export suggests), else
-    the first map's name."""
+    """The page's File name to start with -- one name for both the export
+    file and the map in "My Maps": the map's own name (its generation
+    collection's, e.g. the region it shows), else the scene's Model Name,
+    else the first map's name."""
+    from .utils.scene import GENERATION_COLLECTION_PROP
+
+    home = home_collection(maps[0])
+    if home is not None and home.get(GENERATION_COLLECTION_PROP):
+        return home.name
     return (context.scene.tp3d.modelname or "").strip() or maps[0].name
 
 
@@ -671,13 +888,19 @@ class PostProcessSession:
     # dovetails...) would break the pieces' fit or doesn't apply to them.
     # Text and SVG are painted only (see _placement); Bottom Mark marks
     # every piece.
-    PUZZLE_ACTIONS = ("text", "svg", "bottom_mark")
+    PUZZLE_ACTIONS = ("text", "svg", "bottom_mark", "colors")
 
     def __init__(self, map_names, puzzle=False):
         self.map_names = list(map_names)
         # Working on puzzle pieces (see is_page_map) -- Text and SVG only.
         self.puzzle = bool(puzzle)
         self._undo_stack = []
+        # Changed since it was last saved to "My Maps" (Save), or never saved.
+        self._changed = False
+        # map name -> (forest, _SurfaceProbe) for the tree preview.
+        self._tree_probes = {}
+        # map name -> utils.snow.SnowSurface for the snow preview.
+        self._snow_surfaces = {}
 
     # -- objects --------------------------------------------------------
 
@@ -716,8 +939,15 @@ class PostProcessSession:
         params = request.get("params") or {}
         # Tiles switched off on the page: Apply and previews leave them alone.
         disabled = {str(n) for n in (request.get("disabled") or [])}
+        if kind != "preview":
+            # Anything but a preview may change the scene (or follow a
+            # change made in Blender): the tree preview looks again.
+            self._forget_tree_probes()
         if kind == "info":
             return {"rebuild": True}
+        if kind == "refresh":
+            # New page info, same 3D model (e.g. its My Maps entry was deleted).
+            return {"refresh_info": True}
         if kind == "undo":
             return self.undo(context)
         if kind == "preview":
@@ -726,7 +956,97 @@ class PostProcessSession:
             return self.apply(context, action, params, disabled)
         if kind == "export":
             return self.export(context, params.get("format"), params.get("name", ""))
+        if kind == "save":
+            return self.save(context, params.get("name", ""))
+        if kind == "palette":
+            return self.palette(context, params)
         return {"messages": [{"level": "ERROR", "text": f"Unknown request {kind!r}"}]}
+
+    # -- color palettes ---------------------------------------------------
+
+    def palette(self, context, params):
+        """The palette panel's Save (a new palette, or over a saved one of
+        that name) and Delete -- the same saved palettes the Map Generator's
+        Color Style uses. Applying one to the map is the "colors" action.
+        Nothing on the map changes, so no undo step."""
+        from . import picker_server
+        from .utils import color_styles
+
+        tp3d = context.scene.tp3d
+        op = params.get("op")
+        messages = []
+        try:
+            if op == "save":
+                name = str(params.get("name") or "").strip()
+                colors = _palette_from_params(params.get("colors"))
+                if not name or not colors:
+                    raise ValueError(_rpt("Give the palette a name first."))
+                full = color_styles.scene_colors(tp3d)
+                full.update(colors)
+                tp3d.color_style = color_styles.save_user_style(name, full)
+                messages.append({"level": "INFO", "text": _rpt("Saved palette {name}").format(name=name)})
+            elif op == "delete":
+                style = str(params.get("style") or "")
+                if not style.startswith(color_styles.USER_STYLE_PREFIX):
+                    raise ValueError(_rpt("Only your own palettes can be deleted."))
+                colors = color_styles.scene_colors(tp3d)
+                color_styles.delete_user_style(style)
+                if tp3d.color_style == style:
+                    tp3d.color_style = color_styles.DEFAULT_STYLE
+                    color_styles.set_scene_colors(tp3d, colors)  # keep the colors in use
+                messages.append({"level": "INFO", "text": _rpt("Deleted palette {name}").format(
+                    name=style[len(color_styles.USER_STYLE_PREFIX):])})
+            else:
+                raise ValueError(f"Unknown palette operation {op!r}")
+        except (OSError, ValueError) as exc:
+            messages.append({"level": "ERROR", "text": str(exc)})
+        # Other generator pages opened later list the change too.
+        picker_server.refresh_state_snapshots(color_styles=picker_server.build_color_styles_state(tp3d))
+        return {"refresh_info": True, "messages": messages}
+
+    def _apply_colors(self, context, maps, companions, params, messages):
+        """Recolor the map (and its parts) to a palette: *params* "colors"
+        {ROLE: "#RRGGBB"} (from a saved palette or edited on the page) and
+        "style" (the palette's id, or "" for edited colors). It becomes the
+        scene's palette too -- what the next generation uses -- like the
+        sidebar's Color Style with "Apply to Selected Maps"."""
+        from . import operators
+        from .utils import color_styles
+
+        colors = _palette_from_params(params.get("colors"))
+        if not colors:
+            messages.append({"level": "WARNING", "text": _rpt("No colors given.")})
+            return False
+        tp3d = context.scene.tp3d
+        # Roles not given keep the color the map has now (or, for roles it
+        # has no part of, the scene's).
+        full = color_styles.scene_colors(tp3d)
+        full.update({role: color_styles.hex_to_srgb(value)
+                     for role, value in map_palette(maps[0], companions).items()})
+        full.update(colors)
+        color_styles.set_scene_colors(tp3d, full)
+        style = str(params.get("style") or "")
+        if style:
+            try:
+                tp3d.color_style = style
+            except TypeError:
+                pass
+        targets = [o for o in maps + companions if o.type == "MESH"]
+        proxy = OperatorProxy(operators.TP3D_OT_apply_color_style)
+        _select_only(context, targets)
+        result = self._run(proxy, proxy.execute, context, messages)
+        # The INFO line ("Applied colors to ...") is Blender-sidebar talk.
+        messages[:] = [m for m in messages if m["level"] != "INFO"]
+        from . import picker_server
+
+        picker_server.refresh_state_snapshots(color_styles=picker_server.build_color_styles_state(tp3d))
+        return "FINISHED" in result
+
+    @staticmethod
+    def _palettes(context):
+        from . import picker_server
+
+        return picker_server.build_color_styles_state(context.scene.tp3d)
 
     def info(self, context):
         maps, companions = self.page_objects(context)
@@ -738,12 +1058,66 @@ class PostProcessSession:
             "undo": [s.label for s in self._undo_stack],
             "premium": bool(temp.PREMIUMVERSION),
             "puzzle": self.puzzle,
+            # The Save button: in My Maps / changed since.
+            **dict(zip(("saved", "changed"), self.save_state(context))),
+            "mapName": (self.current_collection(context).name if maps else ""),
+            # Its "My Maps" id -- the page doesn't offer to save before
+            # re-opening the map it already shows.
+            "mapId": str((self.current_collection(context).get("tp3d_library_id") if maps else "") or ""),
             # Picks the page's Export choices: 3MF keeps colors, STL/OBJ don't.
             "colored": is_multicolor(maps + companions),
             "has3mf": bool(temp.has3mf),
             # What the page's export-name field starts with.
             "exportName": default_export_name(context, maps) if maps else "",
+            # The palette dropdown: every palette (built-in and saved), the
+            # scene's current one, and the colors the map has now.
+            "palettes": self._palettes(context),
+            "mapColors": map_palette(maps[0], companions) if maps else {},
         }
+
+    # -- collections ----------------------------------------------------
+
+    def current_collection(self, context):
+        maps = self.maps(context)
+        return home_collection(maps[0]) if maps else None
+
+    def mark_changed(self):
+        self._changed = True
+
+    def save_state(self, context):
+        """("saved", "changed") for the page's Save button: whether the shown
+        map is in "My Maps", and whether it changed since it was saved."""
+        from . import library
+
+        collection = self.current_collection(context)
+        map_id = collection.get(library.LIBRARY_ID_PROP) if collection is not None else None
+        saved = bool(map_id) and library.has_map(library.library_dir(), map_id)
+        return saved, self._changed or not saved
+
+    def save(self, context, name=""):
+        """The page's Save: the shown map's generation collection into "My
+        Maps" (a new entry, or over its own). *name* (the page's File name,
+        when the user typed one) becomes its name first -- kept unique among
+        the collections and saved maps."""
+        from . import library
+        from .utils.scene import GENERATION_COLLECTION_PROP
+
+        collection = self.current_collection(context)
+        if collection is None:
+            return {"messages": [{"level": "ERROR", "text": _rpt("The map is no longer in the scene.")}]}
+        if not collection.get(GENERATION_COLLECTION_PROP):
+            return {"messages": [{"level": "ERROR", "text": _rpt(
+                "Only maps made by a generator page can be saved to My Maps.")}]}
+        _ensure_object_mode(context)
+        name = " ".join(str(name or "").split())
+        if name and name != collection.name:
+            collection.name = library.unique_name(context.scene, collection, name)
+        if library.save_collection(collection) is None:
+            return {"refresh_info": True, "messages": [{"level": "ERROR", "text": _rpt(
+                "Could not save -- see Blender's System Console.")}]}
+        self._changed = False
+        return {"refresh_info": True, "messages": [{"level": "INFO", "text": _rpt(
+            "Saved {name} to My Maps").format(name=collection.name)}]}
 
     # -- export ---------------------------------------------------------
 
@@ -841,6 +1215,7 @@ class PostProcessSession:
         snapshot.restore(context.scene)
         _select_only(context, self.maps(context))
         bpy.ops.ed.undo_push(message="Post-processing: Undo")
+        self.mark_changed()
         return {"rebuild": True, "messages": [{"level": "INFO", "text": _rpt("Undid: {label}").format(label=snapshot.label)}]}
 
     def clear_undo(self):
@@ -862,6 +1237,9 @@ class PostProcessSession:
         "text": "Text",
         "svg": "SVG",
         "heightmap": "2D Heightmap",
+        "trees": "Trees",
+        "snow": "Snow",
+        "colors": "Colors",
     }
 
     def apply(self, context, action, params, disabled=()):
@@ -879,6 +1257,7 @@ class PostProcessSession:
                 "Every tile is switched off. Click a tile in the 3D view to switch it back on.")}]}
         _ensure_object_mode(context)
         snapshot = Snapshot(self._LABELS[action], context.scene, maps + companions)
+        snapshot.restore_palette = action == "colors"
         cursor = context.scene.cursor.location.copy()
         messages = []
         try:
@@ -909,11 +1288,20 @@ class PostProcessSession:
         # Parts an action leaves behind (a bottom-side text or heightmap
         # inlay, ...) often carry no addon metadata -- tag them so they stay
         # part of the page (viewer, later undo snapshots).
+        # ... and keep them in the map's own generation collection.
+        from .utils.scene import GENERATION_COLLECTION_PROP, move_to_collection
+
+        home = home_collection(maps[0]) if maps else None
+        keep_together = home is not None and bool(home.get(GENERATION_COLLECTION_PROP))
         for obj in context.scene.objects:
-            if snapshot.created.get(obj.as_pointer()) == obj.name and not _is_addon_object(obj):
-                obj["Addon"] = const.ADDON_NAME
+            if snapshot.created.get(obj.as_pointer()) == obj.name:
+                if not _is_addon_object(obj):
+                    obj["Addon"] = const.ADDON_NAME
+                if keep_together:
+                    move_to_collection(obj, home)
         self._push(snapshot)
         bpy.ops.ed.undo_push(message=f"Post-processing: {self._LABELS[action]}")
+        self.mark_changed()
         messages.insert(0, {"level": "INFO", "text": _rpt("{action} applied.").format(action=self._LABELS[action])})
         return {"rebuild": True, "messages": messages}
 
@@ -960,9 +1348,13 @@ class PostProcessSession:
                 mountain_color=tuple(float(c) for c in band.get("color", tp3d.mountain_color))[:3],
                 color_height_SEM=mode == "SEM",
                 color_height_MEM=mode == "MEM",
-                mountain_noise=bool(params.get("noise", False)),
-                mountain_noise_amplitude=float(params.get("noiseAmplitude", tp3d.mountain_noise_amplitude)),
-                mountain_noise_scale=max(0.005, float(params.get("noiseScale", tp3d.mountain_noise_scale))),
+                # Each band has its own natural edge; the request-wide
+                # values are the fallback (older pages, single-band calls).
+                mountain_noise=bool(band.get("noise", params.get("noise", False))),
+                mountain_noise_amplitude=max(0.0, float(band.get(
+                    "noiseAmplitude", params.get("noiseAmplitude", tp3d.mountain_noise_amplitude)))),
+                mountain_noise_scale=max(0.005, float(band.get(
+                    "noiseScale", params.get("noiseScale", tp3d.mountain_noise_scale)))),
             )
             pieces_before = {o.name for o in bpy.data.objects if o.get("IsMountainPiece")}
             _select_only(context, targets)
@@ -1183,6 +1575,49 @@ class PostProcessSession:
             operators_pe.finish_heightmap_placement(context, target, piece)
         return True
 
+    @staticmethod
+    def _tree_params(params):
+        """(crown width m, spacing m, shape, seed) from a page request."""
+        size_m = min(max(float(params.get("size", 8.0)), 2.0), 30.0)
+        spacing_m = min(max(float(params.get("spacing", 10.0)), 1.0), 200.0)
+        shape = params.get("shape", "mixed")
+        try:
+            seed = max(0, int(params.get("seed", 0)))
+        except (TypeError, ValueError):
+            seed = 0
+        return size_m, spacing_m, shape if shape in TREE_SHAPES else "mixed", seed
+
+    @staticmethod
+    def _tree_problem(map_obj, companions, size_m):
+        """Why *map_obj* gets no trees of *size_m* m, or None."""
+        reason = trees_ineligible_reason(map_obj, companions)
+        if reason:
+            return f"{map_obj.name}: {reason}"
+        width = size_m * ground_mm_per_meter(map_obj)
+        if width < TREE_MIN_PRINT_MM:
+            return _rpt(
+                "{name}: {size} m wide trees would print only {mm} mm wide -- too thin to print."
+            ).format(name=map_obj.name, size=round(size_m, 1), mm=round(width, 2))
+        return None
+
+    def _apply_trees(self, context, maps, companions, params, messages):
+        size_m, spacing_m, shape, seed = self._tree_params(params)
+        # Trees clicked off in the preview: {map name: ["i,j", ...]} (grid cells).
+        skip_by_map = params.get("skip") or {}
+        depsgraph = context.evaluated_depsgraph_get()
+        planted = 0
+        for map_obj in maps:
+            problem = self._tree_problem(map_obj, companions, size_m)
+            if problem:
+                messages.append({"level": "WARNING", "text": problem})
+                continue
+            skip = {str(k) for k in (skip_by_map.get(map_obj.name) or [])}
+            planted += plant_trees(map_obj, companions, depsgraph, size_m, spacing_m,
+                                   shape, messages, skip=skip, seed=seed)
+        if planted:
+            messages.append({"level": "INFO", "text": _rpt("Planted {count} trees.").format(count=planted)})
+        return planted > 0
+
     # -- previews (nothing in the scene changes) ------------------------
 
     def preview(self, context, action, params, disabled=()):
@@ -1194,7 +1629,162 @@ class PostProcessSession:
             return self._preview_svg(context, params)
         if action == "heightmap":
             return self._preview_heightmap(context, params)
+        if action == "trees":
+            return self._preview_trees(context, params, disabled)
+        if action == "snow":
+            return self._preview_snow(context, params, disabled)
         return None
+
+    def _tree_probe(self, context, map_obj, companions):
+        """(forest, _SurfaceProbe) for *map_obj*, kept between previews --
+        building the probe is most of a preview's time. Dropped whenever
+        the scene may have changed (see _forget_tree_probes)."""
+        key = map_obj.name
+        cached = self._tree_probes.get(key)
+        if cached is None:
+            forest = forest_source(map_obj, companions)
+            cached = (forest, _SurfaceProbe(map_obj, companions, forest, context.evaluated_depsgraph_get()))
+            self._tree_probes[key] = cached
+        return cached
+
+    def _forget_tree_probes(self):
+        self._tree_probes = {}
+        self._snow_surfaces = {}
+
+    # -- snow -------------------------------------------------------------
+
+    @staticmethod
+    def _snow_params(params):
+        """The snow settings: the page's seven, clamped, plus the fixed rest
+        (utils/snow.py explains what each does)."""
+        from .utils import snow
+        def number(key, default, low, high):
+            try:
+                value = float(params.get(key, default))
+            except (TypeError, ValueError):
+                value = default
+            return min(max(value, low), high) if math.isfinite(value) else default
+
+        try:
+            seed = max(0, int(params.get("seed", 0)))
+        except (TypeError, ValueError):
+            seed = 0
+        return {
+            # On the page.
+            "coverage": number("coverage", 40.0, 0.0, 100.0),
+            "snowline": number("snowline", 50.0, 0.0, 100.0),
+            "maxSlope": number("maxSlope", 45.0, 1.0, 89.0),
+            "amplitude": number("patchiness", 0.3, 0.0, 1.0),
+            # Patch size in mm; the noise wants its frequency.
+            "scale": 1.0 / number("patchSize", 3.5, 0.2, 200.0),
+            "seed": seed,
+            # Fixed.
+            "softness": snow.THRESHOLD_SOFTNESS,
+            "slopeSoftness": snow.SLOPE_SOFTNESS_DEG,
+            "hollows": snow.HOLLOWS,
+            "smoothing": None,  # automatic, from the map's resolution
+            "minPatch": snow.MIN_PATCH_MM,
+        }
+
+    def _snow_surface(self, context, map_obj):
+        """utils.snow.SnowSurface for *map_obj*, kept between previews."""
+        from . import operators
+        from .utils.snow import SnowSurface
+
+        surface = self._snow_surfaces.get(map_obj.name)
+        if surface is None:
+            # The snow threshold uses Color by Height's 0-100 % range, in world Z.
+            height_range = operators._color_height_range(map_obj)
+            if height_range is not None:
+                offset = map_obj.matrix_world.translation.z
+                height_range = (height_range[0] + offset, height_range[1] + offset)
+            surface = SnowSurface(map_obj, context.evaluated_depsgraph_get(), height_range)
+            self._snow_surfaces[map_obj.name] = surface
+        return surface
+
+    def _apply_snow(self, context, maps, companions, params, messages):
+        """Paint the snow onto each map -- exactly the faces the preview
+        shows: into its paint texture, or onto its faces for a map colored
+        by face materials."""
+        from . import operators
+        from .utils.snow import paint_snow_into_texture, paint_snow_onto_faces
+
+        p = self._snow_params(params)
+        added = 0
+        for map_obj in maps:
+            if map_obj.get(SNOW_PROP):
+                messages.append({"level": "WARNING", "text": _rpt(
+                    "{name}: already has snow -- undo it to make it again.").format(name=map_obj.name)})
+                continue
+            state = operators._paint_texture_state(map_obj.data)
+            if state == "incomplete":
+                messages.append({"level": "ERROR", "text": _rpt(
+                    "{name} has incomplete paint-texture data and cannot be processed.").format(name=map_obj.name)})
+                continue
+            surface = self._snow_surface(context, map_obj)
+            covered = surface.cover(p)
+            if state == "texture":
+                painted = paint_snow_into_texture(map_obj, surface, covered)
+            else:
+                painted = paint_snow_onto_faces(map_obj, surface, covered)
+            if not painted:
+                messages.append({"level": "WARNING", "text": _rpt(
+                    "{name}: no snow on this map -- lower the snow threshold, raise the max slope or the coverage."
+                ).format(name=map_obj.name)})
+                continue
+            map_obj[SNOW_PROP] = True
+            added += 1
+        return added > 0
+
+    def _preview_snow(self, context, params, disabled=()):
+        """Where Apply would paint snow: per map, the covered faces as flat
+        triangle corners [x, y, z, ...] in world mm (lifted a hair to show
+        over the terrain), and how much of the terrain they cover. Nothing
+        in the scene changes."""
+        p = self._snow_params(params)
+        maps, _companions = self.enabled_objects(context, disabled)
+        result = []
+        for map_obj in maps:
+            entry = {"map": map_obj.name, "triangles": [], "faces": 0, "percent": 0.0}
+            if map_obj.get(SNOW_PROP):
+                entry["problem"] = _rpt("Already has snow")
+                result.append(entry)
+                continue
+            surface = self._snow_surface(context, map_obj)
+            covered = surface.cover(p)
+            entry["faces"] = int(covered.sum())
+            terrain_area = float(surface.areas[surface.terrain].sum())
+            if terrain_area > 0:
+                entry["percent"] = round(100.0 * float(surface.areas[covered].sum()) / terrain_area, 1)
+            entry["triangles"] = np.round(surface.preview_triangles(covered), 2).ravel().tolist()
+            result.append(entry)
+        return {"snow": result}
+
+    def _preview_trees(self, context, params, disabled=()):
+        """Where Apply would put the trees: per map, flat
+        [x, y, ground z, lowest z, radius, pine 0/1, rotation, cell i,
+        cell j, ...] in world mm ("stride" values per tree), plus the color
+        they print in. Nothing in the scene changes."""
+        size_m, spacing_m, shape, seed = self._tree_params(params)
+        maps, companions = self.enabled_objects(context, disabled)
+        result = []
+        for map_obj in maps:
+            entry = {"map": map_obj.name, "trees": [], "count": 0, "color": None, "messages": []}
+            problem = self._tree_problem(map_obj, companions, size_m)
+            if problem:
+                entry["problem"] = problem
+                result.append(entry)
+                continue
+            forest, probe = self._tree_probe(context, map_obj, companions)
+            trees = place_trees(map_obj, probe, size_m, spacing_m, shape, entry["messages"], seed=seed)
+            entry["count"] = len(trees)
+            entry["color"] = forest_hex(forest)
+            entry["trees"] = [
+                round(v, 3) if isinstance(v, float) else int(v)
+                for t in trees for v in t
+            ]
+            result.append(entry)
+        return {"trees": result, "stride": 9, "pineHeight": _PINE_HEIGHT, "roundHeight": _ROUND_HEIGHT}
 
     def _preview_magnets(self, context, params, disabled=()):
         from .operators import TP3D_OT_magnet_holes
@@ -1399,6 +1989,506 @@ def _flat_triangles(obj, context):
         return [round(float(v), 3) for v in xy.ravel()]
     finally:
         evaluated.to_mesh_clear()
+
+
+# ── Trees ────────────────────────────────────────────────────────────────
+
+# Set on a map once trees were planted on it (undo restores the map without it).
+TREES_PROP = "Trees"
+# Set on a map once it got snow (Procedural Snow).
+SNOW_PROP = "Snow"
+# Trees reach this far below the lowest ground under them, so none floats
+# on a slope.
+_TREE_SINK_MM = 0.25
+# Height / crown width.
+_PINE_HEIGHT = 2.4
+_ROUND_HEIGHT = 1.5
+_TREE_SIDES = 8
+# (radius factor, height fraction) per ring, bottom up; -1 is the sunk
+# bottom ring, 0 the lowest ground under the crown. Every ring is no wider
+# than ~30° out from the one below it, so they print without supports.
+_TREE_PROFILES = {
+    "pine": [(1.0, -1.0)],
+    "round": [(0.55, -1.0), (0.55, 0.0), (1.0, 0.3), (0.85, 0.65), (0.45, 0.9)],
+}
+
+
+def ground_mm_per_meter(map_obj):
+    """Print mm per real-world ground meter at *map_obj*'s centre, or None
+    for a map without scale metadata. "Horizontal Scale" is mm per Web
+    Mercator km, which is true scale only along the equator -- a real meter
+    is 1/cos(latitude) Mercator meters."""
+    try:
+        scale = float(map_obj.get("Horizontal Scale") or 0.0)
+        latitude = float(map_obj.get("latitude", 0.0))
+    except (TypeError, ValueError):
+        return None
+    cos_lat = math.cos(math.radians(latitude))
+    if scale <= 0 or cos_lat <= 0:
+        return None
+    return scale / 1000.0 / cos_lat * abs(map_obj.matrix_world.to_scale().x)
+
+
+def _scale_text(mm_per_meter):
+    return "1:{:,}".format(int(round(1000.0 / mm_per_meter, -1)))
+
+
+def _role_srgb(material):
+    from .utils.color import material_to_srgb
+
+    return tuple(material_to_srgb(material)) if material is not None else None
+
+
+def forest_source(map_obj, companions):
+    """Where *map_obj*'s forest is, or None if it has none:
+    {"kind": "objects"} -- FOREST element meshes (Single / Multi Extruder),
+    {"kind": "texture"} -- forest-colored pixels of its paint texture,
+    {"kind": "faces"}   -- faces using a FOREST material (Paint on Map)."""
+    from . import operators
+    from .utils.color_styles import (
+        material_role,
+        material_role_colors,
+        read_mesh_color_roles,
+    )
+
+    mesh = map_obj.data
+    objects = [
+        c for c in companions
+        if c.type == "MESH" and c.get("Object type") == "FOREST"
+        and len(c.data.polygons)
+        and any(material_role(m) == "FOREST" for m in c.data.materials)
+        and tile_of(c, [map_obj]) == map_obj.name
+    ]
+    base_material = next((m for m in mesh.materials if material_role(m) == "BASE"), None)
+    if objects:
+        material = next(m for m in objects[0].data.materials if material_role(m) == "FOREST")
+        return {"kind": "objects", "objects": objects, "material": material,
+                "base_material": base_material or bpy.data.materials.get("BASE")}
+    if operators._paint_texture_state(mesh) == "texture":
+        image = _paint_image(map_obj)
+        roles = read_mesh_color_roles(mesh, material_role_colors())
+        forest, base = roles.get("FOREST"), roles.get("BASE")
+        if image is None or not image.size[0] or forest is None:
+            return None
+        pixels = np.empty(len(image.pixels), dtype=np.float32)
+        image.pixels.foreach_get(pixels)
+        pixels = pixels.reshape((image.size[1], image.size[0], 4))
+        rgb = np.rint(pixels[..., :3] * 255.0)
+        mask = (np.abs(rgb - np.asarray(forest, dtype=np.float32)) <= 2.0).all(axis=-1)
+        if not mask.any():
+            return None
+        return {"kind": "texture", "image": image, "pixels": pixels, "mask": mask,
+                "rgb": tuple(int(c) for c in forest), "base_rgb": base}
+    slots = {i for i, m in enumerate(mesh.materials) if material_role(m) == "FOREST"}
+    if not slots or not len(mesh.polygons):
+        return None
+    index = np.empty(len(mesh.polygons), dtype=np.int32)
+    mesh.polygons.foreach_get("material_index", index)
+    if not np.isin(index, list(slots)).any():
+        return None
+    base_slot = mesh.materials.find(base_material.name) if base_material is not None else -1
+    return {"kind": "faces", "slots": slots, "material": mesh.materials[min(slots)],
+            "base_slot": base_slot}
+
+
+def trees_ineligible_reason(map_obj, companions):
+    """Why trees can't be planted on *map_obj*, or None."""
+    mm_per_meter = ground_mm_per_meter(map_obj)
+    if mm_per_meter is None:
+        return _rpt("The map has no scale information -- regenerate it first.")
+    if mm_per_meter < TREE_MIN_MM_PER_M:
+        return _rpt(
+            "At {scale} trees would be too small to see -- they need a map scale of {limit} or closer."
+        ).format(scale=_scale_text(mm_per_meter), limit=_scale_text(TREE_MIN_MM_PER_M))
+    if map_obj.get(TREES_PROP):
+        return _rpt("Already has trees")
+    try:
+        if forest_source(map_obj, companions) is None:
+            return _rpt("No forest on this map")
+    except (ReferenceError, RuntimeError) as exc:
+        print(f"[TP3D post-process] forest check failed for {map_obj.name}: {exc}")
+        return _rpt("No forest on this map")
+    return None
+
+
+def _world_triangles(objects, depsgraph):
+    """(world vertices (N, 3), triangles (M, 3), loops (M, 3), material
+    index (M,), uv (L, 2) or None) of *objects* joined -- uv only for one."""
+    cos, tris, loops, mats, uvs = [], [], [], [], []
+    offset = 0
+    for obj in objects:
+        evaluated = obj.evaluated_get(depsgraph)
+        try:
+            mesh = evaluated.to_mesh()
+        except RuntimeError:
+            continue
+        try:
+            mesh.calc_loop_triangles()
+            n = len(mesh.loop_triangles)
+            if not n:
+                continue
+            tv = np.empty(n * 3, dtype=np.int64)
+            mesh.loop_triangles.foreach_get("vertices", tv)
+            tl = np.empty(n * 3, dtype=np.int64)
+            mesh.loop_triangles.foreach_get("loops", tl)
+            tm = np.empty(n, dtype=np.int32)
+            mesh.loop_triangles.foreach_get("material_index", tm)
+            co = np.empty(len(mesh.vertices) * 3, dtype=np.float64)
+            mesh.vertices.foreach_get("co", co)
+            mw = np.array(obj.matrix_world, dtype=np.float64)
+            co = co.reshape(-1, 3) @ mw[:3, :3].T + mw[:3, 3]
+            if len(objects) == 1 and mesh.uv_layers.active is not None:
+                uv = np.empty(len(mesh.loops) * 2, dtype=np.float32)
+                mesh.uv_layers.active.data.foreach_get("uv", uv)
+                uvs.append(uv.reshape(-1, 2))
+            cos.append(co)
+            tris.append(tv.reshape(-1, 3) + offset)
+            loops.append(tl.reshape(-1, 3))
+            mats.append(tm)
+            offset += len(co)
+        finally:
+            evaluated.to_mesh_clear()
+    if not cos:
+        return None
+    return (np.concatenate(cos), np.concatenate(tris), np.concatenate(loops),
+            np.concatenate(mats), uvs[0] if uvs else None)
+
+
+def _bvh(data):
+    from mathutils.bvhtree import BVHTree  # type: ignore
+
+    co, tris = data[0], data[1]
+    return BVHTree.FromPolygons([tuple(v) for v in co.tolist()], tris.tolist(), all_triangles=True)
+
+
+class _SurfaceProbe:
+    """Looks straight down at a world XY point: the ground height there, and
+    whether it is open forest a tree can stand in."""
+
+    def __init__(self, map_obj, companions, forest, depsgraph):
+        self.forest = forest
+        self.map = _world_triangles([map_obj], depsgraph)
+        if self.map is None:
+            raise RuntimeError(_rpt("The map has no faces."))
+        self.map_bvh = _bvh(self.map)
+        self.forest_bvh = None
+        if forest["kind"] == "objects":
+            data = _world_triangles(forest["objects"], depsgraph)
+            self.forest_bvh = _bvh(data) if data is not None else None
+        forest_names = {o.name for o in forest.get("objects", ())}
+        # Everything else standing on the map (trail, roads, buildings,
+        # text, contour lines, ...) keeps the trees off it.
+        obstacles = [o for o in companions if o.name not in forest_names
+                     and o.type in {"MESH", "CURVE", "FONT"}]
+        data = _world_triangles(obstacles, depsgraph) if obstacles else None
+        self.obstacle_bvh = _bvh(data) if data is not None else None
+        top = float(self.map[0][:, 2].max())
+        if data is not None:
+            top = max(top, float(data[0][:, 2].max()))
+        self.top = top + 10.0
+
+    def _down(self, bvh, x, y):
+        if bvh is None:
+            return None, None
+        loc, normal, index, _dist = bvh.ray_cast(Vector((x, y, self.top)), Vector((0.0, 0.0, -1.0)))
+        if loc is None:
+            return None, None
+        return loc, (normal, index)
+
+    def _texture_forest(self, index, loc):
+        co, tris, loops, _mats, uv = self.map
+        if uv is None:
+            return False
+        a, b, c = co[tris[index]][:, :2]
+        v0, v1 = b - a, c - a
+        v2 = np.array((loc.x, loc.y)) - a
+        den = v0[0] * v1[1] - v1[0] * v0[1]
+        if abs(den) < 1e-12:
+            return False
+        w1 = (v2[0] * v1[1] - v1[0] * v2[1]) / den
+        w2 = (v0[0] * v2[1] - v2[0] * v0[1]) / den
+        u, v = (1.0 - w1 - w2) * uv[loops[index][0]] + w1 * uv[loops[index][1]] + w2 * uv[loops[index][2]]
+        mask = self.forest["mask"]
+        h, w = mask.shape
+        px = min(max(int(u * w), 0), w - 1)
+        py = min(max(int(v * h), 0), h - 1)
+        return bool(mask[py, px])
+
+    def probe(self, x, y):
+        """Ground height at (x, y) if a tree can stand there, else None."""
+        loc, hit = self._down(self.map_bvh, x, y)
+        if loc is None:
+            return None  # off the map
+        normal, index = hit
+        z = loc.z
+        kind = self.forest["kind"]
+        if kind == "objects":
+            floc, fhit = self._down(self.forest_bvh, x, y)
+            if floc is None or floc.z < z - 0.05:
+                return None
+            z, normal = floc.z, fhit[0]
+        elif kind == "faces":
+            if int(self.map[3][index]) not in self.forest["slots"]:
+                return None
+        elif not self._texture_forest(index, loc):
+            return None
+        if normal.z < 0.4:
+            return None  # a cliff
+        oloc, _ohit = self._down(self.obstacle_bvh, x, y)
+        if oloc is not None and oloc.z >= z - 0.05:
+            return None
+        return z
+
+
+def _hash01(i, j, k, seed=0):
+    """Repeatable pseudo-random [0, 1) per grid cell -- the same cell gets the
+    same tree on every tile, so neighbouring tiles' forests line up.
+
+    An integer hash (SplitMix64's finaliser): the usual fract(sin(...))
+    trick repeats along grid rows, which lined the trees up in visible rows."""
+    with np.errstate(over="ignore"):
+        h = (np.asarray(i, dtype=np.int64).astype(np.uint64) * np.uint64(0x9E3779B97F4A7C15)
+             ^ np.asarray(j, dtype=np.int64).astype(np.uint64) * np.uint64(0xC2B2AE3D27D4EB4F)
+             ^ np.uint64((k * 0x165667B19E3779F9 + seed * 0x27D4EB2F165667C5) & 0xFFFFFFFFFFFFFFFF))
+        h ^= h >> np.uint64(30)
+        h *= np.uint64(0xBF58476D1CE4E5B9)
+        h ^= h >> np.uint64(27)
+        h *= np.uint64(0x94D049BB133111EB)
+        h ^= h >> np.uint64(31)
+    return (h >> np.uint64(11)).astype(np.float64) / float(1 << 53)
+
+
+def tree_key(tree):
+    """A tree's grid cell as "i,j" -- the same tree in every preview with
+    the same spacing (what the page's clicked-off trees are kept by)."""
+    return f"{tree[7]},{tree[8]}"
+
+
+def plant_trees(map_obj, companions, depsgraph, size_m, spacing_m, shape, messages,
+                skip=(), seed=0):
+    """Spread trees over *map_obj*'s forest and add them as one TREES part,
+    leaving out the trees whose tree_key is in *skip*; the forest ground
+    takes the map's base color. Returns the number of trees planted."""
+    forest = forest_source(map_obj, companions)
+    probe = _SurfaceProbe(map_obj, companions, forest, depsgraph)
+    trees = place_trees(map_obj, probe, size_m, spacing_m, shape, messages, seed=seed)
+    if not trees:
+        messages.append({"level": "WARNING", "text": _rpt(
+            "{name}: no forest area is large enough for a tree of this size."
+        ).format(name=map_obj.name)})
+        return 0
+    if skip:
+        trees = [t for t in trees if tree_key(t) not in skip]
+        if not trees:
+            messages.append({"level": "WARNING", "text": _rpt(
+                "{name}: every tree is switched off.").format(name=map_obj.name)})
+            return 0
+
+    obj = _build_tree_object(map_obj, trees, forest)
+    obj.data.materials.append(_tree_material(forest))
+    map_obj[TREES_PROP] = True
+    _remove_forest_color(map_obj, forest, messages)
+    return len(trees)
+
+
+def forest_hex(forest):
+    """Hex sRGB the trees print in (the page's preview color)."""
+    from .utils.color_styles import srgb_to_hex
+
+    rgb = forest["rgb"] if forest["kind"] == "texture" else _role_srgb(forest["material"])
+    return srgb_to_hex(rgb) if rgb else None
+
+
+def place_trees(map_obj, probe, size_m, spacing_m, shape, messages, seed=0):
+    """Where trees go on *map_obj* -- nothing in the scene changes:
+    [(x, y, ground z, lowest z, radius, pine, rotation, cell i, cell j)]
+    in world mm."""
+    mm_per_meter = ground_mm_per_meter(map_obj)
+    spacing = spacing_m * mm_per_meter
+    radius = size_m * mm_per_meter / 2.0
+
+    minx, miny, _z0, maxx, maxy, _z1 = _world_bounds(map_obj)
+    row = spacing * math.sqrt(3.0) / 2.0
+    estimate = ((maxx - minx) / spacing + 2) * ((maxy - miny) / row + 2)
+    limit = MAX_TREES * 4
+    if estimate > limit:
+        spacing *= math.sqrt(estimate / limit)
+        row = spacing * math.sqrt(3.0) / 2.0
+        messages.append({"level": "WARNING", "text": _rpt(
+            "{name}: too many trees -- spaced them {m} m apart instead."
+        ).format(name=map_obj.name, m=round(spacing / mm_per_meter, 1))})
+
+    # A hexagonal grid anchored at the world origin, each point jittered.
+    jj, ii = np.meshgrid(
+        np.arange(math.floor(miny / row) - 1, math.ceil(maxy / row) + 2),
+        np.arange(math.floor(minx / spacing) - 1, math.ceil(maxx / spacing) + 2),
+        indexing="ij",
+    )
+    ii, jj = ii.ravel(), jj.ravel()
+    # Up to half a spacing in any direction: enough that the grid behind
+    # the trees doesn't show as rows.
+    jitter = 0.5
+    xs = (ii + 0.5 * (jj % 2)) * spacing + (_hash01(ii, jj, 1, seed) - 0.5) * 2 * jitter * spacing
+    ys = jj * row + (_hash01(ii, jj, 2, seed) - 0.5) * 2 * jitter * row
+    radii = radius * (0.8 + 0.4 * _hash01(ii, jj, 3, seed))
+    if shape == "mixed":
+        pine = _hash01(ii, jj, 4, seed) < 0.5
+    else:
+        pine = np.full(len(ii), shape == "pine")
+    rotations = _hash01(ii, jj, 5, seed) * (2 * math.pi / _TREE_SIDES)
+    inside = (xs >= minx) & (xs <= maxx) & (ys >= miny) & (ys <= maxy)
+
+    trees = []  # see the docstring
+    for k in np.nonzero(inside)[0]:
+        x, y, r = float(xs[k]), float(ys[k]), float(radii[k])
+        heights = []
+        for dx, dy in ((0.0, 0.0), (r, 0.0), (-r, 0.0), (0.0, r), (0.0, -r)):
+            z = probe.probe(x + dx, y + dy)
+            if z is None:
+                break
+            heights.append(z)
+        else:
+            trees.append((x, y, heights[0], min(heights), r, bool(pine[k]), float(rotations[k]),
+                          int(ii[k]), int(jj[k])))
+            if len(trees) >= MAX_TREES:
+                messages.append({"level": "WARNING", "text": _rpt(
+                    "{name}: stopped at {count} trees -- increase the spacing for the rest."
+                ).format(name=map_obj.name, count=MAX_TREES)})
+                break
+    return trees
+
+
+def _tree_mesh_arrays(trees):
+    """(vertices (N, 3), loop vertex indices, polygon loop starts) for *trees*."""
+    verts, loop_verts, loop_starts = [], [], []
+    vert_offset = 0
+    loop_offset = 0
+    for kind, factor in (("pine", _PINE_HEIGHT), ("round", _ROUND_HEIGHT)):
+        group = [t for t in trees if t[5] == (kind == "pine")]
+        if not group:
+            continue
+        g = np.array([t[:5] + (t[6],) for t in group], dtype=np.float64)
+        x, y, zc, zlow, r, rot = (g[:, c] for c in range(6))
+        top = zc + factor * 2.0 * r
+        span = top - zlow
+        profile = _TREE_PROFILES[kind]
+        n = _TREE_SIDES
+        angles = rot[:, None] + np.arange(n)[None, :] * (2 * math.pi / n)
+        cos, sin = np.cos(angles), np.sin(angles)
+        rings = []
+        for factor_r, frac in profile:
+            z = (zlow - _TREE_SINK_MM) if frac < 0 else (zlow + frac * span)
+            rr = (r * factor_r)[:, None]
+            rings.append(np.stack([x[:, None] + rr * cos, y[:, None] + rr * sin,
+                                   np.broadcast_to(z[:, None], cos.shape)], axis=-1))
+        apex = np.stack([x, y, top], axis=-1)[:, None, :]
+        tree_verts = np.concatenate(rings + [apex], axis=1)  # (T, R*n+1, 3)
+        per_tree = tree_verts.shape[1]
+        # Faces of one tree, in its own vertex numbering.
+        faces = [list(range(n - 1, -1, -1))]  # bottom cap, facing down
+        for ring in range(len(profile) - 1):
+            a, b = ring * n, (ring + 1) * n
+            faces += [[a + s, a + (s + 1) % n, b + (s + 1) % n, b + s] for s in range(n)]
+        last, tip = (len(profile) - 1) * n, len(profile) * n
+        faces += [[last + s, last + (s + 1) % n, tip] for s in range(n)]
+        flat = np.array([v for f in faces for v in f], dtype=np.int64)
+        sizes = np.array([len(f) for f in faces], dtype=np.int64)
+        starts = np.concatenate([[0], np.cumsum(sizes)[:-1]])
+        count = len(group)
+        vert_base = vert_offset + np.arange(count, dtype=np.int64)[:, None] * per_tree
+        loop_verts.append((flat[None, :] + vert_base).ravel())
+        loop_base = loop_offset + np.arange(count, dtype=np.int64)[:, None] * len(flat)
+        loop_starts.append((starts[None, :] + loop_base).ravel())
+        verts.append(tree_verts.reshape(-1, 3))
+        vert_offset += count * per_tree
+        loop_offset += count * len(flat)
+    return np.concatenate(verts), np.concatenate(loop_verts), np.concatenate(loop_starts)
+
+
+def _build_tree_object(map_obj, trees, forest):
+    verts, loop_verts, loop_starts = _tree_mesh_arrays(trees)
+    # Local to the map's origin, like its other parts.
+    origin = np.array(map_obj.matrix_world.translation, dtype=np.float64)
+    mesh = bpy.data.meshes.new(f"{map_obj.name}_Trees")
+    mesh.vertices.add(len(verts))
+    mesh.vertices.foreach_set("co", (verts - origin).astype(np.float32).ravel())
+    mesh.loops.add(len(loop_verts))
+    mesh.loops.foreach_set("vertex_index", loop_verts.astype(np.int32))
+    mesh.polygons.add(len(loop_starts))
+    mesh.polygons.foreach_set("loop_start", loop_starts.astype(np.int32))
+    mesh.update(calc_edges=True)
+    mesh.validate()
+    obj = bpy.data.objects.new(f"{map_obj.name}_Trees", mesh)
+    obj.location = map_obj.matrix_world.translation
+    obj["Object type"] = "TREES"
+    obj["Addon"] = const.ADDON_NAME
+    obj["Version"] = const.ADDON_VERSION
+    obj["PARENT"] = map_obj
+    obj["ExportGroup"] = 1  # printed with the map, standing on it
+    if "MultitileIndex" in map_obj:
+        obj["MultitileIndex"] = map_obj["MultitileIndex"]
+    home = home_collection(map_obj) or bpy.context.scene.collection
+    home.objects.link(obj)
+    return obj
+
+
+def _tree_material(forest):
+    """The trees print in the forest's own color."""
+    from .utils.color import set_material_srgb
+    from .utils.color_styles import MATERIAL_ROLE_PROP, srgb_to_hex
+
+    if forest["kind"] != "texture":
+        return forest["material"]
+    rgb = forest["rgb"]
+    shared = bpy.data.materials.get("FOREST")
+    if shared is not None and _role_srgb(shared) == rgb:
+        return shared
+    name = "FOREST_" + srgb_to_hex(rgb).lstrip("#").upper()
+    material = bpy.data.materials.get(name)
+    if material is None:
+        material = shared.copy() if shared is not None else bpy.data.materials.new(name)
+        material.name = name
+        material.use_nodes = True
+    material[MATERIAL_ROLE_PROP] = "FOREST"
+    set_material_srgb(material, rgb)
+    return material
+
+
+def _remove_forest_color(map_obj, forest, messages):
+    """Give the forest's ground the map's base color -- the trees show it now."""
+    kind = forest["kind"]
+    if kind == "faces":
+        mesh = map_obj.data
+        if forest["base_slot"] < 0:
+            messages.append({"level": "WARNING", "text": _rpt(
+                "{name}: no base color found -- the forest color was kept.").format(name=map_obj.name)})
+            return
+        index = np.empty(len(mesh.polygons), dtype=np.int32)
+        mesh.polygons.foreach_get("material_index", index)
+        index[np.isin(index, list(forest["slots"]))] = forest["base_slot"]
+        mesh.polygons.foreach_set("material_index", index)
+        mesh.update()
+    elif kind == "texture":
+        base = forest["base_rgb"]
+        image = forest["image"]
+        if base is None:
+            messages.append({"level": "WARNING", "text": _rpt(
+                "{name}: no base color found -- the forest color was kept.").format(name=map_obj.name)})
+            return
+        pixels = forest["pixels"].copy()
+        pixels[forest["mask"], :3] = np.asarray(base, dtype=np.float32) / 255.0
+        image.pixels.foreach_set(pixels.ravel())
+        image.update()
+        image.pack()
+    else:
+        base = forest["base_material"]
+        if base is None:
+            messages.append({"level": "WARNING", "text": _rpt(
+                "{name}: no base color found -- the forest color was kept.").format(name=map_obj.name)})
+            return
+        for obj in forest["objects"]:
+            for slot in obj.material_slots:
+                slot.material = base
 
 
 def settings_state(context) -> dict:

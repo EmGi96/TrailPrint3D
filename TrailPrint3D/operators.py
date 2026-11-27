@@ -1478,9 +1478,34 @@ def _height_piece_mode(obj):
     return None
 
 
+def _paint_texture_has_colors(mesh):
+    """True if *mesh*'s MMU_Paint texture holds any color besides its base
+    (elements, trail, text/SVG or a Color by Height band painted into it).
+
+    Pixel (0, 0) is the base-colour anchor block every side/bottom face is
+    pinned to (utils/texture.setup_paint_texture), so any other colour in
+    the image is paint. Reads the whole image -- too slow for panel draw.
+    """
+    image = bpy.data.images.get(f"{mesh.name}_MMU_Paint")
+    if image is None or not image.size[0] or not image.size[1]:
+        return False
+    pixels = np.empty(len(image.pixels), dtype=np.float32)
+    image.pixels.foreach_get(pixels)
+    rgb = np.rint(pixels.reshape(-1, 4)[:, :3] * 255.0).astype(np.uint8)
+    return bool((rgb != rgb[0]).any())
+
+
 def _mountain_split_ineligible_reason(
-    obj, tp3d, check_topology=False, mode=SPLIT_SINGLE_EXTRUDER
+    obj, tp3d, check_topology=False, mode=SPLIT_SINGLE_EXTRUDER, check_paint=None
 ):
+    """Why *obj* can't be split by height in MODE, or None.
+
+    check_paint reads a textured map's whole image to refuse maps that
+    already have colors painted into it; it defaults to check_topology (both
+    are too slow for panel draw).
+    """
+    if check_paint is None:
+        check_paint = check_topology
     if obj.type != "MESH" or obj.get("Object type") != "MAP":
         return _("Only generated map meshes can be split")
 
@@ -1508,6 +1533,14 @@ def _mountain_split_ineligible_reason(
         return _("The map has no faces")
 
     if _mountain_uniform_material(obj) is None:
+        return _("Only single-colored maps or height pieces can be split")
+    # A textured map has one material even with elements painted into it;
+    # the split piece would get a plain color and drop the paint under it.
+    if (
+        check_paint
+        and _paint_texture_state(mesh) == "texture"
+        and _paint_texture_has_colors(mesh)
+    ):
         return _("Only single-colored maps or height pieces can be split")
 
     if check_topology:
@@ -4071,7 +4104,8 @@ class TP3D_OT_puzzle_configurator(bpy.types.Operator):
         if not mp.is_active_server(self._server):  # another generator page took over
             self._cleanup(context)
             return {"CANCELLED"}
-        if mp.process_generator_switch(self._server):  # header dropdown: another generator
+        # Header: another generator, or a map opened from "My Maps".
+        if mp.process_generator_switch(self._server) or mp.process_library_requests(self._server):
             self._cleanup(context)
             return {"CANCELLED"}
         for key in mp.drain_pending_toggles():
@@ -4118,7 +4152,9 @@ class TP3D_OT_puzzle_configurator(bpy.types.Operator):
             # frame-cap boolean can't hit the zero-thickness pinch that
             # forcing 0 used to risk either -- that only happens at exactly
             # minThickness=0.
-            self._apply_puzzle_result(context, data)
+            # Everything it makes goes into a collection of its own.
+            with utils.generation_collection(context, "puzzle", "Jigsaw Puzzle", history_id=data.get("history_id")):
+                self._apply_puzzle_result(context, data)
         except Exception as exc:
             import traceback
 
@@ -4758,7 +4794,8 @@ class TP3D_OT_map_generator(bpy.types.Operator):
         if not mp.is_active_server(self._server):  # another generator page took over
             self._cleanup(context)
             return {"CANCELLED"}
-        if mp.process_generator_switch(self._server):  # header dropdown: another generator
+        # Header: another generator, or a map opened from "My Maps".
+        if mp.process_generator_switch(self._server) or mp.process_library_requests(self._server):
             self._cleanup(context)
             return {"CANCELLED"}
         for key in mp.drain_pending_toggles():
@@ -4800,7 +4837,9 @@ class TP3D_OT_map_generator(bpy.types.Operator):
             except OSError:
                 pass
             stay_open = bool(data.get("stay_open"))
-            self._apply_result(context, data)
+            # Everything it makes goes into a collection of its own.
+            with utils.generation_collection(context, "map", "Map", history_id=data.get("history_id")):
+                self._apply_result(context, data)
             succeeded = True
         except Exception as exc:
             import traceback
@@ -5635,7 +5674,8 @@ class TP3D_OT_medal_holder_generator(bpy.types.Operator):
         if not mp.is_active_server(self._server):  # another generator page took over
             self._cleanup(context)
             return {"CANCELLED"}
-        if mp.process_generator_switch(self._server):  # header dropdown: another generator
+        # Header: another generator, or a map opened from "My Maps".
+        if mp.process_generator_switch(self._server) or mp.process_library_requests(self._server):
             self._cleanup(context)
             return {"CANCELLED"}
         # This page only sends the export-folder button's 'exportFolder'.
@@ -5657,7 +5697,9 @@ class TP3D_OT_medal_holder_generator(bpy.types.Operator):
 
         try:
             data = json.loads(rp.read_text(encoding="utf-8"))
-            self._apply_result(context, data)
+            # Everything it makes goes into a collection of its own.
+            with utils.generation_collection(context, "medal_holder", "Medal Holder", history_id=data.get("history_id")):
+                self._apply_result(context, data)
         except Exception:  # noqa: BLE001 - Wide exception catch for medal holder result application
             import traceback
 
@@ -5813,7 +5855,8 @@ class TP3D_OT_backplate_generator(bpy.types.Operator):
         if not mp.is_active_server(self._server):  # another generator page took over
             self._cleanup(context)
             return {"CANCELLED"}
-        if mp.process_generator_switch(self._server):  # header dropdown: another generator
+        # Header: another generator, or a map opened from "My Maps".
+        if mp.process_generator_switch(self._server) or mp.process_library_requests(self._server):
             self._cleanup(context)
             return {"CANCELLED"}
         # This page only sends the export-folder button's 'exportFolder'.
@@ -5835,7 +5878,9 @@ class TP3D_OT_backplate_generator(bpy.types.Operator):
 
         try:
             data = json.loads(rp.read_text(encoding="utf-8"))
-            self._apply_result(context, data)
+            # Everything it makes goes into a collection of its own.
+            with utils.generation_collection(context, "backplate", "Backplate", history_id=data.get("history_id")):
+                self._apply_result(context, data)
         except Exception:  # noqa: BLE001 - Wide exception catch for backplate result application
             import traceback
 
@@ -6029,7 +6074,8 @@ class TP3D_OT_post_process_generator(bpy.types.Operator):
         if not mp.is_active_server(self._server):  # another generator page took over
             self._cleanup(context)
             return {"CANCELLED"}
-        if mp.process_generator_switch(self._server):  # header dropdown: another generator
+        # Header: another generator, or a map opened from "My Maps".
+        if mp.process_generator_switch(self._server) or mp.process_library_requests(self._server):
             self._cleanup(context)
             return {"CANCELLED"}
 
@@ -6080,6 +6126,9 @@ class TP3D_OT_post_process_generator(bpy.types.Operator):
                 )
                 result["info"] = self._session.info(context)
                 job.update(version=job.get("version", 0) + 1)
+            elif result.pop("refresh_info", False):
+                # Same 3D model, new page info (Save).
+                result["info"] = self._session.info(context)
         except Exception as exc:  # noqa: BLE001 - surfaced to the page instead of killing the modal
             import traceback
 
@@ -6090,6 +6139,26 @@ class TP3D_OT_post_process_generator(bpy.types.Operator):
             return
         job.update(status="done", seq=seq, result=result)
 
+    @staticmethod
+    def _map_origin(maps):
+        """(generator op id, settings history entry) the maps were generated
+        with -- from their generation collection (utils.scene
+        generation_collection); (None, None) when unknown."""
+        import json
+
+        from . import post_process
+        from .utils.scene import GENERATOR_PROP, GENERATOR_STATE_PROP
+
+        collection = post_process.home_collection(maps[0]) if maps else None
+        if collection is None:
+            return None, None
+        op_id = collection.get(GENERATOR_PROP) or None
+        try:
+            entry = json.loads(collection.get(GENERATOR_STATE_PROP) or "null")
+        except (TypeError, ValueError):
+            entry = None
+        return op_id, entry if isinstance(entry, dict) else None
+
     def _go_back(self, context, seq):
         """"Back to Configuration": reopen the generator that handed off to
         this page, in the same window (its page restores its own saved
@@ -6099,6 +6168,11 @@ class TP3D_OT_post_process_generator(bpy.types.Operator):
         next_url = None
         op = getattr(bpy.ops.tp3d, self.back_to, None) if self.back_to in self._BACK_TARGETS else None
         if op is not None:
+            # The generator page starts with the settings the shown map was
+            # made with, not just its last saved state.
+            origin_op, origin_entry = self._map_origin(self._session.maps(context) if self._session else [])
+            if origin_op == self.back_to:
+                mp.set_pending_restore(origin_entry)
             # Keep this server answering -- the generator's start_picker
             # would shut it down before the page reads the address.
             mp.detach_active_server()
@@ -6145,6 +6219,11 @@ class TP3D_OT_post_process_generator(bpy.types.Operator):
             rp.unlink()
 
         self._session = post_process.PostProcessSession([m.name for m in maps], puzzle=self.puzzle)
+        # The generator the shown map came from (also for one opened from
+        # "My Maps") -- "Back to Configuration" goes there, with its settings.
+        origin_op, origin_entry = self._map_origin(maps)
+        if not self.back_to and origin_op in self._BACK_TARGETS:
+            self.back_to = origin_op
         html_path = pathlib.Path(__file__).parent / "generators" / "postProcessGenerator.html"
         settings = post_process.settings_state(context)
         # The page shows "Back to Configuration" only when a generator handed off.
@@ -6157,6 +6236,8 @@ class TP3D_OT_post_process_generator(bpy.types.Operator):
             settings_state=settings,
             open_browser=not self.reuse_window,
         )
+        # The header's generator switch restores them too.
+        mp.set_page_origin(self._server, origin_op, origin_entry)
 
         wm = context.window_manager
         self._timer = wm.event_timer_add(0.1, window=context.window)

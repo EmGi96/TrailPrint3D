@@ -182,6 +182,13 @@ class TP3D_AddonPreferences(bpy.types.AddonPreferences):
         subtype='DIR_PATH',
     )  # type: ignore
 
+    library_folder: StringProperty(
+        name=_("Map Library Folder"),
+        description=_tip("Where every generated map is saved automatically (\"My Maps\" in the generator pages). Empty: Documents/TrailPrint3D/Maps"),
+        default="",
+        subtype='DIR_PATH',
+    )  # type: ignore
+
     default_slicer_profile_id: StringProperty(
         name=_("Default 3MF Export Profile"),
         default="",
@@ -233,6 +240,7 @@ class TP3D_AddonPreferences(bpy.types.AddonPreferences):
         # Export
         layout.label(text=_("Export Settings:"), icon='EXPORT')
         layout.prop(self, "default_export_folder")
+        layout.prop(self, "library_folder")
         if temp.has3mf:
             layout.prop(self, "default_slicer_profile")
 
@@ -372,6 +380,20 @@ def get_export_folder(tp3d):
     """The scene's export path, falling back to the Default Export Folder
     preference -- same fallback generation/export apply."""
     return tp3d.export_path or get_prefs().default_export_folder
+
+
+def get_library_folder():
+    """The Map Library Folder preference, or Documents/TrailPrint3D/Maps --
+    an absolute path; not created here."""
+    import os
+
+    try:
+        folder = get_prefs().library_folder
+    except (KeyError, AttributeError):
+        folder = ""
+    if folder:
+        return os.path.abspath(bpy.path.abspath(folder))
+    return os.path.join(os.path.expanduser("~"), "Documents", "TrailPrint3D", "Maps")
 
 
 def get_default_slicer_profile():

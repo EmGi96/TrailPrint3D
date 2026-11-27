@@ -370,14 +370,19 @@ def export_selected_to_3mf(
                         _ccol = material_to_srgb(
                             _own_mat or bpy.data.materials.get("BLACK")
                         )
-                    elif obj_type in {"BUILDINGS", "ROADS"}:
+                    elif obj_type in {"BUILDINGS", "ROADS", "TREES"}:
+                        # TREES: the Post-processing page's trees, in the
+                        # forest color they replaced on the ground.
                         _own_mat = (
                             dup.data.materials[0]
                             if dup.data and dup.data.materials
                             else None
                         )
                         _ccol = material_to_srgb(
-                            _own_mat or bpy.data.materials.get(obj_type)
+                            _own_mat
+                            or bpy.data.materials.get(
+                                "FOREST" if obj_type == "TREES" else obj_type
+                            )
                         )
                     elif (
                         dup.get("IsMountainPiece")

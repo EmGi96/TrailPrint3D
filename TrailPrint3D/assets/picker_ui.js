@@ -521,10 +521,307 @@ document.addEventListener('keydown', function(event) {
 })();
 
 // Generator switcher: the header's generator name ("Map Generator", ...)
-// becomes a dropdown of every generator. Picking one asks Blender to open
-// it in this same window (POST /switch_generator, picker_server.
+// becomes a button that opens a panel of every generator, as a grid of
+// square tiles with an icon each. Picking one asks Blender to open it in
+// this same window (POST /switch_generator, picker_server.
 // process_generator_switch) and then goes to its page.
+var TP3D_GENERATOR_ICONS = (function() {
+    function svg(body) {
+        return '<svg viewBox="0 0 48 48" width="44" height="44" fill="none" stroke="currentColor" stroke-width="2.2" '
+            + 'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + body + '</svg>';
+    }
+    return {
+        // A framed mountain with a trail.
+        map_generator: svg('<rect x="5" y="7" width="38" height="34" rx="3"/>'
+            + '<path d="M8 36 L19 19 L26 28 L31 22 L40 36"/>'
+            + '<path d="M14 36 C18 33 20 34 23 31 S29 29 33 27" stroke-dasharray="2.5 2.5"/>'),
+        // A 2 x 2 block of tiles with the mountain running across.
+        map_picker: svg('<rect x="5" y="5" width="18" height="18" rx="2"/><rect x="25" y="5" width="18" height="18" rx="2"/>'
+            + '<rect x="5" y="25" width="18" height="18" rx="2"/><rect x="25" y="25" width="18" height="18" rx="2"/>'
+            + '<path d="M8 39 L15 30 L19 35"/><path d="M28 39 L34 30 L40 39"/>'),
+        // A jigsaw piece.
+        puzzle_configurator: svg('<path d="M9 13 H18 C18 9 20 7 23 7 S28 9 28 13 H37 V22 C41 22 43 24 43 27 S41 32 37 32 V41 H28 '
+            + 'C28 37 26 35 23 35 S18 37 18 41 H9 V32 C13 32 15 30 15 27 S13 22 9 22 Z"/>'),
+        // A 3 x 3 sliding puzzle with one empty slot.
+        sliding_puzzle_configurator: svg('<rect x="5" y="5" width="11" height="11" rx="1.5"/><rect x="18.5" y="5" width="11" height="11" rx="1.5"/>'
+            + '<rect x="32" y="5" width="11" height="11" rx="1.5"/><rect x="5" y="18.5" width="11" height="11" rx="1.5"/>'
+            + '<rect x="18.5" y="18.5" width="11" height="11" rx="1.5"/><rect x="5" y="32" width="11" height="11" rx="1.5"/>'
+            + '<rect x="18.5" y="32" width="11" height="11" rx="1.5"/><rect x="32" y="32" width="11" height="11" rx="1.5"/>'
+            + '<path d="M34 24 H41 M38 21 L41 24 L38 27" stroke-width="1.8"/>'),
+        // A medal on its ribbon.
+        medal_holder_generator: svg('<path d="M16 5 L22 20 M32 5 L26 20"/><path d="M13 5 H20 M28 5 H35"/>'
+            + '<circle cx="24" cy="31" r="11"/><path d="M24 25 L25.8 28.6 L29.7 29.1 L26.9 31.8 L27.5 35.7 L24 33.9 L20.5 35.7 '
+            + 'L21.1 31.8 L18.3 29.1 L22.2 28.6 Z" stroke-width="1.6"/>'),
+        // A plate with the map's recess and a text line.
+        backplate_generator: svg('<rect x="5" y="7" width="38" height="34" rx="4"/><rect x="11" y="12" width="26" height="18" rx="2"/>'
+            + '<path d="M13 27 L20 19 L25 24 L29 20 L35 27"/><path d="M16 36 H32"/>'),
+        // A wand with sparkles.
+        post_process_generator: svg('<path d="M8 40 L30 18"/><path d="M27 15 L33 21"/>'
+            + '<path d="M36 6 V12 M33 9 H39"/><path d="M41 21 V25 M39 23 H43"/><path d="M20 7 V11 M18 9 H22"/>'),
+    };
+})();
+
 (function() {
+    function switchTo(target, done, from) {
+        fetch('/switch_generator', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: target, from: from || '' })
+        })
+            .then(function(r) { return r.json(); })
+            .then(function(reply) {
+                if (reply && reply.ok && reply.next_url) {
+                    window.location.href = reply.next_url;
+                    return;
+                }
+                done();
+                tp3dAlert((reply && reply.message) || 'Could not open that generator.', 'Generators');
+            })
+            .catch(function() {
+                done();
+                tp3dAlert('Could not reach Blender — is it still running?', 'Generators');
+            });
+    }
+
+    function buildPanel(menu) {
+        var modal = document.createElement('div');
+        modal.className = 'tp3d-modal tp3d-generator-panel';
+        modal.setAttribute('role', 'dialog');
+        modal.setAttribute('aria-modal', 'true');
+        modal.setAttribute('aria-label', 'Generators');
+        modal.innerHTML = '<div class="tp3d-modal-box"><div class="modal-header"><span>Generators</span>'
+            + '<button type="button" class="tp3d-modal-close-btn" aria-label="Close">×</button></div>'
+            + '<div class="tp3d-generator-grid"></div>'
+            + '<div class="tp3d-library"><div class="tp3d-library-head"><span>My Maps</span>'
+            + '<span class="tp3d-library-folder"></span></div><div class="tp3d-library-grid"></div></div></div>';
+        var grid = modal.querySelector('.tp3d-generator-grid');
+        function close() { modal.classList.remove('open'); }
+        modal.tp3dLoadLibrary = function() { loadLibrary(modal); };
+        menu.items.forEach(function(item) {
+            var tile = document.createElement('button');
+            tile.type = 'button';
+            tile.className = 'tp3d-generator-tile' + (item.id === menu.current ? ' current' : '');
+            tile.innerHTML = (TP3D_GENERATOR_ICONS[item.id] || '') + '<span></span>';
+            tile.querySelector('span').textContent = item.label;
+            if (item.id === menu.current) tile.setAttribute('aria-current', 'page');
+            tile.addEventListener('click', function() {
+                if (item.id === menu.current) { close(); return; }
+                grid.querySelectorAll('.tp3d-generator-tile').forEach(function(t) { t.disabled = true; });
+                tile.classList.add('busy');
+                switchTo(item.id, function() {
+                    grid.querySelectorAll('.tp3d-generator-tile').forEach(function(t) { t.disabled = false; });
+                    tile.classList.remove('busy');
+                });
+            });
+            grid.appendChild(tile);
+        });
+        modal.querySelector('.tp3d-modal-close-btn').addEventListener('click', close);
+        modal.addEventListener('click', function(e) { if (e.target === modal) close(); });
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && modal.classList.contains('open')) close();
+        });
+        document.body.appendChild(modal);
+        return modal;
+    }
+
+    // ── My Maps: every generated map, saved by Blender into the library
+    // folder (library.py). Click one to open it in Post-processing.
+    function formatSize(bytes) {
+        return bytes >= 1048576 ? (bytes / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(bytes / 1024)) + ' KB';
+    }
+    function formatDate(seconds) {
+        var d = new Date(seconds * 1000);
+        return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+    function libraryRequest(path, id) {
+        return fetch(path, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: id })
+        }).then(function(r) { return r.json(); });
+    }
+    function loadLibrary(modal) {
+        var grid = modal.querySelector('.tp3d-library-grid');
+        var folder = modal.querySelector('.tp3d-library-folder');
+        grid.innerHTML = '<div class="tp3d-library-note">Loading…</div>';
+        fetch('/library', { cache: 'no-store' })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var maps = (data && data.maps) || [];
+                folder.textContent = data && data.folder ? data.folder : '';
+                folder.title = folder.textContent;
+                grid.innerHTML = '';
+                if (!maps.length) {
+                    grid.innerHTML = '<div class="tp3d-library-note">Nothing saved yet — every map you generate shows up here.</div>';
+                    return;
+                }
+                maps.forEach(function(m) {
+                    var tile = document.createElement('div');
+                    tile.className = 'tp3d-library-tile';
+                    tile.tabIndex = 0;
+                    tile.setAttribute('role', 'button');
+                    tile.title = 'Open ' + m.name + ' in Post-processing';
+                    var pic = document.createElement('div');
+                    pic.className = 'tp3d-library-pic';
+                    if (m.thumb) {
+                        var img = document.createElement('img');
+                        img.alt = '';
+                        img.loading = 'lazy';
+                        img.src = '/library_thumb?id=' + encodeURIComponent(m.id) + '&t=' + Math.round(m.modified);
+                        pic.appendChild(img);
+                    } else {
+                        var kindIcon = { map: 'map_generator', multitile: 'map_picker', puzzle: 'puzzle_configurator',
+                                         sliding_puzzle: 'sliding_puzzle_configurator', medal_holder: 'medal_holder_generator',
+                                         backplate: 'backplate_generator' }[m.kind];
+                        pic.innerHTML = TP3D_GENERATOR_ICONS[kindIcon] || TP3D_GENERATOR_ICONS.map_generator;
+                    }
+                    var name = document.createElement('div');
+                    name.className = 'tp3d-library-name';
+                    name.textContent = m.name;
+                    var meta = document.createElement('div');
+                    meta.className = 'tp3d-library-meta';
+                    meta.textContent = formatDate(m.modified) + ' · ' + formatSize(m.size);
+                    var del = document.createElement('button');
+                    del.type = 'button';
+                    del.className = 'tp3d-library-del';
+                    del.title = 'Delete from My Maps';
+                    del.setAttribute('aria-label', 'Delete ' + m.name + ' from My Maps');
+                    del.textContent = '×';
+                    var ren = document.createElement('button');
+                    ren.type = 'button';
+                    ren.className = 'tp3d-library-del tp3d-library-ren';
+                    ren.title = 'Rename';
+                    ren.setAttribute('aria-label', 'Rename ' + m.name);
+                    ren.textContent = '✎';
+                    tile.append(pic, name, meta, ren, del);
+                    ren.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        var input = document.createElement('input');
+                        input.type = 'text';
+                        input.className = 'tp3d-library-rename';
+                        input.maxLength = 60;
+                        input.value = m.name;
+                        name.replaceWith(input);
+                        input.focus();
+                        input.select();
+                        var done = false;
+                        function finish(save) {
+                            if (done) return;
+                            done = true;
+                            var wanted = input.value.trim();
+                            input.replaceWith(name);
+                            if (!save || !wanted || wanted === m.name) return;
+                            name.textContent = wanted;
+                            fetch('/library_rename', {
+                                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ id: m.id, name: wanted })
+                            }).then(function(r) { return r.json(); }).then(function(reply) {
+                                if (reply && reply.ok) { m.name = reply.name; name.textContent = reply.name; return; }
+                                name.textContent = m.name;
+                                tp3dAlert((reply && reply.message) || 'Could not rename that map.', 'My Maps');
+                            }).catch(function() {
+                                name.textContent = m.name;
+                                tp3dAlert('Could not reach Blender — is it still running?', 'My Maps');
+                            });
+                        }
+                        input.addEventListener('click', function(ev) { ev.stopPropagation(); });
+                        input.addEventListener('keydown', function(ev) {
+                            ev.stopPropagation();
+                            if (ev.key === 'Enter') finish(true);
+                            if (ev.key === 'Escape') finish(false);
+                        });
+                        input.addEventListener('blur', function() { finish(true); });
+                    });
+                    function open() {
+                        if (tile.classList.contains('busy')) return;
+                        // A page with unsaved work (Post-processing) can offer
+                        // to save it first, or call the switch off (false).
+                        var before = typeof window.tp3dBeforeOpenMap === 'function'
+                            ? Promise.resolve(window.tp3dBeforeOpenMap(m)) : Promise.resolve(true);
+                        before.then(function(go) { if (go) openNow(); });
+                    }
+                    function openNow() {
+                        tile.classList.add('busy');
+                        libraryRequest('/library_open', m.id).then(function(reply) {
+                            if (reply && reply.ok && reply.next_url) { window.location.href = reply.next_url; return; }
+                            tile.classList.remove('busy');
+                            tp3dAlert((reply && reply.message) || 'Could not open that map.', 'My Maps');
+                        }).catch(function() {
+                            tile.classList.remove('busy');
+                            tp3dAlert('Could not reach Blender — is it still running?', 'My Maps');
+                        });
+                    }
+                    tile.addEventListener('click', open);
+                    tile.addEventListener('keydown', function(e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
+                    del.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        tp3dConfirm('Delete "' + m.name + '" from My Maps? Its saved file is removed for good — a copy that is open in Blender stays there.',
+                                    'Delete map', 'Delete', 'Keep').then(function(yes) {
+                            if (!yes) return;
+                            libraryRequest('/library_delete', m.id).then(function(reply) {
+                                if (reply && reply.ok) {
+                                    loadLibrary(modal);
+                                    // The page may show that map (Post-processing's
+                                    // Save button says "Saved" until it hears).
+                                    if (typeof window.tp3dAfterLibraryDelete === 'function') window.tp3dAfterLibraryDelete(m.id);
+                                    return;
+                                }
+                                tp3dAlert((reply && reply.message) || 'Could not delete that map.', 'My Maps');
+                            }).catch(function() { tp3dAlert('Could not reach Blender — is it still running?', 'My Maps'); });
+                        });
+                    });
+                    grid.appendChild(tile);
+                });
+            })
+            .catch(function() {
+                grid.innerHTML = '<div class="tp3d-library-note">Could not load My Maps.</div>';
+            });
+    }
+
+    // Pages show the browser elsewhere too (Post-processing's top-right
+    // corner): fills any element holding .tp3d-library-grid / -folder.
+    window.tp3dLoadLibrary = loadLibrary;
+
+    // Configuration / Model switch under the heading: a generator page
+    // whose map is in Blender goes to it in Post-processing ("Model"), and
+    // Post-processing goes back to the map's generator with the settings it
+    // was made with ("Configuration" -- the page's own window.tp3dModeSwitch).
+    function buildModeSwitch(heading, menu) {
+        var onModel = menu.current === 'post_process_generator';
+        var page = window.tp3dModeSwitch || {};
+        if (onModel ? !page.available : !menu.hasModel) return;
+        var wrap = document.createElement('div');
+        wrap.className = 'tp3d-mode-switch';
+        wrap.setAttribute('role', 'group');
+        wrap.setAttribute('aria-label', 'Configuration or model');
+        function segment(label, active, title, go) {
+            var b = document.createElement('button');
+            b.type = 'button';
+            b.textContent = label;
+            b.title = title;
+            b.className = active ? 'active' : '';
+            b.setAttribute('aria-pressed', active ? 'true' : 'false');
+            if (!active) {
+                b.addEventListener('click', function() {
+                    wrap.querySelectorAll('button').forEach(function(x) { x.disabled = true; });
+                    b.classList.add('busy');
+                    go(function() {
+                        wrap.querySelectorAll('button').forEach(function(x) { x.disabled = false; });
+                        b.classList.remove('busy');
+                    });
+                });
+            }
+            return b;
+        }
+        wrap.append(
+            segment('Configuration', !onModel, 'The generator settings this map was made with', function(done) {
+                if (typeof page.toConfiguration === 'function') page.toConfiguration(done); else done();
+            }),
+            segment('Model', onModel, 'This map in Post-processing', function(done) {
+                switchTo('post_process_generator', done, menu.current);
+            })
+        );
+        heading.after(wrap);
+    }
+
     function init() {
         var label = document.querySelector('.sidebar-subtitle');
         if (!label) return;
@@ -533,43 +830,30 @@ document.addEventListener('keydown', function(event) {
             .then(function(menu) {
                 var items = (menu && menu.items) || [];
                 if (items.length < 2 || !menu.current) return;
-                var select = document.createElement('select');
-                select.className = 'sidebar-subtitle tp3d-generator-switch';
-                select.title = 'Switch to another generator';
-                select.setAttribute('aria-label', 'Generator');
-                items.forEach(function(item) {
-                    var opt = document.createElement('option');
-                    opt.value = item.id;
-                    opt.textContent = item.label;
-                    select.appendChild(opt);
+                var current = items.filter(function(i) { return i.id === menu.current; })[0];
+                var button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'tp3d-generator-switch';
+                button.title = 'Switch to another generator';
+                button.setAttribute('aria-haspopup', 'dialog');
+                button.innerHTML = (TP3D_GENERATOR_ICONS[menu.current] || '') + '<span></span>';
+                button.querySelector('span').textContent = current ? current.label : label.textContent;
+                var panel = null;
+                button.addEventListener('click', function() {
+                    panel = panel || buildPanel(menu);
+                    panel.classList.add('open');
+                    panel.tp3dLoadLibrary();
+                    var here = panel.querySelector('.tp3d-generator-tile.current') || panel.querySelector('.tp3d-generator-tile');
+                    if (here) here.focus();
                 });
-                select.value = menu.current;
-                select.addEventListener('change', function() {
-                    var target = select.value;
-                    if (target === menu.current) return;
-                    select.disabled = true;
-                    fetch('/switch_generator', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ id: target })
-                    })
-                        .then(function(r) { return r.json(); })
-                        .then(function(reply) {
-                            if (reply && reply.ok && reply.next_url) {
-                                window.location.href = reply.next_url;
-                                return;
-                            }
-                            select.value = menu.current;
-                            select.disabled = false;
-                            tp3dAlert((reply && reply.message) || 'Could not open that generator.', 'Generator');
-                        })
-                        .catch(function() {
-                            select.value = menu.current;
-                            select.disabled = false;
-                            tp3dAlert('Could not reach Blender — is it still running?', 'Generator');
-                        });
-                });
-                label.replaceWith(select);
+                // The button is the heading now: drop the "TrailPrint3D" brand
+                // line above it (and its line break).
+                var heading = label.parentElement;
+                if (heading) {
+                    heading.querySelectorAll(':scope > .brand-link, :scope > br').forEach(function(el) { el.remove(); });
+                }
+                label.replaceWith(button);
+                if (heading) buildModeSwitch(heading, menu);
             })
             .catch(function() {});
     }

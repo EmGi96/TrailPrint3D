@@ -16,6 +16,9 @@ __pycache__/
 **/wheels/_extracted/
 *.wheel_cache*
 
+# Saved maps ("My Maps" library: .blend + .json + .png per map)
+/Maps/
+
 # Test-generated output
 tests/output/
 tests/.wheel_cache/

@@ -68,6 +68,9 @@ importlib.reload(T.utils.primitives)
 importlib.reload(T.utils.scene)
 importlib.reload(T.utils.io_gpx)
 importlib.reload(T.utils.text_objects)
+# generation_snapshot.py is a leaf (constants only) imported at module scope
+# by metadata and panels -- must come before both.
+importlib.reload(_imp("utils.generation_snapshot"))
 importlib.reload(T.utils.metadata)
 importlib.reload(T.utils.presets)
 importlib.reload(T.utils.elevation)
@@ -97,6 +100,10 @@ _imp("utils.io_geojson")
 importlib.reload(T.utils.io_geojson)
 _imp("utils.geotiff")
 importlib.reload(T.utils.geotiff)
+# snow.py (Procedural Snow, Post-processing page) -- deferred imports only,
+# from post_process; needs color (reloaded above).
+_imp("utils.snow")
+importlib.reload(T.utils.snow)
 
 # accessories sub-package: accessories/medal_holder.py (Medal Holder
 # Generator) and backplate.py (Backplate Generator) are likewise only
@@ -183,6 +190,10 @@ importlib.reload(T.props)
 # post_process.py (Post-processing page backend) is only imported from inside
 # operator methods, so it may not be loaded yet -- import it explicitly. Its
 # module-scope imports are constants/temp only; operators is deferred.
+# library.py (the "My Maps" map library) -- deferred imports only, like
+# post_process; reloaded before it.
+_imp("library")
+importlib.reload(T.library)
 _imp("post_process")
 importlib.reload(T.post_process)
 

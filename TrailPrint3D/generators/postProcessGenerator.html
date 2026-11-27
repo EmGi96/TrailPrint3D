@@ -15,17 +15,33 @@
     <link rel="icon" type="image/png" sizes="256x256" href="data:image/png;base64,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">
     <style>
 __COMMON_CSS__
-        #sidebar { width: 21rem; }
+        #sidebar { width: 18rem; }
         #viewportColumn { flex: 1; min-width: 0; position: relative; }
         #viewport { position: absolute; inset: 0; }
         #viewport canvas { display: block; outline: none; touch-action: none; }
+        /* My Maps, top right of the 3D view: a button that unfolds the map
+           browser (picker_ui.js tp3dLoadLibrary) in place. */
+        .maps-box { position: absolute; top: 10px; right: 46px; z-index: 11; width: 330px;
+            display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+        .maps-bar { display: flex; gap: 6px; }
+        .save-btn { display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; background: var(--send-action);
+            color: #fff; border: 1px solid transparent; border-radius: 4px; cursor: pointer; font: inherit; font-size: 12.5px; font-weight: 600; }
+        .save-btn:hover:not(:disabled) { background: var(--send-action-hover); }
+        .save-btn.saved { background: rgba(26,26,26,0.88); color: var(--text-secondary); border-color: var(--border); font-weight: 400; cursor: default; }
+        .save-btn:disabled { opacity: 0.6; cursor: progress; }
+        .maps-toggle { display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 10px;
+            background: rgba(26,26,26,0.88); color: var(--text-primary); border: 1px solid var(--border); border-radius: 4px;
+            cursor: pointer; font: inherit; font-size: 12.5px; }
+        .maps-toggle:hover, .maps-toggle[aria-expanded="true"] { border-color: var(--accent); }
+        .maps-toggle svg { flex-shrink: 0; color: var(--text-secondary); }
+        .maps-chevron { transition: transform 0.15s; }
+        .maps-toggle[aria-expanded="true"] .maps-chevron { transform: rotate(180deg); }
+        .maps-panel { align-self: stretch; background: rgba(26,26,26,0.95); border: 1px solid var(--border); border-radius: 6px;
+            padding: 10px; box-shadow: 0 6px 18px rgba(0,0,0,0.45); margin-top: 0; border-top: 1px solid var(--border); }
+        .maps-panel[hidden] { display: none; }
+        .maps-panel .tp3d-library-grid { max-height: min(60vh, 520px); overflow-y: auto; grid-template-columns: repeat(2, 1fr); }
         .target-summary { font-size: 12px; color: var(--text-secondary); background: var(--surface-field);
             border: 1px solid var(--border); border-radius: 4px; padding: 7px 10px; line-height: 1.45; }
-        .back-btn { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; padding: 8px 10px;
-            background: var(--surface-raised); color: var(--text-primary); border: 1px solid var(--border); border-radius: 4px;
-            cursor: pointer; font: inherit; font-size: 12.5px; }
-        .back-btn:hover:not(:disabled) { border-color: var(--accent); }
-        .back-btn:disabled { opacity: 0.55; cursor: wait; }
         .target-summary b { color: var(--text-primary); font-weight: 600; }
         /* ── Tool cards (one open at a time) ── */
         #tools { display: flex; flex-direction: column; gap: 6px; }
@@ -45,7 +61,20 @@ __COMMON_CSS__
         .tool-badge.locked { background: rgba(239,201,119,0.14); color: var(--warning); }
         .tool-badge:empty { display: none; }
         .tool-body { display: none; flex-direction: column; gap: 9px; padding: 2px 10px 12px; }
-        .tool.open .tool-body { display: flex; }
+        /* The open tool's settings float over the 3D view, right of the
+           sidebar (below the view buttons); the sidebar keeps the list. */
+        .tool-panel { position: absolute; top: 58px; left: 10px; z-index: 12; width: 320px; max-width: calc(100% - 20px);
+            max-height: calc(100% - 110px); display: flex; flex-direction: column; background: rgba(26,26,26,0.95);
+            border: 1px solid var(--accent); border-radius: 6px; box-shadow: 0 6px 18px rgba(0,0,0,0.45); }
+        .tool-panel-head { display: flex; align-items: center; gap: 8px; padding: 9px 10px; border-bottom: 1px solid var(--border);
+            font-size: 13px; font-weight: 600; color: var(--text-primary); }
+        .tool-panel-head span { flex: 1; }
+        .tool-panel-close { width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; padding: 0;
+            background: none; border: 1px solid transparent; border-radius: 4px; color: var(--text-secondary); cursor: pointer;
+            font-size: 16px; line-height: 1; }
+        .tool-panel-close:hover { border-color: var(--accent); color: var(--text-primary); }
+        .tool-panel-body { overflow-y: auto; min-height: 0; padding-top: 10px; }
+        .tool-panel .tool-body { display: flex; }
         .tool-intro { font-size: 12px; color: var(--text-muted); line-height: 1.45; margin: 0; }
         .field-row input[type=number] { width: 70px; }
         .field-row input[type=text], .field-row select { flex: 1; min-width: 0; max-width: 190px; background: var(--surface-field);
@@ -58,7 +87,6 @@ __COMMON_CSS__
         .slider-row .slider-top { display: flex; justify-content: space-between; align-items: center; }
         .slider-row .slider-top input[type=number] { width: 64px; background: var(--surface-field); color: var(--text-primary);
             border: 1px solid var(--border); border-radius: 4px; padding: 3px 6px; }
-        .slider-row input[type=range] { width: 100%; accent-color: var(--accent); margin: 0; }
         /* Color by Height ramp: a vertical bar, 0 % at the bottom. */
         .ramp-wrap { display: flex; gap: 12px; padding: 8px 0 8px 22px; }
         .ramp { position: relative; width: 44px; height: 240px; flex-shrink: 0; border: 1px solid var(--border);
@@ -78,25 +106,73 @@ __COMMON_CSS__
         .ramp-marker i { position: absolute; inset: 2px 5px 2px 2px; clip-path: inherit; }
         .ramp-pin.selected .ramp-marker, .ramp-pin:focus-visible .ramp-marker { background: #fff; }
         .ramp-pin.selected::before { background: #fff; }
-        .ramp-tools { display: flex; gap: 4px; }
-        .ramp-tool { width: 28px; height: 24px; padding: 0; background: var(--surface-raised); color: var(--text-primary);
-            border: 1px solid var(--border); border-radius: 4px; cursor: pointer; font: inherit; font-size: 15px; line-height: 1; }
-        .ramp-tool:hover:not(:disabled) { border-color: var(--accent); }
-        .ramp-tool:disabled { opacity: 0.4; cursor: not-allowed; }
-        .ramp-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px; }
-        .ramp-field { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-width: 0;
-            background: var(--surface-field); border: 1px solid var(--border); border-radius: 4px; padding: 2px 4px 2px 8px;
-            font-size: 12px; color: var(--text-secondary); }
-        .ramp-field input { width: 52px; min-width: 0; background: transparent; color: var(--text-primary); border: none;
-            text-align: right; font-variant-numeric: tabular-nums; padding: 3px 2px; }
-        .ramp-color { width: 100%; height: 26px; padding: 0 2px; border: 1px solid var(--border); border-radius: 4px;
-            background: var(--surface-field); cursor: pointer; }
-        .ramp-labels { position: relative; flex: 1; min-width: 0; height: 240px; font-size: 11.5px;
+        /* Section headings of the Color by Height panel. */
+        .ch-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px;
+            font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); }
+        .ch-heading:first-child { margin-top: 0; }
+        .ch-heading label { cursor: pointer; }
+        .ch-add { padding: 3px 9px; background: var(--surface-raised); color: var(--text-primary); border: 1px solid var(--border);
+            border-radius: 4px; cursor: pointer; font: inherit; font-size: 11.5px; letter-spacing: 0; text-transform: none; font-weight: 500; }
+        .ch-add:hover:not(:disabled) { border-color: var(--accent); }
+        .ch-add:disabled { opacity: 0.4; cursor: not-allowed; }
+        /* On/off switch look for the Natural edge checkbox. */
+        .ch-switch { appearance: none; -webkit-appearance: none; position: relative; width: 34px; height: 18px; margin: 0;
+            border: 1px solid var(--border); border-radius: 9px; background: var(--surface-field); cursor: pointer; flex-shrink: 0; }
+        .ch-switch::before { content: ''; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%;
+            background: var(--text-secondary); transition: transform 0.15s; }
+        .ch-switch:checked { background: var(--accent); border-color: var(--accent); }
+        .ch-switch:checked::before { transform: translateX(16px); background: #fff; }
+        .ch-switch:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+        /* Each color's controls, beside its pin on the bar. */
+        .ramp-labels { position: relative; flex: 1; min-width: 0; height: 240px; font-size: 12px;
             color: var(--text-secondary); font-variant-numeric: tabular-nums; }
-        .ramp-label { position: absolute; left: 4px; right: 0; transform: translateY(-50%); white-space: nowrap;
-            overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
-        .ramp-label.selected { color: var(--text-primary); font-weight: 600; }
-        .ramp-label.base { color: var(--text-muted); font-style: italic; cursor: default; }
+        .ch-row { position: absolute; left: 0; right: 0; height: 26px; transform: translateY(-50%); display: flex; align-items: center;
+            gap: 5px; padding: 0 2px 0 4px; border: 1px solid transparent; border-radius: 4px; }
+        .ch-row:hover { background: rgba(255,255,255,0.04); }
+        .ch-row.selected { border-color: var(--border); background: rgba(255,255,255,0.06); color: var(--text-primary); }
+        .ch-swatch { width: 18px; height: 18px; padding: 0; border: 1px solid rgba(255,255,255,0.35); border-radius: 3px;
+            background: none; cursor: pointer; flex-shrink: 0; }
+        .ch-swatch::-webkit-color-swatch-wrapper { padding: 0; }
+        .ch-swatch::-webkit-color-swatch { border: none; border-radius: 2px; }
+        .ch-swatch::-moz-color-swatch { border: none; border-radius: 2px; }
+        .ch-pct { width: 40px; min-width: 0; padding: 2px 3px; background: var(--surface-field); color: var(--text-primary);
+            border: 1px solid var(--border); border-radius: 3px; text-align: right; font: inherit; font-variant-numeric: tabular-nums; }
+        .ch-mm { flex: 1; min-width: 0; color: var(--text-muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .ch-icon { width: 22px; height: 22px; padding: 0; display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+            background: none; border: 1px solid transparent; border-radius: 4px; color: var(--text-muted); cursor: pointer;
+            font: inherit; font-size: 14px; line-height: 1; }
+        .ch-icon:hover:not(:disabled) { border-color: var(--accent); color: var(--text-primary); }
+        .ch-icon:disabled { opacity: 0.3; cursor: not-allowed; }
+        .ch-icon[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+        .ch-base { position: absolute; left: 6px; transform: translateY(-50%); color: var(--text-muted); font-style: italic; font-size: 11.5px; }
+        .ch-edge-glyph { display: inline-block; padding: 0 4px; border: 1px solid var(--border); border-radius: 3px; font-style: normal; }
+        .ch-own { border-left-color: var(--accent); }
+        .ch-own-head { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-primary); }
+        .ch-own-head span { flex: 1; min-width: 0; }
+        /* Round, so it doesn't read as a checkbox. */
+        .ch-dot { width: 11px; height: 11px; border-radius: 50%; box-shadow: 0 0 0 1px rgba(0,0,0,0.6); flex-shrink: 0; }
+        .ch-link { padding: 0; background: none; border: none; color: var(--focus); cursor: pointer; font: inherit; font-size: 11.5px; }
+        .ch-link:hover { text-decoration: underline; }
+        .ch-mode-fixed { font-size: 12px; color: var(--text-muted); line-height: 1.45; }
+        .ch-mode-fixed b { color: var(--text-primary); font-weight: 600; }
+        /* Color palette row + its edit panel (above the tool cards). */
+        .palette-row { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }
+        .palette-row select { flex: 1; min-width: 0; }
+        .palette-edit-btn { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 26px; padding: 0;
+            background: var(--surface-raised); color: var(--text-primary); border: 1px solid var(--border); border-radius: 4px; cursor: pointer; }
+        .palette-edit-btn[aria-expanded="true"] { border-color: var(--accent); color: var(--accent); }
+        .palette-panel { border: 1px solid var(--border); border-radius: 6px; background: var(--surface-panel); padding: 8px;
+            margin-bottom: 8px; display: flex; flex-direction: column; gap: 8px; }
+        .palette-swatches { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px; }
+        .palette-swatch { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-secondary); cursor: pointer; min-width: 0; }
+        .palette-swatch input[type=color] { width: 22px; height: 18px; padding: 0; border: 1px solid var(--border); border-radius: 3px; background: none; cursor: pointer; flex: none; }
+        .palette-swatch span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .palette-swatch.unused span { color: var(--text-muted); }
+        .palette-save { display: flex; gap: 6px; }
+        .palette-save input { flex: 1; min-width: 0; }
+        /* Blender-style number field: drag left/right to change, click to type. */
+        .drag-num { cursor: ew-resize; user-select: none; }
+        .drag-num:focus { cursor: text; user-select: text; }
         .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 4px; }
         .seg .element-mode-btn { font-size: 11px; padding: 5px 4px; }
         .seg-narrow { width: 150px; }
@@ -215,7 +291,8 @@ __COMMON_CSS__
         #dimsLabel { position: absolute; bottom: 10px; left: 10px; z-index: 10; background: rgba(26,26,26,0.85);
             border: 1px solid var(--border); border-radius: 4px; padding: 6px 10px; font-size: 12px; color: var(--text-secondary);
             font-variant-numeric: tabular-nums; pointer-events: none; }
-        #busy { position: absolute; top: 10px; right: 46px; z-index: 10; display: none; align-items: center;
+        /* Left of the My Maps corner (.maps-box, 330px wide at right 46px). */
+        #busy { position: absolute; top: 10px; right: 386px; z-index: 10; display: none; align-items: center;
             background: rgba(26,26,26,0.85); border: 1px solid var(--border); border-radius: 4px; padding: 6px 10px;
             font-size: 12px; color: var(--text-secondary); }
         #busy.show { display: flex; }
@@ -240,12 +317,27 @@ __COMMON_CSS__
         <div class="sidebar-heading"><a class="brand-link" href="https://trailprint3d.com" target="_blank" rel="noopener" title="Open trailprint3d.com">TrailPrint3D</a><br>
             <span class="sidebar-subtitle">Post-processing</span></div>
 
-        <!-- Only when a generator handed off to this page (SETTINGS_STATE.backTo). -->
-        <button type="button" id="backBtn" class="back-btn" hidden>
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M10 3 L5 8 L10 13"/></svg>
-            Back to Configuration
-        </button>
         <div id="targetSummary" class="target-summary">Loading the map…</div>
+
+        <!-- Color palette: pick one (recolors the map), or edit / save /
+             delete palettes in the panel the pencil opens. -->
+        <div class="palette-row">
+            <label for="paletteSelect">Colors</label>
+            <select id="paletteSelect" title="Recolor the map with a palette"></select>
+            <button type="button" class="palette-edit-btn" id="paletteEdit" aria-expanded="false" aria-controls="palettePanel"
+                    title="Edit the colors, or save them as a palette">
+                <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M13.5 3.5l3 3L7 16H4v-3z"/><path d="M11.5 5.5l3 3"/></svg>
+            </button>
+        </div>
+        <div class="palette-panel" id="palettePanel" hidden>
+            <div class="palette-swatches" id="paletteSwatches"></div>
+            <div class="palette-save">
+                <input type="text" id="paletteName" maxlength="40" placeholder="Palette name" aria-label="Palette name">
+                <button type="button" class="small-btn" id="paletteSave">Save</button>
+            </div>
+            <div class="btn-row"><button type="button" class="small-btn" id="paletteDelete" hidden>Delete this palette</button></div>
+            <div class="note" id="paletteNote">Click a color to change it on the map. Save keeps the colors as a palette, also for the Map Generator.</div>
+        </div>
 
         <div id="tools">
             <!-- Color by Height -->
@@ -255,20 +347,45 @@ __COMMON_CSS__
                     <span class="tool-title">Color by Height</span><span class="tool-badge" id="badge_color_height"></span>
                 </button>
                 <div class="tool-body">
-                    <div class="ramp-tools">
-                        <button type="button" class="ramp-tool" id="ch_addBand" title="Add a pin">+</button>
-                        <button type="button" class="ramp-tool" id="ch_pinRemove" title="Remove the selected pin">−</button>
-                    </div>
+                    <div class="ch-heading"><span>Colors</span>
+                        <button type="button" class="ch-add" id="ch_addBand" title="Add a color above the selected one">+ Add color</button></div>
+                    <!-- The bar (0 % at the bottom; drag a pin, double-click to
+                         add one) with each color's controls at its pin. -->
                     <div class="ramp-wrap">
-                        <div class="ramp" id="ch_ramp" title="Double-click to add a pin here"></div>
+                        <div class="ramp" id="ch_ramp" title="Drag a pin to change its height · double-click to add a color here"></div>
                         <div class="ramp-labels" id="ch_rampLabels"></div>
                     </div>
-                    <div class="ramp-fields">
-                        <label class="ramp-field"><span>Pin</span><input type="number" id="ch_pinIndex" min="1" step="1"></label>
-                        <label class="ramp-field"><span>Pos (%)</span><input type="number" id="ch_pinValue" min="0" max="100" step="1"></label>
+
+                    <div class="ch-heading"><label for="ch_noise">Natural edge</label>
+                        <input type="checkbox" id="ch_noise" class="ch-switch" title="A wavy, natural boundary instead of a flat cut"></div>
+                    <div class="sub-fields" id="ch_noise_fields" hidden>
+                        <div class="slider-row">
+                            <div class="slider-top"><label for="ch_noiseAmp">Amplitude (mm)</label>
+                                <input type="number" id="ch_noiseAmp" min="0" max="20" step="0.1" value="1" aria-label="Amplitude in mm"></div>
+                        </div>
+                        <div class="slider-row">
+                            <div class="slider-top"><label for="ch_noiseScale">Scale</label>
+                                <input type="number" id="ch_noiseScale" min="0" max="5" step="0.01" value="0.5" aria-label="Scale"></div>
+                        </div>
+                        <div class="note">Used by every color without its own edge (<span class="ch-edge-glyph">~</span> on its row).</div>
                     </div>
-                    <input type="color" id="ch_pinColor" class="ramp-color" aria-label="Color above the selected pin" title="Color above the selected pin">
-                    <div class="field-row"><span>Mode</span></div>
+                    <!-- The selected color's own edge (its ~ button). -->
+                    <div class="sub-fields ch-own" id="ch_own_fields" hidden>
+                        <div class="ch-own-head"><i class="ch-dot" id="ch_ownDot"></i><span id="ch_ownTitle"></span>
+                            <button type="button" class="ch-link" id="ch_ownOff" title="Use the shared natural edge again">Use shared</button></div>
+                        <div class="slider-row">
+                            <div class="slider-top"><label for="ch_ownAmp">Amplitude (mm)</label>
+                                <input type="number" id="ch_ownAmp" min="0" max="20" step="0.1" value="1" aria-label="Own amplitude in mm"></div>
+                        </div>
+                        <div class="slider-row">
+                            <div class="slider-top"><label for="ch_ownScale">Scale</label>
+                                <input type="number" id="ch_ownScale" min="0" max="5" step="0.01" value="0.5" aria-label="Own scale"></div>
+                        </div>
+                    </div>
+                    <div class="note" id="ch_noiseNote"></div>
+
+                    <div class="ch-heading"><span>Print as</span></div>
+                    <div class="ch-mode-fixed" id="ch_modeFixed" hidden><b>Paint</b> · Single / Multi Extruder need an uncolored map</div>
                     <div class="seg" id="ch_mode">
                         <button type="button" class="element-mode-btn active" data-mode="paint" title="Recolors the faces above the threshold">Paint</button>
                         <button type="button" class="element-mode-btn" data-mode="SEM" title="Builds the colored part as its own piece with a tolerance gap (Single Extruder)">Single Extr.</button>
@@ -281,21 +398,7 @@ __COMMON_CSS__
                         <div class="field-row"><label for="ch_thickness">Thickness (mm)</label><input type="number" id="ch_thickness" min="0.2" max="10" step="0.1" value="1"></div>
                     </div>
                     <div class="note" id="ch_modeNote"></div>
-                    <label class="field-row clickable-label"><span>Natural edge (noise)</span><input type="checkbox" id="ch_noise"></label>
-                    <div class="sub-fields" id="ch_noise_fields" hidden>
-                        <div class="slider-row">
-                            <div class="slider-top"><label for="ch_noiseAmp_range">Amplitude (mm)</label>
-                                <input type="number" id="ch_noiseAmp" min="0" max="20" step="0.1" value="1" aria-label="Amplitude in mm"></div>
-                            <input type="range" id="ch_noiseAmp_range" min="0" max="10" step="0.1" value="1">
-                        </div>
-                        <div class="slider-row">
-                            <div class="slider-top"><label for="ch_noiseScale_range">Scale</label>
-                                <input type="number" id="ch_noiseScale" min="0" max="5" step="0.01" value="0.5" aria-label="Scale"></div>
-                            <input type="range" id="ch_noiseScale_range" min="0.01" max="2" step="0.01" value="0.5">
-                        </div>
-                        <div class="note" id="ch_noiseNote"></div>
-                    </div>
-                    <button type="button" class="apply-btn" data-apply="color_height">Apply Color by Height</button>
+                    <button type="button" class="apply-btn" data-apply="color_height" id="ch_apply">Apply Color by Height</button>
                 </div>
             </section>
 
@@ -318,6 +421,59 @@ __COMMON_CSS__
                     <div class="field-row"><label for="cl_thickness">Line thickness (mm)</label><input type="number" id="cl_thickness" min="0.05" max="5" step="0.05" value="0.4"></div>
                     <div class="note" id="cl_info"></div>
                     <button type="button" class="apply-btn" data-apply="contour_lines">Apply Contour Lines</button>
+                </div>
+            </section>
+
+            <!-- Trees -->
+            <section class="tool" data-tool="trees">
+                <button class="tool-head" type="button">
+                    <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M7 2.5 11 10H3z"/><path d="M14 6l3.8 8h-7.6z"/><path d="M7 10v4M14 14v3.5M2 17.5h16"/></svg>
+                    <span class="tool-title">Trees</span><span class="tool-badge" id="badge_trees"></span>
+                </button>
+                <div class="tool-body">
+                    <p class="tool-intro">Spreads miniature trees evenly over the forest, at their real size for the map's scale, printed in the forest color. Only for close-up maps (1:10,000 or closer) — on anything smaller they'd be too tiny to print.</p>
+                    <div class="field-row"><span>Shape</span>
+                        <div class="seg" id="tr_shape">
+                            <button type="button" class="element-mode-btn" data-shape="pine" title="Conifers: pointed cones">Pine</button>
+                            <button type="button" class="element-mode-btn" data-shape="round" title="Broadleaf trees: rounded crowns">Round</button>
+                            <button type="button" class="element-mode-btn active" data-shape="mixed" title="Half pine, half round">Mixed</button>
+                        </div>
+                    </div>
+                    <div class="slider-row">
+                        <div class="slider-top"><label for="tr_size">Crown width (m)</label>
+                            <input type="number" id="tr_size" min="2" max="30" step="0.5" value="8" aria-label="Crown width in meters"></div>
+                    </div>
+                    <div class="slider-row">
+                        <div class="slider-top"><label for="tr_spacing">Spacing (m)</label>
+                            <input type="number" id="tr_spacing" min="1" max="200" step="1" value="12" aria-label="Spacing between trees in meters"></div>
+                    </div>
+                    <div class="field-row" title="Another seed shuffles where each tree stands, its size and shape. Drag left/right to change it (Shift: slower), or click to type.">
+                        <label for="tr_seed">Seed</label>
+                        <input type="number" id="tr_seed" min="0" max="9999" step="1" value="0" aria-label="Random seed"></div>
+                    <ul class="map-list" id="tr_list"></ul>
+                    <div class="note" id="tr_info"></div>
+                    <div class="note" id="tr_count"></div>
+                    <div class="btn-row"><button type="button" class="small-btn" id="tr_allOn" hidden>Switch every tree back on</button></div>
+                    <button type="button" class="apply-btn" data-apply="trees">Apply Trees</button>
+                </div>
+            </section>
+
+            <!-- Procedural Snow -->
+            <section class="tool" data-tool="snow">
+                <button class="tool-head" type="button">
+                    <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10 2v16M3.1 6l13.8 8M3.1 14l13.8-8M8 3.5l2 2 2-2M8 16.5l2-2 2 2"/></svg>
+                    <span class="tool-title">Procedural Snow</span><span class="tool-badge" id="badge_snow"></span>
+                </button>
+                <div class="tool-body">
+                    <p class="tool-intro">Snow settles where it would in nature — higher up, on gentler ground, more in hollows — broken into patches. It's painted onto the map in white — water, roads, buildings and the trail stay as they are.</p>
+                    <div class="field-row"><label for="sn_coverage" title="How much of the ground that can hold snow (above the snow threshold, not too steep) gets it">Coverage (%)</label><input type="number" id="sn_coverage" min="0" max="100" step="1" value="40"></div>
+                    <div class="field-row"><label for="sn_snowline" title="Where snow starts, in % of the terrain height (like Color by Height). A blue plane shows the height while you change it">Snow threshold (%)</label><input type="number" id="sn_snowline" min="0" max="100" step="1" value="50"></div>
+                    <div class="field-row"><label for="sn_maxSlope" title="Snow never lies on ground steeper than this">Max slope (°)</label><input type="number" id="sn_maxSlope" min="1" max="89" step="1" value="45"></div>
+                    <div class="field-row"><label for="sn_patchiness" title="How much the snow breaks up into patches: 0 = one even blanket">Patchiness</label><input type="number" id="sn_patchiness" min="0" max="1" step="0.05" value="0.3"></div>
+                    <div class="field-row"><label for="sn_patchSize" title="About how big the patches are: small = speckles, large = broad snowfields">Patch size (mm)</label><input type="number" id="sn_patchSize" min="0.2" max="200" step="0.1" value="3.5"></div>
+                    <div class="field-row"><label for="sn_seed" title="Another seed gives other patches with the same settings">Seed</label><input type="number" id="sn_seed" min="0" max="9999" step="1" value="0"></div>
+                    <div class="note" id="sn_info"></div>
+                    <button type="button" class="apply-btn" data-apply="snow">Apply Snow</button>
                 </div>
             </section>
 
@@ -381,9 +537,8 @@ __COMMON_CSS__
                     <div class="field-row"><label for="tx_text">Text</label><input type="text" id="tx_text" maxlength="80" placeholder="e.g. Tour du Mont Blanc"></div>
                     <div class="field-row"><label for="tx_font">Font</label><select id="tx_font"><option value="">Default font</option></select></div>
                     <div class="slider-row">
-                        <div class="slider-top"><label for="tx_size_range">Size (mm)</label>
+                        <div class="slider-top"><label for="tx_size">Size (mm)</label>
                             <input type="number" id="tx_size" min="1" max="200" step="0.5" value="10" aria-label="Text size in mm"></div>
-                        <input type="range" id="tx_size_range" min="1" max="60" step="0.5" value="10">
                     </div>
                     <div class="placement" data-for="tx"></div>
                     <button type="button" class="apply-btn" data-apply="text">Apply Text</button>
@@ -401,9 +556,8 @@ __COMMON_CSS__
                         <button type="button" class="small-btn" id="sv_pick">Choose SVG…</button>
                         <input type="file" id="sv_file" accept=".svg,image/svg+xml" hidden></div>
                     <div class="slider-row">
-                        <div class="slider-top"><label for="sv_scale_range">Scale</label>
+                        <div class="slider-top"><label for="sv_scale">Scale</label>
                             <input type="number" id="sv_scale" min="0" max="100" step="0.05" value="1" aria-label="SVG scale"></div>
-                        <input type="range" id="sv_scale_range" min="0.05" max="5" step="0.05" value="1">
                     </div>
                     <div class="note" id="sv_dims"></div>
                     <div class="placement" data-for="sv"></div>
@@ -444,6 +598,39 @@ __COMMON_CSS__
 
     <div id="viewportColumn" role="main" tabindex="-1" aria-label="3D view">
         <div id="viewport"></div>
+        <!-- The open tool's settings (its .tool-body, moved here from its
+             sidebar card while open). -->
+        <div id="toolPanel" class="tool-panel" role="region" aria-labelledby="toolPanelTitle" hidden>
+            <div class="tool-panel-head">
+                <span id="toolPanelTitle"></span>
+                <button type="button" id="toolPanelClose" class="tool-panel-close" title="Close" aria-label="Close">×</button>
+            </div>
+            <div id="toolPanelBody" class="tool-panel-body"></div>
+        </div>
+        <!-- My Maps, top right: every saved map -- click one to open it here. -->
+        <div id="mapsBox" class="maps-box">
+            <div class="maps-bar">
+            <!-- Saves the shown map to My Maps (new entry, or over its own). -->
+            <button type="button" id="saveBtn" class="save-btn" title="Save this map to My Maps">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                    <path d="M2.5 2.5 H11 L13.5 5 V13.5 H2.5 Z"/><path d="M5 2.5 V6 H10.5 V2.5"/><rect x="5" y="9" width="6" height="4.5"/></svg>
+                <span id="saveLabel">Save</span>
+            </button>
+            <button type="button" id="mapsToggle" class="maps-toggle" aria-expanded="false" aria-controls="mapsPanel"
+                    title="My Maps: every map you generated, saved automatically">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+                    <rect x="1.5" y="1.5" width="5.5" height="5.5" rx="1"/><rect x="9" y="1.5" width="5.5" height="5.5" rx="1"/>
+                    <rect x="1.5" y="9" width="5.5" height="5.5" rx="1"/><rect x="9" y="9" width="5.5" height="5.5" rx="1"/></svg>
+                <span>My Maps</span>
+                <svg class="maps-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor"
+                     stroke-width="1.6" aria-hidden="true"><path d="M3 4.5 L6 7.5 L9 4.5"/></svg>
+            </button>
+            </div>
+            <div id="mapsPanel" class="maps-panel tp3d-library" hidden>
+                <div class="tp3d-library-head"><span class="tp3d-library-folder"></span></div>
+                <div class="tp3d-library-grid"></div>
+            </div>
+        </div>
         <div id="viewTools">
             <button type="button" id="viewTop" title="Look at the top">Top</button>
             <button type="button" id="viewBottom" title="Look at the underside">Bottom</button>
@@ -537,7 +724,6 @@ __COMMON_CSS__
         </div>
         <div class="slider-row">
             <div class="slider-top"><label>Rotation (°)</label><input type="number" class="pl-rot-num" min="-180" max="180" step="1" value="0" aria-label="Rotation in degrees"></div>
-            <input type="range" class="pl-rot" min="-180" max="180" step="1" value="0" aria-label="Rotation">
         </div>
         <div class="pl-pos stack">
             <div class="field-row"><span title="Measured from the center of the map it sits on">Position from map center (mm)</span></div>
@@ -612,7 +798,8 @@ __COMMON_CSS__
         const overlayRoot = new THREE.Group();   // magnets, dovetail balls
         const placementRoot = new THREE.Group(); // text / svg / heightmap preview
         const guideRoot = new THREE.Group();     // placement origin marker (never hit-tested)
-        world.add(modelRoot, overlayRoot, placementRoot, guideRoot);
+        const thresholdRoot = new THREE.Group(); // snow threshold plane (never hit-tested)
+        world.add(modelRoot, overlayRoot, placementRoot, guideRoot, thresholdRoot);
         let grid = null;
         let framedOnce = false;
 
@@ -687,8 +874,10 @@ __COMMON_CSS__
             // Sorted lowest first, so the highest band a fragment is above wins.
             uBandZ: { value: new Array(MAX_BANDS).fill(0) },
             uBandColor: { value: Array.from({ length: MAX_BANDS }, function() { return new THREE.Color('#808080'); }) },
-            // Natural edge: the threshold moves up/down by noise * amplitude.
-            uNoiseAmp: { value: 0 }, uNoiseScale: { value: 0.5 },
+            // Natural edge, per band: its threshold moves up/down by
+            // noise(scale) * amplitude (amplitude 0 = a flat edge).
+            uBandAmp: { value: new Array(MAX_BANDS).fill(0) },
+            uBandScale: { value: new Array(MAX_BANDS).fill(0.5) },
             uContourOn: { value: 0 },
         };
         function mapMaterial(baseColor) {
@@ -708,7 +897,7 @@ __COMMON_CSS__
                     'varying float vBlZ; varying vec2 vBlXY;',
                     'uniform float uHeightOn; uniform int uBandCount; uniform vec3 uBase;',
                     'uniform float uBandZ[' + MAX_BANDS + ']; uniform vec3 uBandColor[' + MAX_BANDS + '];',
-                    'uniform float uNoiseAmp; uniform float uNoiseScale; uniform vec2 uOrigin;',
+                    'uniform float uBandAmp[' + MAX_BANDS + ']; uniform float uBandScale[' + MAX_BANDS + ']; uniform vec2 uOrigin;',
                     'uniform float uContourOn; uniform float uContourZ0; uniform float uContourStep; uniform float uContourThick;',
                     'uniform float uDisabled;',
                     // Same lattice noise as the texture bake
@@ -719,8 +908,8 @@ __COMMON_CSS__
                     ' h = h ^ (h >> 16u);',
                     ' return float(h & 65535u) / 65535.0 * 2.0 - 1.0;',
                     '}',
-                    'float tpNoise(vec2 p) {',
-                    ' vec2 g = p * uNoiseScale; vec2 f = floor(g); ivec2 c = ivec2(f);',
+                    'float tpNoise(vec2 p, float scale) {',
+                    ' vec2 g = p * scale; vec2 f = floor(g); ivec2 c = ivec2(f);',
                     ' vec2 t = g - f; vec2 s = t * t * (3.0 - 2.0 * t);',
                     ' float nx0 = mix(tpHash(c), tpHash(c + ivec2(1, 0)), s.x);',
                     ' float nx1 = mix(tpHash(c + ivec2(0, 1)), tpHash(c + ivec2(1, 1)), s.x);',
@@ -730,9 +919,9 @@ __COMMON_CSS__
                     '#include <color_fragment>',
                     '#ifdef USE_COLOR',
                     ' if (uDisabled < 0.5 && uHeightOn > 0.5 && distance(vColor.rgb, uBase) < 0.02) {',
-                    '  float shift = uNoiseAmp > 0.0 ? tpNoise(vBlXY - uOrigin) * uNoiseAmp : 0.0;',
                     '  for (int i = 0; i < ' + MAX_BANDS + '; i++) {',
                     '   if (i >= uBandCount) break;',
+                    '   float shift = uBandAmp[i] > 0.0 ? tpNoise(vBlXY - uOrigin, uBandScale[i]) * uBandAmp[i] : 0.0;',
                     '   if (vBlZ > uBandZ[i] + shift) diffuseColor.rgb = uBandColor[i];',
                     '  }',
                     ' }',
@@ -776,10 +965,26 @@ __COMMON_CSS__
             updateTileLook();
             updateSummary();
             updateBottomMarkUI();
+            updateTreesUI();
+            document.querySelector('[data-apply="snow"]').disabled = !info.maps.some(function(m) { return !m.snow && tileEnabled(m.name); });
             refreshPreviews();
         }
 
-        // Most common color of a map mesh = its base terrain color.
+        // The map's base terrain color as Blender reports it (info.maps[].
+        // baseColor, sRGB hex), in the GLB's linear vertex-color space.
+        function mapBaseColor(name) {
+            const m = info && info.maps && info.maps.find(function(x) { return x.name === name; });
+            const hex = m && m.baseColor;
+            if (typeof hex !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(hex)) return null;
+            const lin = function(i) {
+                const c = parseInt(hex.substr(i, 2), 16) / 255;
+                return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+            };
+            return new THREE.Color().setRGB(lin(1), lin(3), lin(5));
+        }
+
+        // Fallback when Blender knows no base color: the most common color
+        // of the map mesh (wrong where forest or rock cover more terrain).
         function dominantColor(geometry) {
             const col = geometry.getAttribute('color');
             if (!col) return null;
@@ -815,7 +1020,7 @@ __COMMON_CSS__
                         const ud = m.userData || {};
                         m.material.dispose();
                         if (ud.role === 'map') {
-                            m.material = mapMaterial(dominantColor(m.geometry));
+                            m.material = mapMaterial(mapBaseColor(ud.map) || dominantColor(m.geometry));
                         } else {
                             m.material = partMaterial();
                         }
@@ -978,7 +1183,8 @@ __COMMON_CSS__
 
         // Puzzle mode (the puzzle generators hand off here): only Text and
         // SVG -- the other tools would break the pieces' fit or don't apply.
-        function isPuzzle() { return !!(S.puzzle || info.puzzle); }
+        // Blender's answer decides once it's there.
+        function isPuzzle() { return info.maps.length ? !!info.puzzle : !!S.puzzle; }
         function applyPuzzleMode() {
             const allowed = { text: true, svg: true, bottom_mark: true };
             const puzzle = isPuzzle();
@@ -989,8 +1195,76 @@ __COMMON_CSS__
             if (info.maps.length) ['tx', 'sv'].forEach(function(key) { syncPlacementControls(key, true); });
         }
 
+        // ── My Maps (top right) ───────────────────────────────────────
+        // Stays open until the button closes it; opening a map switches
+        // this window to it (picker_ui.js).
+        // Save: nothing goes into My Maps on its own -- this button does it.
+        // One name for the map: the File name is both what Save calls it in
+        // My Maps and the export's file name. It starts as the map's own
+        // name (info.exportName -- the region it shows, for a generated map).
+        function saveName() {
+            const typed = exportNameEdited ? $('exportName').value.replace(/\s+/g, ' ').trim() : '';
+            return typed || info.exportName || '';
+        }
+        function updateSaveBtn() {
+            const has = info.maps.length > 0;
+            const renamed = !!saveName() && saveName() !== info.mapName;
+            const upToDate = has && info.saved && !info.changed && !renamed;
+            $('saveBtn').hidden = !has;
+            $('saveBtn').classList.toggle('saved', upToDate);
+            $('saveLabel').textContent = upToDate ? 'Saved' : info.saved ? 'Save changes' : 'Save';
+            $('saveBtn').title = upToDate ? 'Saved in My Maps'
+                : 'Save ' + (saveName() || info.mapName || 'this map') + ' to My Maps';
+        }
+        function saveMap() {
+            $('saveBtn').disabled = true;
+            return send({ kind: 'save', params: { name: saveName() } }, 'Saving to My Maps…').then(function(result) {
+                showMessages((result && result.messages) || []);
+                $('saveBtn').disabled = false;
+                // Saved: the map has that name now (maybe with a number
+                // added, if another saved map had it) -- the field shows what
+                // it got. A failed save keeps what was typed.
+                if (result && result.messages && result.messages[0] && result.messages[0].level === 'INFO') {
+                    exportNameEdited = false;
+                    updateExportLabel();
+                    updateSaveBtn();
+                }
+                if (!$('mapsPanel').hidden && typeof window.tp3dLoadLibrary === 'function') window.tp3dLoadLibrary($('mapsPanel'));
+                return !!(result && result.messages && result.messages[0] && result.messages[0].level === 'INFO');
+            });
+        }
+        $('saveBtn').addEventListener('click', function() {
+            if (!$('saveBtn').classList.contains('saved')) saveMap();
+        });
+        // Deleted from My Maps (picker_ui.js): if it's this map, it isn't
+        // saved any more -- ask Blender again so Save offers to save it.
+        window.tp3dAfterLibraryDelete = function(id) {
+            if (!info.maps.length || !id || id !== info.mapId) return;
+            send({ kind: 'refresh' }, 'Updating…');
+        };
+        // Opening another map takes this one out of Blender: offer to save
+        // unsaved work first (picker_ui.js asks before every open).
+        window.tp3dBeforeOpenMap = function(target) {
+            if (!info.maps.length || !info.changed || (target && target.id && target.id === info.mapId)) return true;
+            const what = info.mapName || 'this map';
+            return tp3dConfirm('"' + what + '" has ' + (info.saved ? 'unsaved changes' : 'not been saved to My Maps') +
+                               '. Opening another map takes it out of Blender. Save it first?',
+                               'Save first?', 'Save', 'Don\'t save').then(function(answer) {
+                if (answer === null) return false;          // closed: stay
+                return answer ? saveMap() : true;
+            });
+        };
+
+        $('mapsToggle').addEventListener('click', function() {
+            const open = $('mapsPanel').hidden;
+            $('mapsPanel').hidden = !open;
+            $('mapsToggle').setAttribute('aria-expanded', open ? 'true' : 'false');
+            if (open && typeof window.tp3dLoadLibrary === 'function') window.tp3dLoadLibrary($('mapsPanel'));
+        });
+
         function applyInfo(next) {
             info = next;
+            updateSaveBtn();
             applyPuzzleMode();
             const n = info.maps.length;
             // Forget switched-off tiles that are gone (or a single map left).
@@ -1006,10 +1280,12 @@ __COMMON_CSS__
             info.maps.forEach(function(m) {
                 if (!dovetailSides[m.name]) dovetailSides[m.name] = new Set(m.dovetailSpots.map(function(s) { return s.index; }));
             });
-            info.maps.forEach(function(m) {
-                ['tx', 'sv', 'hm'].forEach(function(k) {
-                    if (!placements[k].map) placements[k].map = m.name;
-                });
+            ['tx', 'sv', 'hm'].forEach(function(k) {
+                const pl = placements[k];
+                if (!n || (pl.map && info.maps.some(function(m) { return m.name === pl.map; }))) return;
+                // Its map is gone (another map is shown now): start over on this one.
+                if (pl.map) { pl.placed = false; pl.x = pl.y = null; }
+                pl.map = info.maps[0].name;
             });
             // General enable first -- the tool updates below may disable
             // their own button again (nothing to mark, no side chosen...).
@@ -1018,7 +1294,10 @@ __COMMON_CSS__
             updateColorHeightUI();
             updateContourUI();
             updateBottomMarkUI();
+            updateTreesUI();
+            document.querySelector('[data-apply="snow"]').disabled = !info.maps.some(function(m) { return !m.snow && tileEnabled(m.name); });
             updateDovetailUI();
+            renderPalette();
         }
 
         function updateBadges() {
@@ -1035,19 +1314,48 @@ __COMMON_CSS__
             setBadge('magnets', all(function(m) { return m.magnetHoles; }) ? 'Added' : some(function(m) { return m.magnetHoles; }) ? 'Some' : '', 'done');
             setBadge('dovetails', all(function(m) { return m.dovetail; }) ? 'Added' : some(function(m) { return m.dovetail; }) ? 'Some' : '', 'done');
             setBadge('bottom_mark', all(function(m) { return m.bottomMark === true; }) ? 'Added' : '', 'done');
+            setBadge('trees', all(function(m) { return m.trees; }) ? 'Added' : some(function(m) { return m.trees; }) ? 'Some' : '', 'done');
+            setBadge('snow', all(function(m) { return m.snow; }) ? 'Added' : some(function(m) { return m.snow; }) ? 'Some' : '', 'done');
             setBadge('heightmap', info.premium ? '' : 'Premium', 'locked');
         }
 
         // ══ Tool cards ════════════════════════════════════════════════════
         const PLACEMENT_TOOLS = { text: 'tx', svg: 'sv', heightmap: 'hm' };
+        // Each card's settings, kept by reference: they move into the
+        // floating #toolPanel while open and back into the card after.
+        const toolBodies = new Map();
         document.querySelectorAll('.tool').forEach(function(tool) {
-            tool.querySelector('.tool-head').addEventListener('click', function() {
+            toolBodies.set(tool, tool.querySelector('.tool-body'));
+            const head = tool.querySelector('.tool-head');
+            head.setAttribute('aria-controls', 'toolPanel');
+            head.addEventListener('click', function() {
                 setOpenTool(openTool === tool.dataset.tool ? null : tool.dataset.tool);
             });
         });
+        $('toolPanelClose').addEventListener('click', function() { setOpenTool(null); });
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && openTool && $('toolPanel').contains(document.activeElement)) setOpenTool(null);
+        });
+        function showToolPanel(name) {
+            let title = '';
+            toolBodies.forEach(function(body, tool) {
+                const open = tool.dataset.tool === name;
+                tool.querySelector('.tool-head').setAttribute('aria-expanded', open ? 'true' : 'false');
+                if (open) {
+                    title = tool.querySelector('.tool-title').textContent;
+                    if (body.parentNode !== $('toolPanelBody')) $('toolPanelBody').appendChild(body);
+                } else if (body.parentNode !== tool) {
+                    tool.appendChild(body);
+                }
+            });
+            $('toolPanelTitle').textContent = title;
+            $('toolPanel').hidden = !name;
+            $('toolPanelBody').scrollTop = 0;
+        }
 
         function setOpenTool(name) {
             openTool = name;
+            if (name !== 'snow') clearThresholdPlane();
             // Text / SVG / heightmap show up straight away, on the center of
             // their map -- as a placeholder rectangle until there's text, an
             // SVG or a GPX profile.
@@ -1062,6 +1370,7 @@ __COMMON_CSS__
                 if (autoKey === 'hm' && !hasShape(pl) && info.premium && (pl.path || S.gpxPath)) requestShape('hm');
             }
             document.querySelectorAll('.tool').forEach(function(t) { t.classList.toggle('open', t.dataset.tool === name); });
+            showToolPanel(name);
             refreshPreviews();
             saveState();
             if (name === 'magnets' || name === 'bottom_mark') {
@@ -1081,6 +1390,8 @@ __COMMON_CSS__
             if (openTool === 'contour_lines') updateContourUI();
             clearOverlay();
             if (openTool === 'magnets') requestMagnetPreview();
+            if (openTool === 'trees') requestTreePreview();
+            if (openTool === 'snow') requestSnowPreview();
             if (openTool === 'dovetails') buildDovetailMarkers();
             updatePlacementPreview();
             updateHint();
@@ -1116,9 +1427,59 @@ __COMMON_CSS__
             return '#' + c.getHexString(THREE.SRGBColorSpace);
         }
 
-        function linkSlider(rangeEl, numEl, onChange) {
-            rangeEl.addEventListener('input', function() { numEl.value = rangeEl.value; onChange(); });
-            numEl.addEventListener('input', function() { if (numEl.value !== '') rangeEl.value = numEl.value; onChange(); });
+        // Typed, spun or dragged (dragNumber fires 'input' too).
+        function onNumber(numEl, onChange) {
+            numEl.addEventListener('input', function() { if (numEl.value !== '') onChange(); });
+        }
+
+        // Every number field works like Blender's: press and drag left /
+        // right to lower / raise it (one step per 4 px, Shift: per 16 px);
+        // a click without dragging puts the caret in to type, Enter or
+        // clicking away goes back to dragging. Uses the field's own
+        // min / max / step, and fires 'input' like typing does, so the
+        // field's own listeners run unchanged.
+        function dragNumber(input) {
+            if (input.dataset.drag) return;
+            input.dataset.drag = '1';
+            input.classList.add('drag-num');
+            let drag = null;
+            const value = function() { const v = parseFloat(input.value); return isFinite(v) ? v : 0; };
+            input.addEventListener('pointerdown', function(e) {
+                if (e.button !== 0 || input.disabled || document.activeElement === input) return;   // typing: leave the caret alone
+                e.preventDefault();
+                drag = { x: e.clientX, value: value(), moved: false, shiftX: null, shiftValue: 0 };
+                input.setPointerCapture(e.pointerId);
+            });
+            input.addEventListener('pointermove', function(e) {
+                if (!drag) return;
+                if (!drag.moved && Math.abs(e.clientX - drag.x) < 3) return;
+                drag.moved = true;
+                const step = parseFloat(input.step) || 1;
+                const min = input.min === '' ? -Infinity : parseFloat(input.min);
+                const max = input.max === '' ? Infinity : parseFloat(input.max);
+                // Shift slows down from where it was pressed, without a jump.
+                if (e.shiftKey && drag.shiftX === null) { drag.shiftX = e.clientX; drag.shiftValue = value(); }
+                if (!e.shiftKey && drag.shiftX !== null) { drag.x = e.clientX; drag.value = value(); drag.shiftX = null; }
+                const v = drag.shiftX !== null
+                    ? drag.shiftValue + Math.round((e.clientX - drag.shiftX) / 16) * step
+                    : drag.value + Math.round((e.clientX - drag.x) / 4) * step;
+                const text = String(+Math.min(max, Math.max(min, v)).toFixed(6));
+                if (text !== input.value) {
+                    input.value = text;
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+            });
+            const end = function(e) {
+                if (!drag) return;
+                const clicked = !drag.moved;
+                drag = null;
+                if (input.hasPointerCapture(e.pointerId)) input.releasePointerCapture(e.pointerId);
+                if (clicked && e.type === 'pointerup') { input.focus(); input.select(); }
+                else input.dispatchEvent(new Event('change', { bubbles: true }));
+            };
+            input.addEventListener('pointerup', end);
+            input.addEventListener('pointercancel', end);
+            input.addEventListener('keydown', function(e) { if (e.key === 'Enter') input.blur(); });
         }
 
         function segValue(segEl, attr) {
@@ -1131,16 +1492,41 @@ __COMMON_CSS__
 
         // ── Color by Height ────────────────────────────────────────────
         let chMode = 'paint';
-        // Each band: everything above `threshold` % turns `color`.
-        let chBands = [{ threshold: 60, color: '#808080' }];
+        // Each band: everything above `threshold` % turns `color`. Its edge
+        // is the shared natural edge (chEdge), or -- with `own` -- its own
+        // `noiseAmp` / `noiseScale` (always on; amplitude 0 = flat).
+        let chBands = [{ threshold: 60, color: '#808080', own: false, noiseAmp: 1, noiseScale: 0.5 }];
+        const chEdge = { noise: false, noiseAmp: 1, noiseScale: 0.5 };
         const BAND_PALETTE = ['#f2f2f2', '#8b5a2b', '#c9b27a', '#4a7c3a', '#5b7fa6', '#a33b2b', '#6b6b6b', '#e0c341'];
+
+        function validAmp(v) { return typeof v === 'number' && isFinite(v) && v >= 0; }
+        function validScale(v) { return typeof v === 'number' && isFinite(v) && v > 0; }
+        // A band's edge as sent to Blender and drawn by the preview.
+        function bandEdge(b) {
+            return b.own ? { noise: true, noiseAmp: b.noiseAmp, noiseScale: b.noiseScale }
+                : { noise: chEdge.noise, noiseAmp: chEdge.noiseAmp, noiseScale: chEdge.noiseScale };
+        }
+        // Normalizes a (saved) band; bands saved with per-band `noise`
+        // fields become own edges where they differ from the shared one.
+        function cleanBand(b) {
+            const band = { threshold: clampPct(b.threshold), color: b.color, own: !!b.own,
+                noiseAmp: validAmp(b.noiseAmp) ? b.noiseAmp : chEdge.noiseAmp,
+                noiseScale: validScale(b.noiseScale) ? b.noiseScale : chEdge.noiseScale };
+            if (typeof b.own !== 'boolean' && typeof b.noise === 'boolean') {
+                band.own = b.noise && (!chEdge.noise || band.noiseAmp !== chEdge.noiseAmp || band.noiseScale !== chEdge.noiseScale);
+            }
+            return band;
+        }
 
         // The ramp: a vertical bar, 0 % at the bottom. Each pin is a band's
         // threshold; the section above a pin (up to the next one) is that
         // band's color. Below the lowest pin the map keeps its own color.
+        // Each band's controls (color, %, own edge, remove) sit beside its
+        // pin, pushed apart where pins are close.
         let chSel = chBands[0];
-        const rampEls = new Map();   // band -> {seg, pin, swatch, label}
+        const rampEls = new Map();   // band -> {seg, pin, swatch, row, color, pct, mm, edge, del}
         let rampClickTimer = null;
+        const CH_ROW_H = 28;
 
         function clampPct(v) { return Math.min(100, Math.max(0, Math.round(v))); }
         function pctFromY(clientY) {
@@ -1155,7 +1541,11 @@ __COMMON_CSS__
         function bandsChanged() { renderBands(); updateColorHeightUI(); saveState(); }
         function addPin(pct) {
             if (chBands.length >= MAX_BANDS) return;
-            const band = { threshold: clampPct(pct), color: nextColor() };
+            // A new color starts with the selected one's own edge, if any.
+            const band = { threshold: clampPct(pct), color: nextColor(),
+                own: !!(chSel && chSel.own),
+                noiseAmp: chSel ? chSel.noiseAmp : chEdge.noiseAmp,
+                noiseScale: chSel ? chSel.noiseScale : chEdge.noiseScale };
             chBands.push(band);
             chSel = band;
             bandsChanged();
@@ -1176,6 +1566,23 @@ __COMMON_CSS__
             layoutRamp();
             updateColorHeightUI();
         }
+        function setOwnEdge(band, own) {
+            band.own = !!own;
+            if (band.own) {
+                // Starts from the shared edge (or the defaults while it's off).
+                band.noiseAmp = chEdge.noise ? chEdge.noiseAmp : (validAmp(band.noiseAmp) ? band.noiseAmp : 1);
+                band.noiseScale = chEdge.noise ? chEdge.noiseScale : (validScale(band.noiseScale) ? band.noiseScale : 0.5);
+            }
+            chSel = band;
+            layoutRamp(); updateColorHeightUI(); saveState();
+        }
+
+        function iconButton(text, title) {
+            const b = document.createElement('button');
+            b.type = 'button'; b.className = 'ch-icon'; b.textContent = text; b.title = title;
+            b.setAttribute('aria-label', title);
+            return b;
+        }
 
         function renderBands() {
             chBands.sort(function(a, b) { return a.threshold - b.threshold; });
@@ -1184,23 +1591,17 @@ __COMMON_CSS__
             ramp.innerHTML = ''; labels.innerHTML = '';
             rampEls.clear();
             const base = document.createElement('div');
-            base.className = 'ramp-label base'; base.textContent = 'Map color';
+            base.className = 'ch-base'; base.textContent = 'Map color';
             labels.appendChild(base);
             chBands.forEach(function(band) {
                 const seg = document.createElement('div');
                 seg.className = 'ramp-seg';
                 seg.title = 'Click to change this color';
-                seg.addEventListener('click', function() {
-                    selectBand(band);
-                    // Wait out a possible double-click (which adds a pin).
-                    clearTimeout(rampClickTimer);
-                    rampClickTimer = setTimeout(function() { $('ch_pinColor').click(); }, 260);
-                });
                 const pin = document.createElement('div');
                 pin.className = 'ramp-pin';
                 pin.tabIndex = 0;
                 pin.setAttribute('role', 'slider');
-                pin.setAttribute('aria-label', 'Height pin');
+                pin.setAttribute('aria-label', 'Height of this color');
                 pin.setAttribute('aria-valuemin', '0'); pin.setAttribute('aria-valuemax', '100');
                 const marker = document.createElement('span');
                 marker.className = 'ramp-marker';
@@ -1232,12 +1633,48 @@ __COMMON_CSS__
                     else return;
                     e.preventDefault();
                 });
-                const label = document.createElement('div');
-                label.className = 'ramp-label';
-                label.addEventListener('click', function() { selectBand(band); });
+
+                // The row: color · height % (mm) · own edge · remove.
+                const row = document.createElement('div');
+                row.className = 'ch-row';
+                const color = document.createElement('input');
+                color.type = 'color'; color.className = 'ch-swatch';
+                color.title = 'Change this color'; color.setAttribute('aria-label', 'Color');
+                color.addEventListener('input', function() {
+                    band.color = color.value; chSel = band;
+                    layoutRamp(); updateColorHeightUI(); saveState();
+                });
+                const pct = document.createElement('input');
+                pct.type = 'number'; pct.className = 'ch-pct'; pct.min = '0'; pct.max = '100'; pct.step = '1';
+                pct.title = 'Height where this color starts, in % of the terrain height';
+                pct.setAttribute('aria-label', 'Starts at, in percent');
+                pct.addEventListener('change', function() {
+                    const v = parseFloat(pct.value);
+                    if (!isFinite(v)) { layoutRamp(); return; }
+                    band.threshold = clampPct(v);   // may pass a neighbour: re-sort
+                    chSel = band;
+                    bandsChanged();
+                });
+                // Dragging updates the number; the bands re-sort on release
+                // (dragNumber's 'change'), not mid-drag.
+                dragNumber(pct);
+                const mm = document.createElement('span');
+                mm.className = 'ch-mm';
+                const edge = iconButton('~', 'Own natural edge for this color');
+                edge.addEventListener('click', function() { setOwnEdge(band, !band.own); });
+                const del = iconButton('×', 'Remove this color');
+                del.addEventListener('click', function() { removePin(band); });
+                row.append(color, pct, mm, edge, del);
+                row.addEventListener('pointerdown', function() { if (chSel !== band) selectBand(band); });
+                seg.addEventListener('click', function() {
+                    selectBand(band);
+                    // Wait out a possible double-click (which adds a pin).
+                    clearTimeout(rampClickTimer);
+                    rampClickTimer = setTimeout(function() { color.click(); }, 260);
+                });
                 ramp.append(seg, pin);
-                labels.appendChild(label);
-                rampEls.set(band, { seg: seg, pin: pin, swatch: swatch, label: label });
+                labels.appendChild(row);
+                rampEls.set(band, { seg: seg, pin: pin, swatch: swatch, row: row, color: color, pct: pct, mm: mm, edge: edge, del: del });
             });
             layoutRamp();
         }
@@ -1246,9 +1683,21 @@ __COMMON_CSS__
         function layoutRamp() {
             const range = info.colorRange;
             const span = range ? range[1] - range[0] : null;
-            chBands.forEach(function(band, i) {
+            const H = $('ch_rampLabels').clientHeight || 240;
+            // Rows want their pin's height; push apart where they'd overlap
+            // (top to bottom), then back up from the bottom edge.
+            const order = chBands.slice().reverse();   // highest first = top
+            const ys = order.map(function(b) { return (100 - b.threshold) / 100 * H; });
+            const lowest = chBands.length ? chBands[0].threshold : 100;
+            const showBase = lowest > 0;
+            if (showBase) ys.push((100 - lowest / 2) / 100 * H);
+            const half = CH_ROW_H / 2;
+            for (let i = 0; i < ys.length; i++) ys[i] = Math.max(ys[i], i ? ys[i - 1] + CH_ROW_H : half);
+            for (let i = ys.length - 1; i >= 0; i--) ys[i] = Math.min(ys[i], i < ys.length - 1 ? ys[i + 1] - CH_ROW_H : H - half);
+            order.forEach(function(band, k) {
                 const el = rampEls.get(band);
                 if (!el) return;
+                const i = chBands.indexOf(band);
                 const top = i < chBands.length - 1 ? chBands[i + 1].threshold : 100;
                 el.seg.style.bottom = band.threshold + '%';
                 el.seg.style.top = (100 - top) + '%';
@@ -1258,23 +1707,23 @@ __COMMON_CSS__
                 el.pin.classList.toggle('selected', band === chSel);
                 el.pin.setAttribute('aria-valuenow', String(band.threshold));
                 el.swatch.style.background = band.color;
-                el.label.style.top = (100 - band.threshold) + '%';
-                el.label.textContent = band.threshold + ' %' + (span ? '  ·  ' + (span * band.threshold / 100).toFixed(1) + ' mm' : '');
-                el.label.classList.toggle('selected', band === chSel);
+                el.row.style.top = ys[k] + 'px';
+                el.row.classList.toggle('selected', band === chSel);
+                if (el.color.value !== band.color) el.color.value = band.color;
+                if (document.activeElement !== el.pct) el.pct.value = band.threshold;
+                el.mm.textContent = '%' + (span ? ' · ' + (span * band.threshold / 100).toFixed(1) + ' mm' : '');
+                el.edge.setAttribute('aria-pressed', band.own ? 'true' : 'false');
+                el.edge.title = band.own ? 'Has its own natural edge -- click to use the shared one' : 'Give this color its own natural edge';
+                el.del.disabled = chBands.length < 2;
             });
-            const base = $('ch_rampLabels').querySelector('.base');
-            const lowest = chBands.length ? chBands[0].threshold : 100;
+            const base = $('ch_rampLabels').querySelector('.ch-base');
             if (base) {
-                base.style.top = (100 - lowest / 2) + '%';
-                base.hidden = lowest < 9;
+                base.hidden = !showBase;
+                if (showBase) base.style.top = ys[ys.length - 1] + 'px';
             }
-            const i = chBands.indexOf(chSel);
-            $('ch_pinIndex').max = String(chBands.length);
-            if (document.activeElement !== $('ch_pinIndex')) $('ch_pinIndex').value = i >= 0 ? i + 1 : '';
-            if (document.activeElement !== $('ch_pinValue')) $('ch_pinValue').value = chSel ? chSel.threshold : '';
-            if (chSel) $('ch_pinColor').value = chSel.color;
             $('ch_addBand').disabled = chBands.length >= MAX_BANDS;
-            $('ch_pinRemove').disabled = chBands.length < 2;
+            showEdgeFields();
+            updateApplyLabel();
         }
 
         $('ch_ramp').addEventListener('dblclick', function(e) {
@@ -1295,28 +1744,53 @@ __COMMON_CSS__
             });
             addPin((best[0] + best[1]) / 2);
         });
-        $('ch_pinRemove').addEventListener('click', function() { if (chSel) removePin(chSel); });
-        $('ch_pinIndex').addEventListener('change', function() {
-            const n = parseInt(this.value, 10);
-            if (n >= 1 && n <= chBands.length) selectBand(chBands[n - 1]);
-            else layoutRamp();
-        });
-        $('ch_pinValue').addEventListener('change', function() {
-            const v = parseFloat(this.value);
-            if (!chSel || !isFinite(v)) { layoutRamp(); return; }
-            chSel.threshold = clampPct(v);   // may pass a neighbour: re-sort
-            bandsChanged();
-        });
-        $('ch_pinColor').addEventListener('input', function() {
-            if (!chSel) return;
-            chSel.color = this.value;
+
+        function updateApplyLabel() {
+            const n = chBands.length;
+            $('ch_apply').textContent = 'Apply ' + n + (n === 1 ? ' color' : ' colors');
+        }
+
+        // Natural edge: the shared switch + sliders, and below them the
+        // selected color's own edge while it has one.
+        function setSliderPair(id, v) {
+            if (document.activeElement !== $(id)) $(id).value = +v.toFixed(3);
+        }
+        function showEdgeFields() {
+            $('ch_noise').checked = chEdge.noise;
+            $('ch_noise_fields').hidden = !chEdge.noise;
+            setSliderPair('ch_noiseAmp', chEdge.noiseAmp);
+            setSliderPair('ch_noiseScale', chEdge.noiseScale);
+            const own = !!(chSel && chSel.own);
+            $('ch_own_fields').hidden = !own;
+            if (own) {
+                $('ch_ownDot').style.background = chSel.color;
+                $('ch_ownTitle').textContent = 'Own edge for the color from ' + chSel.threshold + ' %';
+                setSliderPair('ch_ownAmp', chSel.noiseAmp);
+                setSliderPair('ch_ownScale', chSel.noiseScale);
+            }
+        }
+        function sharedEdgeChanged() {
+            chEdge.noise = $('ch_noise').checked;
+            chEdge.noiseAmp = Math.max(0, num('ch_noiseAmp', chEdge.noiseAmp));
+            chEdge.noiseScale = Math.max(0.005, num('ch_noiseScale', chEdge.noiseScale));
+            // Only the shared edge: colors with their own edge (~) keep it,
+            // also while this is off.
             layoutRamp(); updateColorHeightUI(); saveState();
-        });
+        }
+        function ownEdgeChanged() {
+            if (!chSel || !chSel.own) return;
+            chSel.noiseAmp = Math.max(0, num('ch_ownAmp', chSel.noiseAmp));
+            chSel.noiseScale = Math.max(0.005, num('ch_ownScale', chSel.noiseScale));
+            updateColorHeightUI(); saveState();
+        }
+        $('ch_noise').addEventListener('change', sharedEdgeChanged);
+        onNumber($('ch_noiseAmp'), sharedEdgeChanged);
+        onNumber($('ch_noiseScale'), sharedEdgeChanged);
+        onNumber($('ch_ownAmp'), ownEdgeChanged);
+        onNumber($('ch_ownScale'), ownEdgeChanged);
+        $('ch_ownOff').addEventListener('click', function() { if (chSel) setOwnEdge(chSel, false); });
         renderBands();
 
-        $('ch_noise').addEventListener('change', function() { $('ch_noise_fields').hidden = !this.checked; updateColorHeightUI(); });
-        linkSlider($('ch_noiseAmp_range'), $('ch_noiseAmp'), updateColorHeightUI);
-        linkSlider($('ch_noiseScale_range'), $('ch_noiseScale'), updateColorHeightUI);
         $('ch_mode').querySelectorAll('.element-mode-btn').forEach(function(b) {
             b.addEventListener('click', function() {
                 if (b.disabled) return;
@@ -1334,16 +1808,19 @@ __COMMON_CSS__
             if (range) {
                 const span = range[1] - range[0];
                 sorted.forEach(function(b, i) {
+                    const e = bandEdge(b);
                     shared.uBandZ.value[i] = range[0] + span * b.threshold / 100;
                     shared.uBandColor.value[i].setStyle(b.color);
+                    shared.uBandAmp.value[i] = e.noise ? Math.max(0, e.noiseAmp) : 0;
+                    shared.uBandScale.value[i] = Math.max(0.005, e.noiseScale);
                 });
             }
-            const noiseOn = $('ch_noise').checked;
-            shared.uNoiseAmp.value = noiseOn ? Math.max(0, num('ch_noiseAmp', 1)) : 0;
-            shared.uNoiseScale.value = Math.max(0.005, num('ch_noiseScale', 0.5));
             info.maps.forEach(function(m) {
                 const mat = materialOf(m.name);
                 if (!mat) return;
+                // info can arrive after the model (or change with a recolor).
+                const base = mapBaseColor(m.name);
+                if (base) mat.userData.own.uBase.value.copy(base);
                 // Blender's noise is centred on the map's own origin (a
                 // generated map's centre). Without it, fall back to the
                 // bounds centre -- never 0, which on a map placed at its real
@@ -1356,8 +1833,9 @@ __COMMON_CSS__
             });
             // Textured maps in Paint mode bake with the very noise the
             // preview draws; everything else uses Blender's own noise.
+            const anyEdge = chBands.some(function(b) { return bandEdge(b).noise; });
             const exact = chMode === 'paint' && info.maps.length > 0 && info.maps.every(function(m) { return m.textured; });
-            $('ch_noiseNote').textContent = exact ? ''
+            $('ch_noiseNote').textContent = !anyEdge || exact ? ''
                 : 'Preview is close: Blender draws the same kind of edge here, the exact wiggles can differ.';
             // Single / Multi Extruder only where Blender says the maps can be split.
             const reasons = { SEM: null, MEM: null };
@@ -1371,19 +1849,28 @@ __COMMON_CSS__
                 if (r) b.title = r;
             });
             if (reasons[chMode]) { chMode = 'paint'; setSeg($('ch_mode'), 'mode', 'paint'); }
+            // Already colored maps can only be painted: one line instead of
+            // a switch with two greyed-out choices.
+            const colored = info.maps.some(function(m) { return m.hasColors; }) && !!(reasons.SEM && reasons.MEM);
+            $('ch_modeFixed').hidden = !colored;
+            $('ch_mode').hidden = colored;
             $('ch_sem_fields').hidden = chMode !== 'SEM';
             $('ch_mem_fields').hidden = chMode !== 'MEM';
-            const shown = chMode === 'paint' && (reasons.SEM || reasons.MEM)
-                ? 'Extruder modes unavailable: ' + (reasons.SEM || reasons.MEM) : '';
-            $('ch_modeNote').textContent = shown;
+            $('ch_modeNote').textContent = colored || chMode !== 'paint' || !(reasons.SEM || reasons.MEM) ? ''
+                : 'Extruder modes unavailable: ' + (reasons.SEM || reasons.MEM);
         }
 
         function colorHeightParams() {
             return {
-                bands: chBands.map(function(b) { return { threshold: b.threshold, color: hexToRgb01(b.color) }; }),
+                bands: chBands.map(function(b) {
+                    const e = bandEdge(b);
+                    return {
+                        threshold: b.threshold, color: hexToRgb01(b.color),
+                        noise: e.noise, noiseAmplitude: e.noiseAmp, noiseScale: e.noiseScale,
+                    };
+                }),
                 mode: chMode,
                 tolerance: num('ch_tolerance', 0.2), thickness: num('ch_thickness', 1),
-                noise: $('ch_noise').checked, noiseAmplitude: num('ch_noiseAmp', 1), noiseScale: num('ch_noiseScale', 0.5),
             };
         }
 
@@ -1428,9 +1915,18 @@ __COMMON_CSS__
             });
             const el = $('cl_info');
             if (bad) {
+                // The smallest distance that works on every map, in the
+                // page's units: more than the thickness, which in meters
+                // depends on each map's elevation scale.
+                let needed = thick;
+                if (clUnits === 'm') {
+                    needed = Math.max.apply(null, info.maps.map(function(m) { return thick / (m.mmPerMeter || Infinity); }));
+                }
+                const shown = clUnits === 'm' ? String(Math.ceil(needed * 10) / 10) : String(+needed.toFixed(3));
                 el.textContent = clUnits === 'm' && info.maps.some(function(m) { return !m.mmPerMeter; })
                     ? 'This map has no elevation scale — use mm.'
-                    : 'The distance must be larger than the line thickness (' + thick + ' mm).';
+                    : 'The distance must be larger than the line thickness (' + thick + ' mm): use more than '
+                        + shown + ' ' + clUnits + '.';
                 el.className = 'note warn';
             } else {
                 el.textContent = notes.length ? '≈ ' + Math.max.apply(null, notes) + ' lines' + (notes.length > 1 ? ' per map' : '') + '.' : '';
@@ -1635,6 +2131,421 @@ __COMMON_CSS__
             document.querySelector('[data-apply="bottom_mark"]').disabled = !todo;
         }
 
+        // ── Color palette ──────────────────────────────────────────────
+        // The dropdown recolors the map with a palette (built-in or saved);
+        // the pencil's panel edits single colors (recolored right away) and
+        // saves / deletes palettes -- the same ones the Map Generator's
+        // Color Style lists. Every recolor is a page action ("colors"), so
+        // Undo takes it back. info.palettes: utils.color_styles' state;
+        // info.mapColors: the colors the map has now.
+        const PALETTE_ROLES = ['BASE', 'MOUNTAIN', 'GLACIER', 'WATER', 'FOREST', 'GREENSPACE',
+                               'FARMLAND', 'CITY', 'BUILDINGS', 'ROADS', 'TRAIL', 'YELLOW'];
+        const PALETTE_LABELS = {
+            BASE: 'Base Terrain', MOUNTAIN: 'Mountain / Scree', GLACIER: 'Glacier', WATER: 'Water',
+            FOREST: 'Forest', GREENSPACE: 'Greenspace', FARMLAND: 'Farmland', CITY: 'City',
+            BUILDINGS: 'Buildings', ROADS: 'Roads', TRAIL: 'Trail', YELLOW: 'Secondary Trail',
+        };
+        let paletteTimer = null;
+        let paletteEdits = {};   // role -> hex, picked in the panel but not sent yet
+        function paletteList() {
+            const p = info.palettes || {};
+            return (p.builtIn || []).map(function(s) { return { id: s.id, label: s.label, colors: s.colors || {}, user: false }; })
+                .concat((p.user || []).map(function(s) { return { id: 'USER:' + s.name, label: s.name, colors: s.colors || {}, user: true }; }));
+        }
+        // The map's colors: what it has now, the scene's palette for roles
+        // it has no part of.
+        function paletteColors() {
+            const out = Object.assign({}, (info.palettes || {}).currentColors || {}, info.mapColors || {});
+            Object.keys(paletteEdits).forEach(function(r) { out[r] = paletteEdits[r]; });
+            return out;
+        }
+        // The palette whose colors the map has (on every role it uses), or null.
+        function matchingPalette() {
+            const mine = info.mapColors || {};
+            const roles = Object.keys(mine);
+            if (!roles.length) return null;
+            const scene = (info.palettes || {}).currentStyle;
+            const matches = paletteList().filter(function(s) {
+                return roles.every(function(r) { return (s.colors[r] || '').toUpperCase() === (mine[r] || '').toUpperCase(); });
+            });
+            return matches.find(function(s) { return s.id === scene; }) || matches[0] || null;
+        }
+        function renderPalette() {
+            const select = $('paletteSelect');
+            const list = paletteList();
+            const match = matchingPalette();
+            select.innerHTML = '';
+            const add = function(value, text, disabled) {
+                const o = document.createElement('option');
+                o.value = value; o.textContent = text; o.disabled = !!disabled;
+                select.appendChild(o);
+                return o;
+            };
+            if (!match) add('', 'Custom colors');
+            list.filter(function(s) { return !s.user; }).forEach(function(s) { add(s.id, s.label); });
+            const user = list.filter(function(s) { return s.user; });
+            if (user.length) {
+                add('', '──────────', true);
+                user.forEach(function(s) { add(s.id, s.label); });
+            }
+            select.value = match ? match.id : '';
+            select.disabled = !info.maps.length;
+            $('paletteEdit').disabled = !info.maps.length;
+            $('paletteDelete').hidden = !(match && match.user);
+            if (match && match.user) $('paletteDelete').textContent = 'Delete "' + match.label + '"';
+            if (match && match.user && !$('paletteName').value) $('paletteName').value = match.label;
+            renderPaletteSwatches();
+        }
+        function renderPaletteSwatches() {
+            const host = $('paletteSwatches');
+            const colors = paletteColors();
+            const used = info.mapColors || {};
+            host.innerHTML = '';
+            PALETTE_ROLES.forEach(function(role) {
+                const label = document.createElement('label');
+                label.className = 'palette-swatch' + (used[role] ? '' : ' unused');
+                label.title = PALETTE_LABELS[role] + (used[role] ? '' : ' — not on this map');
+                const input = document.createElement('input');
+                input.type = 'color';
+                input.value = (colors[role] || '#808080').toLowerCase();
+                input.addEventListener('change', function() {
+                    paletteEdits[role] = input.value.toUpperCase();
+                    clearTimeout(paletteTimer);
+                    paletteTimer = setTimeout(function() { applyPalette(paletteColors(), ''); }, 300);
+                });
+                const name = document.createElement('span');
+                name.textContent = PALETTE_LABELS[role];
+                label.append(input, name);
+                host.appendChild(label);
+            });
+        }
+        function applyPalette(colors, style) {
+            paletteEdits = {};
+            return send({ kind: 'apply', action: 'colors', params: { colors: colors, style: style } }, 'Recoloring the map…')
+                .then(function(result) { showMessages((result && result.messages) || []); });
+        }
+        $('paletteSelect').addEventListener('change', function() {
+            const style = paletteList().find(function(s) { return s.id === this.value; }, this);
+            if (style) applyPalette(style.colors, style.id);
+        });
+        $('paletteEdit').addEventListener('click', function() {
+            const open = $('palettePanel').hidden;
+            $('palettePanel').hidden = !open;
+            this.setAttribute('aria-expanded', open ? 'true' : 'false');
+        });
+        $('paletteSave').addEventListener('click', function() {
+            const name = $('paletteName').value.trim();
+            if (!name) { setStatus('Give the palette a name first.', 'warn'); $('paletteName').focus(); return; }
+            const exists = paletteList().some(function(s) { return s.user && s.label.toLowerCase() === name.toLowerCase(); });
+            const ask = exists
+                ? tp3dConfirm('A palette called "' + name + '" exists. Replace its colors with these?', 'Replace palette?', 'Replace', 'Cancel')
+                : Promise.resolve(true);
+            ask.then(function(ok) {
+                if (!ok) return;
+                // Unsent edits go onto the map first, then into the palette.
+                clearTimeout(paletteTimer);
+                const colors = paletteColors();
+                const first = Object.keys(paletteEdits).length ? applyPalette(colors, '') : Promise.resolve();
+                first.then(function() {
+                    return send({ kind: 'palette', params: { op: 'save', name: name, colors: colors } }, 'Saving the palette…');
+                }).then(function(result) { showMessages((result && result.messages) || []); });
+            });
+        });
+        $('paletteName').addEventListener('keydown', function(e) { if (e.key === 'Enter') $('paletteSave').click(); });
+        $('paletteDelete').addEventListener('click', function() {
+            const match = matchingPalette();
+            if (!match || !match.user) return;
+            tp3dConfirm('Delete the palette "' + match.label + '"? The map keeps its colors.', 'Delete palette?', 'Delete', 'Cancel')
+                .then(function(ok) {
+                    if (!ok) return;
+                    $('paletteName').value = '';
+                    send({ kind: 'palette', params: { op: 'delete', style: match.id } }, 'Deleting the palette…')
+                        .then(function(result) { showMessages((result && result.messages) || []); });
+                });
+        });
+
+        // ── Trees ──────────────────────────────────────────────────────
+        // Real-world sized: the crown width in meters times each map's
+        // print mm per ground meter (groundMmPerMeter).
+        const TREE_MIN_PRINT_MM = 0.8;
+        const TREE_HEIGHT = { pine: 2.4, round: 1.5 };
+        let trShape = 'mixed';
+        $('tr_shape').querySelectorAll('.element-mode-btn').forEach(function(b) {
+            b.addEventListener('click', function() {
+                trShape = b.dataset.shape;
+                setSeg($('tr_shape'), 'shape', trShape);
+                updateTreesUI(); scheduleTreePreview(); saveState();
+            });
+        });
+        onNumber($('tr_size'), function() { updateTreesUI(); scheduleTreePreview(); saveState(); });
+        onNumber($('tr_spacing'), function() {
+            trDisabled = {};   // another grid: the clicked-off trees are other trees now
+            updateTreesUI(); scheduleTreePreview(); saveState();
+        });
+        onNumber($('tr_seed'), function() {
+            trDisabled = {};   // the trees moved: a clicked-off cell is another tree now
+            scheduleTreePreview(); saveState();
+        });
+
+        // Live preview: Blender works out where Apply would put the trees
+        // (nothing in the scene changes) and they're drawn here, one
+        // instanced mesh per shape. The ground keeps its forest color until
+        // Apply.
+        let treeTimer = null;
+        function scheduleTreePreview() {
+            clearTimeout(treeTimer);
+            treeTimer = setTimeout(requestTreePreview, 250);
+        }
+        // Unit trees (1 wide radius, 1 tall), bottom at 0 -- the same
+        // profiles post_process._TREE_PROFILES builds, without the part
+        // sunk into the ground.
+        function treeGeometry(pine) {
+            const pts = pine
+                ? [[0, 0], [1, 0], [0, 1]]
+                : [[0, 0], [0.55, 0], [1, 0.3], [0.85, 0.65], [0.45, 0.9], [0, 1]];
+            const g = new THREE.LatheGeometry(pts.map(function(p) { return new THREE.Vector2(p[0], p[1]); }), 8);
+            g.rotateX(Math.PI / 2);   // lathe axis Y -> Blender Z
+            return g;
+        }
+        function requestTreePreview() {
+            if (openTool !== 'trees') return;
+            const params = APPLY_PARAMS.trees();
+            sendPreview('trees', params).then(function(preview) {
+                if (!preview || openTool !== 'trees') return;
+                clearOverlay();
+                const heightOf = { 1: preview.pineHeight || TREE_HEIGHT.pine, 0: preview.roundHeight || TREE_HEIGHT.round };
+                const stride = preview.stride || 9;
+                trNotes = [];
+                trShown = {};
+                const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), pos = new THREE.Vector3(), scl = new THREE.Vector3();
+                const zAxis = new THREE.Vector3(0, 0, 1);
+                (preview.trees || []).forEach(function(entry) {
+                    (entry.messages || []).forEach(function(msg) { trNotes.push(msg.text); });
+                    const flat = entry.trees || [];
+                    const n = flat.length / stride;
+                    if (!n) return;
+                    const keys = [];
+                    for (let i = 0; i < n; i++) keys.push(flat[i * stride + 7] + ',' + flat[i * stride + 8]);
+                    trShown[entry.map] = keys;
+                    const color = new THREE.Color(entry.color || '#2f7d32');
+                    [1, 0].forEach(function(pine) {
+                        const idx = [];
+                        for (let i = 0; i < n; i++) if (flat[i * stride + 5] === pine) idx.push(i);
+                        if (!idx.length) return;
+                        // White material: each tree's own instance color
+                        // (forest green, or grey when switched off) shows.
+                        const mesh = new THREE.InstancedMesh(treeGeometry(pine === 1),
+                            new THREE.MeshStandardMaterial({ color: 0xffffff, flatShading: true, roughness: 0.8, metalness: 0.0 }), idx.length);
+                        mesh.userData = { trees: true, map: entry.map, color: color, keys: idx.map(function(i) { return keys[i]; }) };
+                        idx.forEach(function(i, k) {
+                            const o = i * stride;
+                            const x = flat[o], y = flat[o + 1], zc = flat[o + 2], zlow = flat[o + 3], r = flat[o + 4], rot = flat[o + 6];
+                            const top = zc + heightOf[pine] * 2 * r;
+                            pos.set(x, y, zlow);
+                            q.setFromAxisAngle(zAxis, rot);
+                            scl.set(r, r, Math.max(0.01, top - zlow));
+                            m4.compose(pos, q, scl);
+                            mesh.setMatrixAt(k, m4);
+                        });
+                        mesh.instanceMatrix.needsUpdate = true;
+                        mesh.computeBoundingSphere();
+                        paintTreeMesh(mesh);
+                        overlayRoot.add(mesh);
+                    });
+                });
+                updateTreeCount();
+            });
+        }
+
+        // Trees clicked off in the preview, per map: grid-cell keys ("i,j"
+        // -- post_process.tree_key). Kept while only the crown width or
+        // shape changes; a new spacing is a new grid, so they're dropped.
+        let trDisabled = {};
+        let trShown = {};     // map name -> keys of the trees the preview shows
+        let trNotes = [];
+        const TREE_OFF = new THREE.Color(0x9aa3ad);
+        function treeIsOff(map, key) { return !!(trDisabled[map] && trDisabled[map].has(key)); }
+        function paintTreeMesh(mesh) {
+            const ud = mesh.userData;
+            ud.keys.forEach(function(key, k) { mesh.setColorAt(k, treeIsOff(ud.map, key) ? TREE_OFF : ud.color); });
+            if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+        }
+        function toggleTree(mesh, k) {
+            const ud = mesh.userData;
+            const key = ud.keys[k];
+            if (!trDisabled[ud.map]) trDisabled[ud.map] = new Set();
+            if (trDisabled[ud.map].has(key)) trDisabled[ud.map].delete(key); else trDisabled[ud.map].add(key);
+            paintTreeMesh(mesh);
+            updateTreeCount();
+        }
+        function clearTreeChoices() {
+            trDisabled = {};
+            overlayRoot.children.forEach(function(o) { if (o.userData && o.userData.trees) paintTreeMesh(o); });
+            updateTreeCount();
+        }
+        function treeHit() {
+            if (openTool !== 'trees') return null;
+            const hit = raycaster.intersectObjects(overlayRoot.children, false)
+                .find(function(h) { return h.object.userData && h.object.userData.trees && h.instanceId != null; });
+            return hit || null;
+        }
+        function updateTreeCount() {
+            let total = 0, off = 0;
+            Object.keys(trShown).forEach(function(map) {
+                trShown[map].forEach(function(key) { total++; if (treeIsOff(map, key)) off++; });
+            });
+            const el = $('tr_count');
+            if (!total) { el.textContent = ''; $('tr_allOn').hidden = true; return; }
+            el.textContent = 'Preview: ' + (total - off).toLocaleString('en-US') + ' trees' +
+                (off ? ' (' + off.toLocaleString('en-US') + ' switched off)' : '') +
+                '. Click a tree to switch it off or on. Nothing changes until you press Apply.' +
+                (trNotes.length ? ' ' + trNotes.join(' ') : '');
+            el.className = 'note' + (trNotes.length ? ' warn' : '');
+            $('tr_allOn').hidden = !off;
+        }
+        $('tr_allOn').addEventListener('click', clearTreeChoices);
+        function fmtMm(v) { return v >= 10 ? v.toFixed(0) : v >= 1 ? v.toFixed(1) : v.toFixed(2); }
+        function updateTreesUI() {
+            const list = $('tr_list');
+            list.innerHTML = '';
+            const size = num('tr_size', 8);
+            let todo = 0, thin = false;
+            const ratios = [];
+            info.maps.forEach(function(m) {
+                const li = document.createElement('li');
+                const a = document.createElement('span');
+                a.textContent = m.name.replace(/\.\d{3,}$/, '');
+                const b = document.createElement('span');
+                if (!tileEnabled(m.name)) { b.textContent = 'switched off'; li.className = 'done'; }
+                else if (m.trees) { b.textContent = 'has trees'; li.className = 'done'; }
+                else if (m.treesReason) { b.textContent = m.treesReason; }
+                else if (size * m.groundMmPerMeter < TREE_MIN_PRINT_MM) { b.textContent = 'trees too thin'; thin = true; }
+                else { b.textContent = 'will get trees'; todo++; ratios.push(m.groundMmPerMeter); }
+                li.append(a, b);
+                list.appendChild(li);
+            });
+            const el = $('tr_info');
+            if (ratios.length) {
+                const mmpm = Math.min.apply(null, ratios);
+                const w = size * mmpm;
+                const heights = trShape === 'mixed' ? [TREE_HEIGHT.round, TREE_HEIGHT.pine] : [TREE_HEIGHT[trShape]];
+                const h = heights.map(function(f) { return fmtMm(f * w); }).join('–');
+                el.textContent = 'Scale 1:' + (Math.round(1000 / mmpm / 10) * 10).toLocaleString('en-US') +
+                    ' — each tree prints about ' + fmtMm(w) + ' mm wide and ' + h + ' mm tall, ' +
+                    fmtMm(num('tr_spacing', 12) * mmpm) + ' mm apart.';
+            } else if (thin) {
+                el.textContent = 'At this crown width the trees would be thinner than ' + TREE_MIN_PRINT_MM + ' mm — make them wider.';
+            } else {
+                el.textContent = info.maps.length ? 'Nothing to plant on.' : '';
+            }
+            document.querySelector('[data-apply="trees"]').disabled = !todo;
+        }
+
+        // ── Procedural Snow ────────────────────────────────────────────
+        // Live preview like the trees: Blender scores the terrain and picks
+        // the snow (utils/snow.py), the page draws its top in white.
+        // Nothing changes until Apply.
+        const SNOW_FIELDS = ['coverage', 'snowline', 'maxSlope', 'patchiness', 'patchSize', 'seed'];
+        const SNOW_DEFAULTS = { coverage: 40, snowline: 50, maxSlope: 45, patchiness: 0.3, patchSize: 3.5, seed: 0 };
+        // The snow threshold's soft band, fixed (utils/snow.THRESHOLD_SOFTNESS).
+        const SNOW_THRESHOLD_SOFTNESS = 15;
+        let snowTimer = null;
+        function scheduleSnowPreview() {
+            clearTimeout(snowTimer);
+            snowTimer = setTimeout(requestSnowPreview, 250);
+        }
+        SNOW_FIELDS.forEach(function(k) {
+            onNumber($('sn_' + k), function() { scheduleSnowPreview(); saveState(); });
+        });
+
+        // While the snow threshold changes: a blue plane
+        // over each map at that height -- Color by Height's 0-100 % range,
+        // the same one the snow uses -- with the soft band's edges as faint
+        // outlines. Fades out a moment after the last change.
+        let thresholdTimer = null;
+        function clearThresholdPlane() {
+            thresholdRoot.traverse(function(o) {
+                if (o.geometry) o.geometry.dispose();
+                if (o.material) o.material.dispose();
+            });
+            thresholdRoot.clear();
+        }
+        function showThresholdPlane() {
+            clearThresholdPlane();
+            clearTimeout(thresholdTimer);
+            if (openTool !== 'snow') return;
+            const pct = num('sn_snowline', SNOW_DEFAULTS.snowline);
+            const soft = SNOW_THRESHOLD_SOFTNESS;
+            enabledMaps().forEach(function(m) {
+                if (!m.colorRange) return;
+                const low = m.colorRange[0], high = m.colorRange[1];
+                const at = function(p) { return low + (high - low) * Math.min(100, Math.max(0, p)) / 100; };
+                const b = m.bounds;
+                const w = (b[3] - b[0]) * 1.08, h = (b[4] - b[1]) * 1.08;
+                const cx = (b[0] + b[3]) / 2, cy = (b[1] + b[4]) / 2;
+                const plane = new THREE.Mesh(new THREE.PlaneGeometry(w, h),
+                    new THREE.MeshBasicMaterial({ color: 0x3b9dff, transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false }));
+                plane.position.set(cx, cy, at(pct));
+                plane.renderOrder = 7;
+                thresholdRoot.add(plane);
+                const outline = function(z, opacity) {
+                    const edge = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.PlaneGeometry(w, h)),
+                        new THREE.LineBasicMaterial({ color: 0x3b9dff, transparent: true, opacity: opacity }));
+                    edge.position.set(cx, cy, z);
+                    thresholdRoot.add(edge);
+                };
+                outline(at(pct), 0.9);
+                if (soft > 0) {
+                    outline(at(pct - soft / 2), 0.35);
+                    outline(at(pct + soft / 2), 0.35);
+                }
+            });
+            thresholdTimer = setTimeout(clearThresholdPlane, 1500);
+        }
+        onNumber($('sn_snowline'), showThresholdPlane);
+        function snowParams() {
+            const p = {};
+            SNOW_FIELDS.forEach(function(k) { p[k] = num('sn_' + k, SNOW_DEFAULTS[k]); });
+            p.seed = Math.max(0, Math.round(p.seed));
+            return p;
+        }
+        function requestSnowPreview() {
+            if (openTool !== 'snow') return;
+            sendPreview('snow', snowParams()).then(function(preview) {
+                if (!preview || openTool !== 'snow') return;
+                clearOverlay();
+                const shares = [];
+                const notes = [];
+                (preview.snow || []).forEach(function(entry) {
+                    if (entry.problem) { notes.push(entry.map + ': ' + entry.problem); return; }
+                    shares.push(entry.percent || 0);
+                    const tri = entry.triangles || [];
+                    if (!tri.length) return;
+                    const g = new THREE.BufferGeometry();
+                    g.setAttribute('position', new THREE.Float32BufferAttribute(tri, 3));
+                    g.computeVertexNormals();
+                    overlayRoot.add(new THREE.Mesh(g, new THREE.MeshStandardMaterial({
+                        color: 0xffffff, flatShading: true, roughness: 0.6, metalness: 0.0,
+                        // Painted, not raised: drawn just over the terrain it covers.
+                        polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 })));
+                });
+                const el = $('sn_info');
+                const total = shares.reduce(function(a, b) { return a + b; }, 0);
+                if (!shares.length) {
+                    el.textContent = notes.join(' ');
+                    el.className = 'note';
+                } else if (total <= 0) {
+                    el.textContent = 'No snow — lower the snow threshold, raise the max slope or the coverage.' + (notes.length ? ' ' + notes.join(' ') : '');
+                    el.className = 'note warn';
+                } else {
+                    const avg = total / shares.length;
+                    el.textContent = 'Snow on ' + (Math.round(avg * 10) / 10) + ' % of the terrain' +
+                        (shares.length > 1 ? ' (average over the tiles)' : '') + '. Nothing changes until you press Apply.' +
+                        (notes.length ? ' ' + notes.join(' ') : '');
+                    el.className = 'note';
+                }
+            });
+        }
         // ── Text / SVG / Heightmap placement ───────────────────────────
         // Shared controls (side, type, color, rotation) come from #placementTpl.
         const placements = {
@@ -1664,7 +2575,7 @@ __COMMON_CSS__
                 b.addEventListener('click', function() { pl.op = b.dataset.op; syncPlacementControls(key); updatePlacementPreview(); saveState(); });
             });
             slot.querySelector('.pl-color').addEventListener('input', function() { pl.color = this.value; updatePlacementPreview(); saveState(); });
-            linkSlider(slot.querySelector('.pl-rot'), slot.querySelector('.pl-rot-num'), function() {
+            onNumber(slot.querySelector('.pl-rot-num'), function() {
                 pl.rotation = parseFloat(slot.querySelector('.pl-rot-num').value) || 0;
                 updatePlacementPreview();
                 saveState();
@@ -1747,7 +2658,6 @@ __COMMON_CSS__
             if (key !== 'hm') slot.querySelector('.pl-type-wrap').hidden = pl.bottom;
             slot.querySelector('.pl-color-row').hidden = pl.op !== 'paint';
             slot.querySelector('.pl-color').value = pl.color;
-            slot.querySelector('.pl-rot').value = pl.rotation;
             slot.querySelector('.pl-rot-num').value = pl.rotation;
             const where = slot.querySelector('.pl-where');
             if (pl.placed && pl.x !== null) {
@@ -1872,8 +2782,8 @@ __COMMON_CSS__
 
         $('tx_text').addEventListener('input', function() { requestShape('tx'); saveState(); });
         $('tx_font').addEventListener('change', function() { requestShape('tx'); saveState(); });
-        linkSlider($('tx_size_range'), $('tx_size'), function() { requestShape('tx'); saveState(); });
-        linkSlider($('sv_scale_range'), $('sv_scale'), function() { updatePlacementPreview(); saveState(); });
+        onNumber($('tx_size'), function() { requestShape('tx'); saveState(); });
+        onNumber($('sv_scale'), function() { updatePlacementPreview(); saveState(); });
         ['hm_length', 'hm_height'].forEach(function(id) {
             $(id).addEventListener('input', function() {
                 if (!hasShape(placements.hm)) updatePlacementPreview();   // resize the dashed box now
@@ -1988,6 +2898,8 @@ __COMMON_CSS__
                     if (ball) ball.scale.setScalar(1.25);
                 }
                 if (ball) cursor = 'pointer';
+            } else if (openTool === 'trees') {
+                if (treeHit()) cursor = 'pointer';
             } else if (PLACEMENT_TOOLS[openTool]) cursor = 'crosshair';
             renderer.domElement.style.cursor = cursor;
         });
@@ -2012,6 +2924,10 @@ __COMMON_CSS__
             if (openTool === 'dovetails') {
                 const hit = raycaster.intersectObjects(overlayRoot.children, false)[0];
                 if (hit) { toggleSides(hit.object.userData.sides); return; }
+            }
+            if (openTool === 'trees') {
+                const hit = treeHit();
+                if (hit) { toggleTree(hit.object, hit.instanceId); return; }
             }
             // Anywhere else on a tile: switch that tile off / on.
             if (info.maps.length < 2) return;
@@ -2061,6 +2977,13 @@ __COMMON_CSS__
                 return { sides: sides };
             },
             bottom_mark: function() { return { cutout: $('bm_cutout').checked }; },
+            snow: function() { return snowParams(); },
+            trees: function() {
+                const skip = {};
+                Object.keys(trDisabled).forEach(function(map) { if (trDisabled[map].size) skip[map] = Array.from(trDisabled[map]); });
+                return { shape: trShape, size: num('tr_size', 8), spacing: num('tr_spacing', 12),
+                         seed: Math.max(0, Math.round(num('tr_seed', 0))), skip: skip };
+            },
             text: function() {
                 return Object.assign(placementParams('tx'), { text: $('tx_text').value, font: $('tx_font').value, size: num('tx_size', 10) });
             },
@@ -2100,6 +3023,7 @@ __COMMON_CSS__
                             placements[key].placed = false;
                             updatePlacementPreview();
                         }
+                        if (ok && action === 'trees') trDisabled = {};   // planted: those choices are done
                         if (ok && openTool === action) {
                             // Done with this tool -- fold its card (and its
                             // previews) away. A failed Apply stays open.
@@ -2121,22 +3045,24 @@ __COMMON_CSS__
             });
         });
 
-        // Back to the generator this page was handed off from -- Blender
-        // reopens it in this same window (its page restores its own state).
-        $('backBtn').hidden = !S.backTo;
+        // The header's Configuration / Model switch (picker_ui.js): back to
+        // the generator the shown map came from -- Blender reopens it in this
+        // same window, with the settings that map was made with.
+        window.tp3dModeSwitch = {
+            available: !!S.backTo,
+            toConfiguration: function(done) {
+                send({ kind: 'back' }, 'Opening the generator…').then(function(result) {
+                    if (result && result.next_url) {
+                        setStatus('Opening the generator…');
+                        window.location.href = result.next_url;
+                        return;
+                    }
+                    showMessages((result && result.messages) || []);
+                    done();
+                });
+            },
+        };
         applyPuzzleMode();
-        $('backBtn').addEventListener('click', function() {
-            $('backBtn').disabled = true;
-            send({ kind: 'back' }, 'Opening the generator…').then(function(result) {
-                if (result && result.next_url) {
-                    setStatus('Opening the generator…');
-                    window.location.href = result.next_url;
-                    return;
-                }
-                showMessages((result && result.messages) || []);
-                $('backBtn').disabled = false;
-            });
-        });
 
         // ══ Export ════════════════════════════════════════════════════════
         // A colored model goes out as 3MF (keeps the colors) -- without the
@@ -2147,9 +3073,10 @@ __COMMON_CSS__
         function exportsAs3mf() {
             return !!info.colored && !!(info.has3mf || S.has3mf);
         }
-        // Starts as Blender's suggestion (info.exportName) until the user types their own.
+        // Starts as the map's own name (info.exportName) until the user types
+        // their own -- also the name Save gives it in My Maps (saveName).
         let exportNameEdited = false;
-        $('exportName').addEventListener('input', function() { exportNameEdited = true; });
+        $('exportName').addEventListener('input', function() { exportNameEdited = true; updateSaveBtn(); });
         $('exportName').addEventListener('keydown', function(e) { if (e.key === 'Enter') $('exportBtn').click(); });
 
         // ── Print profile (3MF only) ────────────────────────────────────
@@ -2401,11 +3328,13 @@ __COMMON_CSS__
             clearTimeout(saveTimer);
             saveTimer = setTimeout(function() {
                 const s = {
-                    clUnits: clUnits, chBands: chBands,
+                    clUnits: clUnits, chBands: chBands, chEdge: chEdge,
                     text: $('tx_text').value, font: $('tx_font').value, textSize: num('tx_size', 10),
                     svgPath: placements.sv.path, svgName: placements.sv.name, svgScale: num('sv_scale', 1),
                     gpxPath: placements.hm.path, gpxName: placements.hm.name,
                     hmLength: num('hm_length', 50), hmHeight: num('hm_height', 10),
+                    trees: { shape: trShape, size: num('tr_size', 8), spacing: num('tr_spacing', 12), seed: num('tr_seed', 0) },
+                    snow: snowParams(),
                     placements: {},
                 };
                 ['tx', 'sv', 'hm'].forEach(function(k) {
@@ -2417,17 +3346,25 @@ __COMMON_CSS__
             }, 400);
         }
 
+        // Sets the shared natural edge from *e* ({noise, noiseAmp,
+        // noiseScale}), keeping the current value for anything invalid.
+        function setSharedEdge(e) {
+            if (!e || typeof e !== 'object') return;
+            if (typeof e.noise === 'boolean') chEdge.noise = e.noise;
+            if (validAmp(e.noiseAmp)) chEdge.noiseAmp = e.noiseAmp;
+            if (validScale(e.noiseScale)) chEdge.noiseScale = Math.max(0.005, e.noiseScale);
+        }
+
         function applySceneDefaults() {
             const setVal = function(id, v) { if (typeof v === 'number' && isFinite(v)) $(id).value = +v.toFixed(3); };
-            chBands = [{
+            // The sidebar's natural edge is the shared one.
+            setSharedEdge({ noise: !!S.mountain_noise, noiseAmp: S.mountain_noise_amplitude, noiseScale: S.mountain_noise_scale });
+            chBands = [cleanBand({
                 threshold: typeof S.mountain_treshold === 'number' ? S.mountain_treshold : 60,
                 color: Array.isArray(S.mountain_color) ? rgb01ToHex(S.mountain_color) : '#808080',
-            }];
+                own: false,
+            })];
             renderBands();
-            $('ch_noise').checked = !!S.mountain_noise;
-            $('ch_noise_fields').hidden = !S.mountain_noise;
-            setVal('ch_noiseAmp', S.mountain_noise_amplitude); setVal('ch_noiseAmp_range', S.mountain_noise_amplitude);
-            setVal('ch_noiseScale', S.mountain_noise_scale); setVal('ch_noiseScale_range', S.mountain_noise_scale);
             chMode = S.color_height_SEM ? 'SEM' : S.color_height_MEM ? 'MEM' : 'paint';
             setSeg($('ch_mode'), 'mode', chMode);
             setVal('ch_tolerance', S.toleranceElements); setVal('ch_thickness', S.elementShellThickness);
@@ -2458,22 +3395,39 @@ __COMMON_CSS__
                 const bands = s.chBands.filter(function(b) {
                     return b && typeof b.threshold === 'number' && /^#[0-9a-f]{6}$/i.test(b.color);
                 }).slice(0, MAX_BANDS);
-                if (bands.length) { chBands = bands; renderBands(); }
+                if (bands.length) {
+                    // Older saved states kept the edge on each band: the
+                    // first band's becomes the shared one.
+                    if (s.chEdge) setSharedEdge(s.chEdge);
+                    else if (typeof bands[0].noise === 'boolean') setSharedEdge(bands[0]);
+                    chBands = bands.map(cleanBand);
+                    renderBands();
+                }
             }
             if (typeof s.text === 'string') $('tx_text').value = s.text;
             if (typeof s.font === 'string') $('tx_font').dataset.want = s.font;
-            if (s.textSize > 0) { $('tx_size').value = s.textSize; $('tx_size_range').value = s.textSize; }
+            if (s.textSize > 0) { $('tx_size').value = s.textSize; }
             if (s.svgPath) {
                 placements.sv.path = s.svgPath; placements.sv.name = s.svgName || '';
                 $('sv_name').textContent = s.svgName || s.svgPath.split(/[\\/]/).pop();
             }
-            if (s.svgScale > 0) { $('sv_scale').value = s.svgScale; $('sv_scale_range').value = s.svgScale; }
+            if (s.svgScale > 0) { $('sv_scale').value = s.svgScale; }
             if (s.gpxPath) {
                 placements.hm.path = s.gpxPath; placements.hm.name = s.gpxName || '';
                 $('hm_name').textContent = s.gpxName || s.gpxPath.split(/[\\/]/).pop();
             }
             if (s.hmLength > 0) $('hm_length').value = s.hmLength;
             if (s.hmHeight > 0) $('hm_height').value = s.hmHeight;
+            if (s.snow && typeof s.snow === 'object') {
+                SNOW_FIELDS.forEach(function(k) { if (typeof s.snow[k] === 'number' && isFinite(s.snow[k])) $('sn_' + k).value = s.snow[k]; });
+            }
+            if (s.trees && typeof s.trees === 'object') {
+                const t = s.trees;
+                if (TREE_HEIGHT[t.shape] || t.shape === 'mixed') { trShape = t.shape; setSeg($('tr_shape'), 'shape', trShape); }
+                if (t.size > 0) { $('tr_size').value = t.size; }
+                if (t.spacing > 0) { $('tr_spacing').value = t.spacing; }
+                if (t.seed >= 0) $('tr_seed').value = t.seed;
+            }
             Object.keys(s.placements || {}).forEach(function(k) {
                 if (!placements[k]) return;
                 const p = s.placements[k];
@@ -2487,6 +3441,10 @@ __COMMON_CSS__
         }
 
         // ══ Start ═════════════════════════════════════════════════════════
+        // Every number field drags like Blender's (the placement controls
+        // are in place by now; Color by Height's band fields get it as
+        // they're made).
+        document.querySelectorAll('input[type=number]').forEach(dragNumber);
         applySceneDefaults();
         fetch(BASE + '/get_state', { cache: 'no-store' })
             .then(function(r) { return r.json(); })

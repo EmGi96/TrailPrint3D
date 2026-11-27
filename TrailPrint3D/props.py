@@ -1659,7 +1659,8 @@ class TP3D_PG_properties(bpy.types.PropertyGroup):
     )  # type: ignore
     cl_distance: FloatProperty(
         name=_("Contour Line distance"),
-        default=2,
+        # In real-world meters by default (cl_useRealMeters).
+        default=100,
         description=_tip("Distance between Contour lines"),
     )  # type: ignore
     cl_offset: FloatProperty(

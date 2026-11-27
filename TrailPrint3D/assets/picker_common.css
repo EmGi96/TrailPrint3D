@@ -552,16 +552,6 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 0.875rem; line
 .source-switch-btn:hover:not(.active):not(:disabled) { color: var(--text-primary); }
 .source-switch-btn.active { background: var(--accent); color: #fff; }
 .source-switch-btn:disabled { opacity: 0.6; cursor: progress; }
-/* Compact color-style dropdown between the Settings gear and the OSM/ESA pill
-   (settings_modal.js's tp3dBuildCompactColorStyleSelect). */
-.color-style-compact-wrap { flex-shrink: 0; display: flex; align-items: center; gap: 4px;
-    min-height: var(--control-height); padding: 0 2px 0 8px; background: var(--surface-field);
-    border: 1px solid var(--border); border-radius: var(--radius-control); color: var(--text-secondary); cursor: pointer; }
-.color-style-compact-wrap:hover, .color-style-compact-wrap:focus-within { border-color: var(--accent); color: var(--text-primary); }
-.color-style-compact-wrap svg { flex-shrink: 0; }
-.color-style-compact { max-width: 150px; background: transparent; color: var(--text-primary); border: none;
-    padding: 4px 4px; font-size: 0.75rem; cursor: pointer; }
-.color-style-compact option { background: var(--surface-field); }
 /* Hover flyout with a Water/Roads chip's sub-categories (element_status.js). Fixed so the
    strip can't clip it; no gap to the chip so the hover isn't lost on the way down. */
 .element-flyout { position: fixed; z-index: 2000; display: flex; flex-direction: column; gap: 6px; padding: 10px 12px;
@@ -1146,26 +1136,7 @@ input[aria-invalid=true] { border-color: var(--danger); }
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
-/* ── Color Styles (Settings > Other > Appearance) ─────────────────── */
-.color-style-row {
-    margin-bottom: 12px;
-}
-.color-style-controls {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-}
-.color-style-controls select {
-    flex: 1;
-    min-width: 140px;
-}
-.color-style-dirty {
-    font-size: 11px;
-    color: #e0b050;
-    white-space: nowrap;
-    margin-left: 2px;
-}
+/* Small "restore" button (the Backplate Generator's Restore). */
 .restore-btn {
     background: none;
     border: 1px solid var(--set-input-border);
@@ -1183,94 +1154,7 @@ input[aria-invalid=true] { border-color: var(--danger); }
     background: var(--surface-raised);
 }
 
-/* The Swatch Grid */
-.color-role-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-    gap: 8px;
-    margin-top: 12px;
-    margin-bottom: 16px;
-}
-
-/* Individual Swatch Pill */
-.color-swatch {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    background: var(--set-input-bg);
-    border: 1px solid var(--set-input-border);
-    border-radius: 6px;
-    padding: 6px 10px;
-    cursor: pointer;
-    transition: border-color var(--motion), background-color var(--motion);
-    user-select: none;
-}
-.color-swatch:hover {
-    border-color: var(--text-muted);
-}
-
-/* The native color input, completely re-skinned */
-.color-swatch-input {
-    appearance: none;
-    -webkit-appearance: none;
-    width: 22px;
-    height: 22px;
-    border: none;
-    border-radius: 50%; /* Circle looks premium */
-    padding: 0;
-    margin: 0;
-    cursor: pointer;
-    background: transparent;
-    overflow: hidden;
-    flex-shrink: 0;
-}
-/* Chrome/Safari inner swatch */
-.color-swatch-input::-webkit-color-swatch-wrapper {
-    padding: 0;
-}
-.color-swatch-input::-webkit-color-swatch {
-    border: 1px solid rgba(0,0,0,0.4);
-    border-radius: 50%;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-}
-/* Firefox inner swatch */
-.color-swatch-input::-moz-color-swatch {
-    border: 1px solid rgba(0,0,0,0.4);
-    border-radius: 50%;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-}
-
-.color-swatch-label {
-    font-size: var(--fs-small);
-    color: var(--text-secondary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    flex: 1;
-}
-
-/* Actions row */
-.color-style-actions {
-    display: flex;
-    gap: 8px;
-    padding-top: 16px;
-    border-top: 1px solid var(--set-section-border);
-}
-.color-style-actions .element-mode-btn {
-    flex: 1;
-    min-height: 32px;
-    font-size: var(--fs-small);
-}
-.color-style-actions .element-mode-btn.danger {
-    background: #6e3434;
-    border-color: #8f3434;
-    color: #fff;
-}
-.color-style-actions .element-mode-btn.danger:hover:not(:disabled) {
-    background: #8f3434;
-}
-
-/* Inline Name Row (Save as new / Update) */
+/* Inline name row (the print-profile import's Save / Cancel) */
 .color-style-name-row {
     display: flex;
     gap: 6px;
@@ -1283,13 +1167,72 @@ input[aria-invalid=true] { border-color: var(--danger); }
 .color-style-name-row .element-mode-btn {
     flex-shrink: 0;
 }
-/* Header generator dropdown (picker_ui.js): looks like the subtitle it
-   replaces, with a small arrow. */
-.tp3d-generator-switch { display: block; margin-top: 2px; padding: 2px 22px 2px 0; background: transparent;
-    border: none; border-bottom: 1px dashed transparent; cursor: pointer; font-family: inherit;
-    appearance: none; -webkit-appearance: none;
-    background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
-    background-position: right 9px center, right 4px center; background-size: 5px 5px, 5px 5px; background-repeat: no-repeat; }
-.tp3d-generator-switch:hover, .tp3d-generator-switch:focus { color: var(--text-primary); border-bottom-color: var(--border); outline: none; }
-.tp3d-generator-switch:disabled { opacity: 0.6; cursor: progress; }
-.tp3d-generator-switch option { background: var(--surface-panel); color: var(--text-primary); }
+/* Header generator switcher (picker_ui.js): the heading becomes a button
+   with the generator's icon and name; it opens .tp3d-generator-panel, a grid
+   of square tiles. Leaves the heading's top-right corner to the language
+   picker (.tp3d-translate). */
+.tp3d-generator-switch { display: flex; align-items: center; gap: 10px; width: calc(100% - 56px); box-sizing: border-box;
+    margin: 0; padding: 6px 34px 6px 8px; min-height: 44px; font-family: inherit; font-size: 1.0625rem; font-weight: 600;
+    text-align: left; color: var(--text-primary); background-color: var(--surface-field); border: 1px solid var(--border);
+    border-radius: var(--radius-control); cursor: pointer; position: relative; }
+.tp3d-generator-switch svg { width: 28px; height: 28px; flex-shrink: 0; color: var(--accent); }
+.tp3d-generator-switch span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A small 2 x 2 grid mark on the right: "opens the generator panel". */
+.tp3d-generator-switch::after { content: ""; position: absolute; right: 11px; top: 50%; width: 12px; height: 12px;
+    transform: translateY(-50%); opacity: 0.7;
+    background: linear-gradient(currentColor, currentColor) 0 0 / 5px 5px no-repeat,
+                linear-gradient(currentColor, currentColor) 7px 0 / 5px 5px no-repeat,
+                linear-gradient(currentColor, currentColor) 0 7px / 5px 5px no-repeat,
+                linear-gradient(currentColor, currentColor) 7px 7px / 5px 5px no-repeat; }
+.tp3d-generator-switch:hover { border-color: var(--accent); }
+.tp3d-generator-switch:hover::after { opacity: 1; }
+.tp3d-generator-switch:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px rgba(255,255,255,0.08); }
+.tp3d-generator-panel .tp3d-modal-box { width: 520px; }
+.tp3d-generator-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+.tp3d-generator-tile { aspect-ratio: 1 / 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 12px; padding: 12px; background: var(--surface-raised, var(--surface-field)); color: var(--text-primary);
+    border: 1px solid var(--border); border-radius: 8px; cursor: pointer; font-family: inherit; font-size: 0.875rem;
+    font-weight: 600; text-align: center; line-height: 1.25; transition: border-color 0.12s, background-color 0.12s, transform 0.12s; }
+.tp3d-generator-tile svg { width: 48px; height: 48px; color: var(--text-secondary); transition: color 0.12s; }
+.tp3d-generator-tile:hover:not(:disabled) { border-color: var(--accent); transform: translateY(-1px); }
+.tp3d-generator-tile:hover:not(:disabled) svg, .tp3d-generator-tile:focus-visible svg { color: var(--accent); }
+.tp3d-generator-tile:focus-visible { outline: none; border-color: var(--accent); }
+.tp3d-generator-tile.current { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.tp3d-generator-tile.current svg { color: var(--accent); }
+.tp3d-generator-tile:disabled { opacity: 0.55; cursor: progress; }
+.tp3d-generator-tile.busy { opacity: 1; border-color: var(--accent); }
+/* "My Maps" (picker_ui.js): the saved maps below the generator tiles. */
+.tp3d-generator-panel .tp3d-modal-box { width: 640px; }
+.tp3d-library { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; padding-top: 12px; border-top: 1px solid var(--border); }
+.tp3d-library-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.tp3d-library-head > span:first-child { font-weight: bold; font-size: 14px; }
+.tp3d-library-folder { min-width: 0; font-size: 11px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; }
+.tp3d-library-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+.tp3d-library-note { grid-column: 1 / -1; font-size: 12.5px; color: var(--text-secondary); padding: 8px 2px; }
+.tp3d-library-tile { position: relative; display: flex; flex-direction: column; gap: 4px; padding: 8px; background: var(--surface-raised);
+    border: 1px solid var(--border); border-radius: 8px; cursor: pointer; outline: none; transition: border-color 0.12s, transform 0.12s; }
+.tp3d-library-tile:hover, .tp3d-library-tile:focus-visible { border-color: var(--accent); transform: translateY(-1px); }
+.tp3d-library-tile.busy { opacity: 0.6; cursor: progress; }
+.tp3d-library-pic { aspect-ratio: 1 / 1; display: flex; align-items: center; justify-content: center; border-radius: 5px;
+    background: var(--surface-field); overflow: hidden; color: var(--text-secondary); }
+.tp3d-library-pic img { width: 100%; height: 100%; object-fit: contain; }
+.tp3d-library-name { font-size: 12.5px; font-weight: 600; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tp3d-library-meta { font-size: 11px; color: var(--text-secondary); }
+.tp3d-library-del { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; display: flex; align-items: center;
+    justify-content: center; padding: 0; border: 1px solid var(--border); border-radius: 50%; background: rgba(26,26,26,0.85);
+    color: var(--text-secondary); font-size: 14px; line-height: 1; cursor: pointer; opacity: 0; transition: opacity 0.12s; }
+.tp3d-library-tile:hover .tp3d-library-del, .tp3d-library-tile:focus-within .tp3d-library-del { opacity: 1; }
+.tp3d-library-del:hover { border-color: #c0504d; color: #ff8a80; }
+.tp3d-library-ren { right: 30px; font-size: 12px; }
+.tp3d-library-ren:hover { border-color: var(--accent); color: var(--text-primary); }
+.tp3d-library-rename { width: 100%; box-sizing: border-box; font: inherit; font-size: 12.5px; font-weight: 600; padding: 2px 5px;
+    color: var(--text-primary); background: var(--surface-field); border: 1px solid var(--accent); border-radius: 4px; }
+/* Configuration / Model switch (picker_ui.js buildModeSwitch). */
+.tp3d-mode-switch { display: flex; width: calc(100% - 56px); box-sizing: border-box; margin: 6px 0 var(--space-2);
+    padding: 3px; gap: 3px; background: var(--surface-field); border: 1px solid var(--border); border-radius: var(--radius-control); }
+.tp3d-mode-switch button { flex: 1; padding: 6px 8px; border: none; border-radius: 4px; background: transparent;
+    color: var(--text-secondary); font-family: inherit; font-size: 0.8125rem; font-weight: 600; cursor: pointer; }
+.tp3d-mode-switch button:hover:not(.active):not(:disabled) { color: var(--text-primary); background: rgba(255,255,255,0.06); }
+.tp3d-mode-switch button.active { background: var(--accent); color: #fff; cursor: default; }
+.tp3d-mode-switch button:disabled:not(.active) { opacity: 0.6; cursor: progress; }
+.tp3d-mode-switch button.busy { opacity: 1; color: var(--text-primary); }

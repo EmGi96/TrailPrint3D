@@ -490,3 +490,198 @@ def importSVGtoMerge(Mapobject, svg_path=None):
     svg.location = bpy.context.scene.cursor.location
 
     return svg
+
+
+# ── One collection per generation ────────────────────────────────────────
+# Everything a generator page creates (the map with its trail and elements,
+# all pieces of a puzzle, every tile of a Multi Tile batch...) is moved into
+# a collection of its own once it's done, tagged with GENERATION_COLLECTION_PROP
+# (the generator's kind). The Post-processing page lists these to switch
+# between and to delete.
+
+GENERATION_COLLECTION_PROP = "tp3d_generation"
+# The generator (bpy.ops.tp3d.<op>) a generation came from, and the settings
+# it was made with (its page's history entry, JSON) -- Post-processing's way
+# back to that generator restores them (picker_server.set_pending_restore).
+GENERATOR_PROP = "tp3d_generator"
+GENERATOR_STATE_PROP = "tp3d_generator_state"
+GENERATOR_OF_KIND = {
+    "map": "map_generator",
+    "multitile": "map_picker",
+    "puzzle": "puzzle_configurator",
+    "sliding_puzzle": "sliding_puzzle_configurator",
+    "medal_holder": "medal_holder_generator",
+    "backplate": "backplate_generator",
+}
+# Helper collections that keep their objects (debug output).
+_KEEP_COLLECTIONS = {"TP3D_Debug"}
+
+
+def _scene_object_keys(scene):
+    return {(o.as_pointer(), o.name) for o in scene.objects}
+
+
+def collect_new_objects(scene, before, kind, label):
+    """Move every object added to *scene* since *before* (a
+    _scene_object_keys() set) into a new collection named *label* -- Blender
+    appends .001... when taken -- under the scene collection, tagged
+    GENERATION_COLLECTION_PROP = *kind*. Returns the collection, or None when
+    nothing new is there."""
+    new = [o for o in scene.objects if (o.as_pointer(), o.name) not in before]
+    new = [o for o in new if not any(c.name in _KEEP_COLLECTIONS for c in o.users_collection)]
+    if not new:
+        return None
+    collection = bpy.data.collections.new(label)
+    scene.collection.children.link(collection)
+    collection[GENERATION_COLLECTION_PROP] = kind
+    for obj in new:
+        move_to_collection(obj, collection)
+    remove_empty_generation_collections(scene)
+    return collection
+
+
+def move_to_collection(obj, collection):
+    """Make *collection* the only collection *obj* is in."""
+    if collection not in obj.users_collection:
+        collection.objects.link(obj)
+    for other in list(obj.users_collection):
+        if other is not collection:
+            other.objects.unlink(obj)
+
+
+def remove_empty_generation_collections(scene):
+    """Drop generation collections left empty (their maps were replaced or
+    deleted) -- never a collection the user made."""
+    for collection in list(scene.collection.children_recursive):
+        if collection.get(GENERATION_COLLECTION_PROP) and not collection.all_objects and not collection.children:
+            bpy.data.collections.remove(collection)
+
+
+def remove_collection_with_contents(collection):
+    """Remove *collection*, its child collections and every object in them,
+    plus the meshes, curves, materials and images only they used."""
+    datas, materials = [], []
+    for obj in list(collection.all_objects):
+        data = obj.data
+        if data is not None:
+            datas.append(data)
+            materials.extend(m for m in getattr(data, "materials", ()) if m is not None)
+        bpy.data.objects.remove(obj, do_unlink=True)
+    for child in list(collection.children_recursive):
+        bpy.data.collections.remove(child)
+    bpy.data.collections.remove(collection)
+    # Leftover unused meshes/curves (tools' temporary ones) that still point
+    # at these materials would keep them -- and their paint images -- alive.
+    material_names = {m.name for m in materials}
+    for block in list(bpy.data.meshes) + list(bpy.data.curves):
+        if block.users == 0 and any(m is not None and m.name in material_names for m in block.materials):
+            datas.append(block)
+    images = []
+    for data in datas:
+        try:
+            if data.users:
+                continue
+            if isinstance(data, bpy.types.Mesh):
+                bpy.data.meshes.remove(data)
+            elif isinstance(data, bpy.types.Curve):
+                bpy.data.curves.remove(data)
+        except ReferenceError:
+            continue
+    for mat in {m.name: m for m in materials}.values():
+        try:
+            if mat.users:
+                continue
+            if mat.use_nodes and mat.node_tree is not None:
+                images.extend(n.image for n in mat.node_tree.nodes if n.type == "TEX_IMAGE" and n.image is not None)
+            bpy.data.materials.remove(mat)
+        except ReferenceError:
+            continue
+    for image in {i.name: i for i in images}.values():
+        try:
+            if not image.users:
+                bpy.data.images.remove(image)
+        except ReferenceError:
+            continue
+
+
+def clear_previous_generations(scene, keep=None):
+    """Take every earlier generation out of *scene* before a new one (or
+    before opening another map from "My Maps"). Nothing is saved here --
+    what the user saved (the Post-processing page's Save) is in "My Maps",
+    the rest is gone. *keep* (a collection) stays, and so does everything
+    that isn't a generation's collection (maps made before the library, the
+    user's own objects). Returns how many were cleared."""
+    cleared = 0
+    for collection in list(scene.collection.children_recursive):
+        try:
+            if not collection.get(GENERATION_COLLECTION_PROP) or collection == keep:
+                continue
+        except ReferenceError:  # removed with a parent collection just now
+            continue
+        remove_collection_with_contents(collection)
+        cleared += 1
+    return cleared
+
+
+def _json_dumps(value):
+    import json
+
+    return json.dumps(value)
+
+
+class generation_collection:
+    """``with generation_collection(context, kind, label): run_generation()``
+    -- afterwards, everything the generation added to the scene is in a
+    collection of its own (collect_new_objects). Only on success: a failed
+    run leaves its objects where they are.
+
+    *clear_previous*: first take the earlier generations out of the scene
+    (clear_previous_generations -- the saved ones stay in "My Maps"). Off
+    for runs that build on what's there (Multi Tile Extend). Nothing is
+    saved to "My Maps" here: that's the Post-processing page's Save."""
+
+    def __init__(self, context, kind, label, clear_previous=True, history_id=None):
+        self.scene = context.scene
+        self.kind = kind
+        self.label = label
+        self.clear_previous = clear_previous
+        # The page's history entry for this run (its /confirm history_id).
+        self.history_id = history_id
+        self.before = set()
+        self.collection = None
+
+    def __enter__(self):
+        if self.clear_previous:
+            if bpy.context.mode != "OBJECT":
+                bpy.ops.object.mode_set(mode="OBJECT")
+            clear_previous_generations(self.scene)
+        self.before = _scene_object_keys(self.scene)
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        if exc_type is None:
+            self.collection = collect_new_objects(self.scene, self.before, self.kind, self.label)
+            if self.collection is not None:
+                self._remember_settings()
+                from ..library import default_name
+
+                # A telling name (the user's, the GPX track's, the place...).
+                try:
+                    self.collection.name = default_name(self.scene, self.collection, self.kind)
+                except (OSError, RuntimeError, ValueError, KeyError) as e:
+                    print(f"[TP3D] no default name for {self.collection.name}: {e}")
+        return False
+
+    def _remember_settings(self):
+        """Keep which generator made it, and its settings, on the collection
+        -- saved into the map library with it."""
+        op_id = GENERATOR_OF_KIND.get(self.kind)
+        if op_id:
+            self.collection[GENERATOR_PROP] = op_id
+        if not self.history_id:
+            return
+        from .. import picker_server
+
+        entry = picker_server.history_entry(self.history_id)
+        if entry is not None:
+            self.collection[GENERATOR_STATE_PROP] = _json_dumps(entry)
