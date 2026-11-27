@@ -1186,8 +1186,10 @@ def _draw_color_settings(layout, props):
         return
 
     grid = layout.grid_flow(row_major=True, columns=2, even_columns=True, align=False)
-    for _role, attr, _label in color_styles.COLOR_ROLES:
-        grid.prop(props, attr)
+    # Custom slot colors sit with their slot (Extras -> Custom Elements).
+    for role, attr, _label in color_styles.COLOR_ROLES:
+        if role not in color_styles.CUSTOM_ROLES:
+            grid.prop(props, attr)
 
     row = layout.row(align=True)
     row.prop(props, "color_style_name", text="", placeholder=_("New style name"))

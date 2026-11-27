@@ -790,12 +790,12 @@ def build_color_styles_state(tp3d) -> dict:
         from .utils import color_styles
         current = color_styles.scene_colors(tp3d)
         built_in = []
-        for ident, (label, description, colors) in color_styles.BUILT_IN_STYLES.items():
+        for ident, (label, description, _colors) in color_styles.BUILT_IN_STYLES.items():
             built_in.append({
                 'id': ident,
                 'label': label,
                 'description': description,
-                'colors': color_styles.role_hex_map(color_styles.normalize_colors(colors)),
+                'colors': color_styles.role_hex_map(color_styles.style_colors(ident)),
             })
         user = []
         for name in color_styles.list_user_styles():

@@ -108,7 +108,12 @@ def test_every_kind_has_color_role_in_every_style():
         assert kind in color_styles.ROLE_NAMES, kind
         assert hasattr(_tp3d(), color_styles.ROLE_ATTRS[kind]), kind
         for style, (_label, _desc, colors) in color_styles.BUILT_IN_STYLES.items():
-            assert kind in colors, (style, kind)
+            # Custom slots are not part of a palette -- their own default.
+            if kind in color_styles.CUSTOM_ROLES:
+                assert kind not in colors, (style, kind)
+                assert kind in color_styles.CUSTOM_DEFAULT_COLORS, kind
+            else:
+                assert kind in colors, (style, kind)
 
 
 def test_every_kind_has_texture_material_and_raster_slot():
@@ -120,6 +125,9 @@ def test_every_kind_has_texture_material_and_raster_slot():
     assert order[0] == "SKIAREA"
     assert order.index("SKISLOPE") > order.index("WATER")
     assert order.index("SKILIFT") < order.index("ROADS")
+    # Broad landuse under specific covers, so a park inside a residential
+    # area stays green (same ranking as _terrain_priority_order, inverted).
+    assert order.index("CITY") < order.index("GREENSPACE") < order.index("FOREST") < order.index("WATER")
 
 
 def test_every_kind_is_in_overlap_priority():
@@ -131,6 +139,7 @@ def test_every_kind_is_in_overlap_priority():
     assert order.index("skislope") < order.index("skiarea")
     assert order.index("forest") < order.index("skiarea")
     assert order[-1] == "ocean"
+    assert order.index("water") < order.index("forest") < order.index("greenspace") < order.index("city")
 
 
 def test_sub_flags_and_ui_state_composite():

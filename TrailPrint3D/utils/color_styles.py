@@ -41,6 +41,18 @@ COLOR_ROLES = (
 )
 ROLE_NAMES = tuple(role for role, _attr, _label in COLOR_ROLES)
 ROLE_ATTRS = {role: attr for role, attr, _label in COLOR_ROLES}
+# The Custom element slots are not part of any palette: what a slot draws is
+# the user's own choice, so its color is set with the slot (Extras -> Custom
+# Elements) and applying, comparing or saving a palette leaves it alone.
+CUSTOM_ROLES = ("CUSTOM1", "CUSTOM2", "CUSTOM3", "CUSTOM4", "CUSTOM5")
+PALETTE_ROLE_NAMES = tuple(role for role in ROLE_NAMES if role not in CUSTOM_ROLES)
+CUSTOM_DEFAULT_COLORS = {
+    "CUSTOM1": "#E6194B",
+    "CUSTOM2": "#F58231",
+    "CUSTOM3": "#911EB4",
+    "CUSTOM4": "#42D4F4",
+    "CUSTOM5": "#BFEF45",
+}
 COLOR_ROLES_PROP = "tp3d_color_roles"
 MATERIAL_ROLE_PROP = "tp3d_color_role"
 USER_STYLE_PREFIX = "USER:"
@@ -70,11 +82,6 @@ BUILT_IN_STYLES = {
             "BEACH": "#F2D98A",
             "GOLF": "#7FD34E",
             "SPORTS": "#C8553D",
-            "CUSTOM1": "#E6194B",
-            "CUSTOM2": "#F58231",
-            "CUSTOM3": "#911EB4",
-            "CUSTOM4": "#42D4F4",
-            "CUSTOM5": "#BFEF45",
             "BUILDINGS": "#666666",
             "ROADS": "#000000",
             "TRAIL": "#FF0000",
@@ -104,11 +111,6 @@ BUILT_IN_STYLES = {
             "BEACH": "#E8D3A2",
             "GOLF": "#5DB461",
             "SPORTS": "#B8573F",
-            "CUSTOM1": "#D7263D",
-            "CUSTOM2": "#F46036",
-            "CUSTOM3": "#7B2CBF",
-            "CUSTOM4": "#2EC4B6",
-            "CUSTOM5": "#9BC53D",
             "BUILDINGS": "#F2F2F2",
             "ROADS": "#1C1C1C",
             "TRAIL": "#E02424",
@@ -138,11 +140,6 @@ BUILT_IN_STYLES = {
             "BEACH": "#EBD49B",
             "GOLF": "#93A55E",
             "SPORTS": "#B5553C",
-            "CUSTOM1": "#B23A48",
-            "CUSTOM2": "#E07A1F",
-            "CUSTOM3": "#7A4E8C",
-            "CUSTOM4": "#3C8D93",
-            "CUSTOM5": "#9C9A3A",
             "BUILDINGS": "#80664F",
             "ROADS": "#514033",
             "TRAIL": "#C83F35",
@@ -172,11 +169,6 @@ BUILT_IN_STYLES = {
             "BEACH": "#E9DDBF",
             "GOLF": "#8FBF9A",
             "SPORTS": "#C86A52",
-            "CUSTOM1": "#C2364E",
-            "CUSTOM2": "#E5873A",
-            "CUSTOM3": "#7D5BA6",
-            "CUSTOM4": "#3BA3B8",
-            "CUSTOM5": "#8DB255",
             "BUILDINGS": "#697785",
             "ROADS": "#485563",
             "TRAIL": "#E87532",
@@ -232,7 +224,10 @@ def default_colors():
 def normalize_colors(colors):
     normalized = {
         role: hex_to_srgb(value)
-        for role, value in BUILT_IN_STYLES[DEFAULT_STYLE][2].items()
+        for role, value in {
+            **BUILT_IN_STYLES[DEFAULT_STYLE][2],
+            **CUSTOM_DEFAULT_COLORS,
+        }.items()
     }
     if not isinstance(colors, dict):
         return normalized
@@ -240,6 +235,11 @@ def normalize_colors(colors):
         if role in colors:
             normalized[role] = hex_to_srgb(colors[role])
     return normalized
+
+
+def palette_colors(colors):
+    """*colors* without the Custom slot roles (see CUSTOM_ROLES)."""
+    return {role: rgb for role, rgb in colors.items() if role not in CUSTOM_ROLES}
 
 
 def scene_colors(tp3d=None):
@@ -323,7 +323,8 @@ def load_user_style(name):
         data = json.load(handle)
     if not isinstance(data, dict) or data.get("version") != STYLE_VERSION:
         raise ValueError(_rpt("Unsupported color style version"))
-    colors = normalize_colors(data.get("colors"))
+    # Styles saved before Custom slots left the palette still list them.
+    colors = palette_colors(normalize_colors(data.get("colors")))
     _user_style_colors_cache[path] = (signature, colors)
     return dict(colors)
 
@@ -338,7 +339,7 @@ def save_user_style(name, colors):
     data = {
         "version": STYLE_VERSION,
         "name": name,
-        "colors": role_hex_map(normalize_colors(role_hex_map(colors))),
+        "colors": role_hex_map(palette_colors(normalize_colors(role_hex_map(colors)))),
     }
     path = _style_path(name)
     temp_path = path + ".tmp"
@@ -357,8 +358,10 @@ def delete_user_style(identifier):
 
 
 def style_colors(identifier):
+    """A palette's colors: every role but the Custom slots, which
+    set_scene_colors therefore leaves as they are."""
     if identifier in BUILT_IN_STYLES:
-        return normalize_colors(BUILT_IN_STYLES[identifier][2])
+        return palette_colors(normalize_colors(BUILT_IN_STYLES[identifier][2]))
     if identifier.startswith(USER_STYLE_PREFIX):
         return load_user_style(identifier[len(USER_STYLE_PREFIX) :])
     raise ValueError(
@@ -384,7 +387,7 @@ def color_style_items(_self, _context):
 
 def style_is_modified(tp3d):
     try:
-        return scene_colors(tp3d) != style_colors(tp3d.color_style)
+        return palette_colors(scene_colors(tp3d)) != style_colors(tp3d.color_style)
     except (OSError, ValueError, json.JSONDecodeError):
         return True
 

@@ -29,7 +29,7 @@ class OsmFetchSettings(NamedTuple):
 # Bumped whenever a kind's Overpass filters change, so cached tiles from the
 # old query (which lack the new features) are not reused for up to 30 days.
 _CACHE_KIND_VERSIONS = {
-    "GREENSPACE": 2,  # + landuse=vineyard/orchard
+    "GREENSPACE": 3,  # 2: + landuse=vineyard/orchard; 3: + landuse/natural=grass relations
 }
 
 

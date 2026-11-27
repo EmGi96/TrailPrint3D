@@ -23,8 +23,16 @@ _puzzle_roads_data: tuple | None = None
 # cut out of all of them). The line Extras (lifts, slopes, railways, ...)
 # outrank even water so a bridge or lift stays visible over a river; Ski
 # Area lies under everything it contains. See utils/osm/extras.py.
+# The classic land covers run from specific to broad: a wood inside a park,
+# a glacier inside bare rock, a park or lawn inside a residential area all
+# stay visible, and City -- the broadest landuse -- lies under the rest.
+# _CLASSIC_PRIORITY is that order, highest first; Paint mode's
+# COLORING_ELEMENTS and the texture's constants._RASTER_ORDER follow it too.
 # Custom slots join the lines or the small areas depending on their type,
 # known only at generation time -- hence a function.
+_CLASSIC_PRIORITY = ("forest", "glacier", "scree", "greenspace", "farmland", "city")
+
+
 def _terrain_priority_order():
     custom = sorted(_extras.CUSTOM_KINDS)
     custom_lines = [k for k in custom if _extras.is_line_kind(k)]
@@ -35,12 +43,7 @@ def _terrain_priority_order():
         "water",
         *(k.lower() for k in custom_areas),
         *(k.lower() for k in _extras.PRIORITY_MID),
-        "forest",
-        "scree",
-        "city",
-        "greenspace",
-        "farmland",
-        "glacier",
+        *_CLASSIC_PRIORITY,
         *(k.lower() for k in _extras.PRIORITY_LOW),
         "ocean",
     ]
@@ -334,16 +337,12 @@ def _rg_build_terrain_elements(
         ),
     ]
     # Extras ride along as ordinary coloring kinds. In Paint mode later
-    # elements paint over earlier ones, so Ski Area goes first (forests and
-    # pistes inside a resort stay visible) and the rest -- lines last -- go
-    # after the classic areas.
-    _extra_rows = _extras.coloring_entries(const.EXTRAS_MAXSIZE)
-    _low = {k.lower() for k in _extras.PRIORITY_LOW}
-    COLORING_ELEMENTS = (
-        [r for r in _extra_rows if r[0] in _low]
-        + COLORING_ELEMENTS
-        + [r for r in _extra_rows if r[0] not in _low]
-    )
+    # elements paint over earlier ones, so run them lowest overlap priority
+    # first -- the inverse of _terrain_priority_order(): Ski Area, City, ...,
+    # Forest, the small area Extras, Water, and the line Extras last.
+    COLORING_ELEMENTS += _extras.coloring_entries(const.EXTRAS_MAXSIZE)
+    _priority = _terrain_priority_order()
+    COLORING_ELEMENTS.sort(key=lambda row: -_priority.index(row[0]))
 
     # Count total active elements (coloring + optional ocean/buildings/roads) for progress spread
     _ELEM_PHASE_START = phase_start

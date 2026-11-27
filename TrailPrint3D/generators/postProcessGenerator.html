@@ -2141,8 +2141,9 @@ __COMMON_CSS__
         const PALETTE_ROLES = ['BASE', 'MOUNTAIN', 'GLACIER', 'WATER', 'FOREST', 'GREENSPACE',
                                'FARMLAND', 'CITY', 'BUILDINGS', 'ROADS', 'TRAIL', 'YELLOW',
                                'SKISLOPE', 'SKILIFT', 'SKINORDIC', 'SKIAREA', 'RAILWAY', 'RUNWAY',
-                               'BEACH', 'GOLF', 'SPORTS',
-                               'CUSTOM1', 'CUSTOM2', 'CUSTOM3', 'CUSTOM4', 'CUSTOM5'];
+                               'BEACH', 'GOLF', 'SPORTS'];
+        // Custom element slots are not part of a palette (color_styles.CUSTOM_ROLES):
+        // their colors are set with the slot and a palette leaves them alone.
         const PALETTE_LABELS = {
             BASE: 'Base Terrain', MOUNTAIN: 'Mountain / Scree', GLACIER: 'Glacier', WATER: 'Water',
             FOREST: 'Forest', GREENSPACE: 'Greenspace', FARMLAND: 'Farmland', CITY: 'City',
@@ -2150,12 +2151,10 @@ __COMMON_CSS__
             SKISLOPE: 'Ski Slopes', SKILIFT: 'Ski Lifts', SKINORDIC: 'Cross-Country Trails',
             SKIAREA: 'Ski Area', RAILWAY: 'Railways', RUNWAY: 'Runways', BEACH: 'Beach / Sand',
             GOLF: 'Golf Course', SPORTS: 'Sports Pitches',
-            CUSTOM1: 'Custom 1', CUSTOM2: 'Custom 2', CUSTOM3: 'Custom 3', CUSTOM4: 'Custom 4', CUSTOM5: 'Custom 5',
         };
         // The OSM "Extras" roles only get a swatch on maps that use them.
         const PALETTE_OPTIONAL_ROLES = new Set(['SKISLOPE', 'SKILIFT', 'SKINORDIC', 'SKIAREA',
-                                                'RAILWAY', 'RUNWAY', 'BEACH', 'GOLF', 'SPORTS',
-                                                'CUSTOM1', 'CUSTOM2', 'CUSTOM3', 'CUSTOM4', 'CUSTOM5']);
+                                                'RAILWAY', 'RUNWAY', 'BEACH', 'GOLF', 'SPORTS']);
         let paletteTimer = null;
         let paletteEdits = {};   // role -> hex, picked in the panel but not sent yet
         function paletteList() {
@@ -2173,7 +2172,7 @@ __COMMON_CSS__
         // The palette whose colors the map has (on every role it uses), or null.
         function matchingPalette() {
             const mine = info.mapColors || {};
-            const roles = Object.keys(mine);
+            const roles = Object.keys(mine).filter(function(r) { return PALETTE_ROLES.indexOf(r) >= 0; });
             if (!roles.length) return null;
             const scene = (info.palettes || {}).currentStyle;
             const matches = paletteList().filter(function(s) {

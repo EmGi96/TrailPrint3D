@@ -126,21 +126,22 @@ _KIND_MATERIAL_NAME = {
 
 # Rasterization order: low-priority kinds first so high-priority kinds
 # overwrite them in overlap areas.  Mirrors the inverse of
-# TERRAIN_PRIORITY_ORDER in generation.py.
+# _terrain_priority_order() in utils/generation/elements.py: broad landuse
+# (City) under specific covers (a park, a wood), line Extras above water.
 _RASTER_ORDER = [
     "SKIAREA",
-    "GLACIER",
+    "CITY",
     "FARMLAND",
     "GREENSPACE",
     "SCREE",
-    "CITY",
+    "GLACIER",
     "FOREST",
     "BEACH",
     "GOLF",
     "SPORTS",
-    "RUNWAY",
     "OCEAN",
     "WATER",
+    "RUNWAY",
     "RAILWAY",
     "SKINORDIC",
     "SKISLOPE",

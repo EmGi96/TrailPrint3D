@@ -59,6 +59,14 @@ def _hex(rgb):
     return color_styles.srgb_to_hex(rgb)
 
 
+def _full_style(name):
+    """Every role's color once style *name* is applied: the palette's, and
+    the scene's own for the Custom slots a palette doesn't touch."""
+    colors = color_styles.scene_colors(_tp3d())
+    colors.update(color_styles.style_colors(name))
+    return colors
+
+
 def _paint_mesh(name, pixels_rgb, roles=None, palette=None):
     mesh = bpy.data.meshes.new(name)
     image = bpy.data.images.new(f"{mesh.name}_MMU_Paint", width=len(pixels_rgb), height=1)
@@ -109,14 +117,14 @@ def test_built_in_styles_are_complete():
     expected = {"FOREST", "URBAN", "DESERT", "SNOW"}
     assert set(color_styles.BUILT_IN_STYLES) == expected
     for _label, _description, colors in color_styles.BUILT_IN_STYLES.values():
-        assert set(colors) == set(color_styles.ROLE_NAMES)
+        assert set(colors) == set(color_styles.PALETTE_ROLE_NAMES)
         color_styles.normalize_colors(colors)
 
 
 def test_style_selection_reset_and_modified_state():
     tp3d = _tp3d()
     tp3d.color_style = "DESERT"
-    desert = color_styles.style_colors("DESERT")
+    desert = _full_style("DESERT")
     assert color_styles.scene_colors(tp3d) == desert
     assert not color_styles.style_is_modified(tp3d)
 
@@ -124,6 +132,26 @@ def test_style_selection_reset_and_modified_state():
     assert color_styles.style_is_modified(tp3d)
     assert bpy.ops.tp3d.reset_color_style() == {"FINISHED"}
     assert color_styles.scene_colors(tp3d) == desert
+
+
+def test_palettes_leave_custom_colors_alone():
+    tp3d = _tp3d()
+    for _label, _description, colors in color_styles.BUILT_IN_STYLES.values():
+        assert not set(colors) & set(color_styles.CUSTOM_ROLES)
+    assert set(color_styles.style_colors("SNOW")) == set(color_styles.PALETTE_ROLE_NAMES)
+    tp3d.element_color_custom1 = color_styles.srgb_to_color((1, 2, 3))
+    tp3d.color_style = "SNOW"
+    assert color_styles.scene_colors(tp3d)["CUSTOM1"] == (1, 2, 3)
+    assert not color_styles.style_is_modified(tp3d)
+    assert bpy.ops.tp3d.reset_color_style() == {"FINISHED"}
+    assert color_styles.scene_colors(tp3d)["CUSTOM1"] == (1, 2, 3)
+
+    tp3d.color_style_name = "No Customs"
+    assert bpy.ops.tp3d.save_color_style() == {"FINISHED"}
+    path = os.path.join(constants.color_style_dir, "No Customs.json")
+    with open(path, encoding="utf-8") as handle:
+        assert not set(json.load(handle)["colors"]) & set(color_styles.CUSTOM_ROLES)
+    assert bpy.ops.tp3d.delete_color_style() == {"FINISHED"}
 
 
 def test_user_style_json_round_trip():
@@ -179,7 +207,7 @@ def test_apply_recolors_paint_texture():
         palette={0: _hex(old["BASE"]), 1: _hex(old["WATER"]), 2: "#000000", 3: "#FFFFFF", 4: "#FF0000"},
     )
     try:
-        new = color_styles.style_colors("URBAN")
+        new = _full_style("URBAN")
         color_styles.set_scene_colors(_tp3d(), new)
         _select_only(_object_of(mesh))
         assert bpy.ops.tp3d.apply_color_style() == {"FINISHED"}
@@ -207,7 +235,7 @@ def test_legacy_texture_uses_material_colors():
     mesh, image = _paint_mesh("LegacyTexture", [old["BASE"], old["FOREST"]])
     try:
         assert color_styles.COLOR_ROLES_PROP not in mesh
-        new = color_styles.style_colors("DESERT")
+        new = _full_style("DESERT")
         color_styles.set_scene_colors(_tp3d(), new)
         _select_only(_object_of(mesh))
         assert bpy.ops.tp3d.apply_color_style() == {"FINISHED"}
@@ -232,7 +260,7 @@ def test_apply_recolors_only_selected_materials():
     other = _element_object("OtherWater", "WATER")
     copy = None
     try:
-        new = color_styles.style_colors("SNOW")
+        new = _full_style("SNOW")
         color_styles.set_scene_colors(_tp3d(), new)
         _select_only(selected)
         assert bpy.ops.tp3d.apply_color_style() == {"FINISHED"}
@@ -276,7 +304,7 @@ def test_shared_colors_report_collision():
 
 def test_recolor_ignores_deleted_scene_objects():
     old = color_styles.default_colors()
-    new = color_styles.style_colors("SNOW")
+    new = _full_style("SNOW")
     mesh, image = _paint_mesh("DeletedTexture", [old["BASE"]], roles=old)
     image_name = image.name
     obj = next(obj for obj in bpy.context.scene.objects if obj.data == mesh)
@@ -300,7 +328,7 @@ def test_height_bake_undo_history_is_recolored():
     mesh, image = _paint_mesh("HistoryTexture", [old["BASE"], old["WATER"]], roles=old)
     try:
         texture.save_height_bake_state(image, mesh)
-        new = color_styles.style_colors("SNOW")
+        new = _full_style("SNOW")
         texture.recolor_paint_textures(new, old, bpy.context.scene.objects)
         obj = bpy.data.objects.new("HistoryTexture", mesh)
         assert texture.restore_last_height_bake(obj)
@@ -315,7 +343,7 @@ def test_height_bake_undo_history_is_recolored():
 
 def test_recolor_targets_scene_meshes_once():
     old = color_styles.default_colors()
-    new = color_styles.style_colors("SNOW")
+    new = _full_style("SNOW")
     mesh, image = _paint_mesh("SharedTexture", [old["BASE"]], roles=old)
     other_mesh, other_image = _paint_mesh("OtherSceneTexture", [old["WATER"]], roles=old)
     other_scene = bpy.data.scenes.new("OtherColorScene")
@@ -362,6 +390,7 @@ for _test in (
     test_scene_colors_drive_materials,
     test_built_in_styles_are_complete,
     test_style_selection_reset_and_modified_state,
+    test_palettes_leave_custom_colors_alone,
     test_user_style_json_round_trip,
     test_invalid_and_reserved_style_names_are_rejected,
     test_apply_recolors_paint_texture,
