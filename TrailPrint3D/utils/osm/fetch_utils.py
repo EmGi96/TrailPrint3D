@@ -26,6 +26,26 @@ class OsmFetchSettings(NamedTuple):
     exclude_alleys: bool = True
 
 
+# Bumped whenever a kind's Overpass filters change, so cached tiles from the
+# old query (which lack the new features) are not reused for up to 30 days.
+_CACHE_KIND_VERSIONS = {
+    "GREENSPACE": 2,  # + landuse=vineyard/orchard
+}
+
+
+def cache_kind_version(kind: str) -> str:
+    """The kind string the Overpass disk cache is keyed on -- shared by
+    fetch_solo.fetch_osm_data and fetch_group._make_cache_path so both keep
+    hitting the same files."""
+    from .extras import cache_signature  # no bpy, no import cycle
+
+    version = _CACHE_KIND_VERSIONS.get(kind)
+    key = f"{kind}#v{version}" if version else kind
+    # A custom slot's key carries a hash of its current rules.
+    signature = cache_signature(kind)
+    return f"{key}#{signature}" if signature else key
+
+
 def resolve_road_tiers(settings) -> "dict[str, bool]":
     """Return {tier_id: active} for every tier in TIER_TAGS.
 

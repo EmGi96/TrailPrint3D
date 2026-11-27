@@ -16,6 +16,7 @@ from shapely.geometry import LineString, MultiLineString, Point, Polygon, box
 from .. import progress as _progress
 from .dataclasses import GenerationContext
 from .geometry2d import polygonize, union_all
+from .osm import extras as _extras
 
 _COLORING_EMPTY = object()
 _COLORING_PAINTED = object()
@@ -400,6 +401,9 @@ def coloring_main(
         col_Area = bpy.context.scene.tp3d.col_faArea
     elif kind == "GLACIER":
         col_Area = bpy.context.scene.tp3d.col_glArea
+    elif kind in _extras.EXTRA_KIND_NAMES:
+        # 0 for lines -- a thin line's own ribbon area is no measure of its worth.
+        col_Area = _extras.area_threshold(bpy.context.scene.tp3d, kind)
     else:
         col_Area = 0.0
 
@@ -439,6 +443,12 @@ def coloring_main(
         raise ValueError(_rpt("scaleHor is not set"))
     streamWidthMultiplier = bpy.context.scene.tp3d.col_wStreamWidth
     half_width = 1.0 * scaleHor * 0.02 * streamWidthMultiplier
+    # Extras' open ways are fixed-width (printed mm) ribbons instead -- see
+    # extras.ribbon_half_width -- and kept out of Taubin smoothing like rivers.
+    _is_extra = kind in _extras.EXTRA_KIND_NAMES
+    _extra_line_width = (
+        _extras.line_width(bpy.context.scene.tp3d, kind) if _is_extra else 0.0
+    )
 
     cntr = 0
     _t_tiles_start = time.time()
@@ -611,7 +621,8 @@ def coloring_main(
                 waterDeleted += 1
                 continue
 
-            if coords[0] == coords[-1]:
+            _tags = element.get("tags") or {}
+            if coords[0] == coords[-1] and _extras.closed_way_is_area(kind, _tags):
                 xy = [(x, y) for x, y, _ in coords]
                 poly = _g2d.xy_ring_to_polygon(xy)
                 poly = _clip_to_query_bbox(poly)
@@ -620,13 +631,20 @@ def coloring_main(
                     waterCreated += 1
                 else:
                     waterDeleted += 1
+            elif _is_extra and not _extras.open_ways_are_lines(kind):
+                waterDeleted += 1  # a custom Area slot: an open way has no area
             else:
                 xy = [(x, y) for x, y, _ in coords]
-                ribbon = _g2d.line_to_ribbon(xy, half_width)
+                _hw = (
+                    _extras.ribbon_half_width(kind, _tags, scaleHor, _extra_line_width)
+                    if _is_extra
+                    else half_width
+                )
+                ribbon = _g2d.line_to_ribbon(xy, _hw)
                 ribbon = _clip_to_query_bbox(ribbon)
                 if ribbon is not None and not ribbon.is_empty:
                     pos_geoms.append(ribbon)
-                    if kind == "WATER":
+                    if kind == "WATER" or _is_extra:
                         river_geoms.append(ribbon)
                     waterCreated += 1
                 else:
@@ -945,7 +963,9 @@ def coloring_main(
 
         _t_paint = time.time()
 
-        color_map_faces_by_terrain(map, merged_object)
+        color_map_faces_by_terrain(
+            map, merged_object, touch=_extras.is_line_kind(kind)
+        )
 
         if kind == "WATER" and flatten_water_top and merged_object.active_material:
             _water_idx = map.data.materials.find(merged_object.active_material.name)
@@ -1734,7 +1754,7 @@ def _flatten_painted_ocean(gen: GenerationContext, map_obj, polygon):
         _flatten_painted_water(gen, map_obj, polygon, mat_index=water_idx)
 
 
-def color_map_faces_by_terrain(map_obj, terrain_obj, up_threshold=0.05):
+def color_map_faces_by_terrain(map_obj, terrain_obj, up_threshold=0.05, touch=False):
     """
     Colors faces of map_obj that fall inside the 2D XY footprint of terrain_obj.
 
@@ -1742,6 +1762,10 @@ def color_map_faces_by_terrain(map_obj, terrain_obj, up_threshold=0.05):
     each upward-facing map face center against it — no BVH or ray casting involved.
 
     up_threshold = dot(normal, Z) must be greater than this value.
+
+    touch: color every face the footprint touches instead of only those whose
+    center lies inside it -- for thin lines (the line Extras), which are often
+    narrower than one map face and would otherwise come out dashed or vanish.
     """
     from . import geometry2d as _g2d
     from .mesh_ops import (
@@ -1784,11 +1808,29 @@ def color_map_faces_by_terrain(map_obj, terrain_obj, up_threshold=0.05):
     colored_count = 0
 
     _t_loop = time.time()
+    prepared_near = None
+    if touch:
+        # Cheap center test against the footprint grown by one face radius
+        # first; only those candidates pay for the exact face intersection.
+        _radius = 0.0
+        for f in bm.faces[: min(len(bm.faces), 500)]:
+            _c = f.calc_center_median()
+            _radius = max(_radius, max((v.co - _c).length for v in f.verts))
+        _scale = max(mw_map.to_scale()[:2])
+        prepared_near = _g2d.prep(footprint.buffer(_radius * _scale * 1.5))
     i = 0
     for i, f in enumerate(bm.faces):
         if f.normal.normalized().dot(up) > up_threshold:
             center = mw_map @ f.calc_center_median()
-            if prepared.contains(_g2d.Point(center.x, center.y)):
+            point = _g2d.Point(center.x, center.y)
+            if prepared.contains(point):
+                hit = True
+            elif prepared_near is not None and prepared_near.contains(point):
+                ring = [(mw_map @ v.co)[:2] for v in f.verts]
+                hit = len(ring) >= 3 and prepared.intersects(Polygon(ring))
+            else:
+                hit = False
+            if hit:
                 f.material_index = mat_index
                 colored_count += 1
     print(

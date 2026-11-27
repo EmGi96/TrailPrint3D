@@ -13,7 +13,13 @@ from ... import progress as _progress
 from ..geo import convert_to_blender_coordinates_batch
 from .bbox_snap import snap as snap_bbox
 from .exclusions import filter_excluded
-from .fetch_utils import _overpass_request, requested_highway_tags, resolve_road_tiers
+from . import extras as _extras
+from .fetch_utils import (
+    _overpass_request,
+    cache_kind_version,
+    requested_highway_tags,
+    resolve_road_tiers,
+)
 
 
 def fetch_osm_data(
@@ -73,7 +79,7 @@ def fetch_osm_data(
         return hashlib.sha256(data).hexdigest()
 
     cache_dir = get_cache_dir()
-    cache_key = make_cache_key(bbox, kind)
+    cache_key = make_cache_key(bbox, cache_kind_version(kind))
     if kind == "STREETS":
         cache_key = make_cache_key(
             bbox,
@@ -182,6 +188,8 @@ def fetch_osm_data(
                 'way["natural"="grass"]',
                 'way["landuse"="village_green"]',
                 'relation["landuse"="village_green"]',
+                'way["landuse"~"^(vineyard|orchard)$"]',
+                'relation["landuse"~"^(vineyard|orchard)$"]',
             ],
         ),
         "FARMLAND": lambda s, w, n, e, **ctx: _simple_query(
@@ -285,6 +293,14 @@ def fetch_osm_data(
             filters = ['way["highway"~"^(motorway|primary)$"]']
         print(f"Filter(s): {filters}")
         return _simple_query(s, w, n, e, filters)
+
+    # The "Extras" kinds are plain tag-filter queries (utils/osm/extras.py).
+    for _extra_kind in _extras.EXTRA_KIND_NAMES:
+        OSM_QUERY_BUILDERS[_extra_kind] = (
+            lambda s, w, n, e, _k=_extra_kind, **ctx: _simple_query(
+                s, w, n, e, _extras.overpass_filters([_k])
+            )
+        )
 
     builder = OSM_QUERY_BUILDERS.get(kind)
     if builder is None:

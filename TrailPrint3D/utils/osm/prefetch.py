@@ -16,6 +16,7 @@ import threading
 
 from ... import constants as const
 from . import bbox_snap
+from . import extras as _extras
 
 # Feature/point budgets for the picker page -- a dense city can hold tens of
 # thousands of buildings/roads; the page draws them on a canvas, but the JSON
@@ -474,10 +475,12 @@ def features_from_tiles(fetched, progress_callback=None):
                         for n in el.get("nodes", ())
                         if n in nodes
                     ]
-                    is_line = kind in _LINE_KINDS or (
-                        "waterway" in tags and tags.get("natural") != "water"
-                    )
                     closed = len(coords) > 3 and coords[0] == coords[-1]
+                    is_line = (
+                        kind in _LINE_KINDS
+                        or ("waterway" in tags and tags.get("natural") != "water")
+                        or _extras.is_line_way(kind, tags, closed)
+                    )
                     if not is_line and not closed:
                         continue
                     rings = [_clean_ring(coords, tolerance, not is_line)]

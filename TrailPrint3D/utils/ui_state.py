@@ -14,6 +14,7 @@ import os
 import bpy  # type: ignore
 
 from .. import constants as const
+from .osm import extras as _extras
 
 
 # ---------------------------------------------------------------------------
@@ -68,7 +69,7 @@ def coloring_elements():
             "Glacier",
             "Fetching glacier data\u2026",
         ),
-    ]
+    ] + _extras.coloring_entries(const.EXTRAS_MAXSIZE)
 
 
 # ---------------------------------------------------------------------------
@@ -101,6 +102,7 @@ def build_fetch_items(map_km=None):
         ("glacier", "col_glActive", const.GLACIER_MAXSIZE, "I", "Glacr"),
         ("buildings", "el_bActive", const.BUILDINGS_MAXSIZE, "B", "Build"),
         ("roads", None, const.ROADS_MAXSIZE, "R", "Roads"),
+        ("extras", None, const.EXTRAS_MAXSIZE, "X", "Extras"),
     ]
     for key, flag, max_size, icon, label in defs:
         if key == "water":
@@ -120,12 +122,19 @@ def build_fetch_items(map_km=None):
             from .osm.roads import TIER_TAGS
 
             _allowed = allowed_road_tiers(map_km)
-            active = tp3d.show_roads and any(
-                get_road_active(tp3d, t) and t in _allowed for t in TIER_TAGS
+            active = tp3d.show_roads and (
+                any(get_road_active(tp3d, t) and t in _allowed for t in TIER_TAGS)
+                # Railways report to the Roads chip too (extras.chip_key).
+                or (
+                    _extras.kind_active(tp3d, "RAILWAY")
+                    and map_km <= const.EXTRAS_MAXSIZE
+                )
             )
             max_size = (
                 None  # mapsize already folded into `active` via allowed_road_tiers
             )
+        elif key == "extras":
+            active = _extras.any_active(tp3d)
         else:
             active = bool(flag and getattr(tp3d, flag, 0) == 1)
         if active and (max_size is None or map_km <= max_size):
@@ -184,21 +193,27 @@ _ELEMENT_COMPOSITE_FLAGS = {
         ),
         ("col_wBodiesActive",),
     ),
+    "extras": (_extras.SUB_FLAGS, _extras.BOOTSTRAP_FLAGS),
 }
 
 # The N-panel's own master checkbox for each composite -- generation and
 # prefetch only use a composite's sub-flags while this is on (e.g.
 # props.any_road_active), so the picker's on/off for the category IS this
 # checkbox; the sub-flags only pick what's included.
-_COMPOSITE_MASTER_FLAGS = {"water": "show_water", "roads": "show_roads"}
+_COMPOSITE_MASTER_FLAGS = {
+    "water": "show_water",
+    "roads": "show_roads",
+    "extras": "show_extras",
+}
 
 
 def _road_subflags():
-    """Road tier ids in display order -- the 'roads' composite's sub-flags.
-    Deferred import: see utils.osm.roads.TIER_TAGS."""
+    """Road tier ids in display order -- the 'roads' composite's sub-flags,
+    plus the Railways pseudo tier (a plain BoolProperty, see
+    _get_composite_flag). Deferred import: see utils.osm.roads.TIER_TAGS."""
     from .osm.roads import TIER_TAGS
 
-    return tuple(TIER_TAGS.keys())
+    return (*TIER_TAGS.keys(), _extras.RAILWAY_ROAD_ID)
 
 
 # Bootstrap sub-flags for the 'roads' composite's toggle-ON with nothing
@@ -207,6 +222,8 @@ _ROADS_BOOTSTRAP = ("major", "minor")
 
 
 def _get_composite_flag(tp3d, key, subflag):
+    if key == "roads" and subflag == _extras.RAILWAY_ROAD_ID:
+        return bool(getattr(tp3d, _extras.RAILWAY_FLAG))
     if key == "roads":
         from ..props import get_road_active
 
@@ -215,7 +232,9 @@ def _get_composite_flag(tp3d, key, subflag):
 
 
 def _set_composite_flag(tp3d, key, subflag, value):
-    if key == "roads":
+    if key == "roads" and subflag == _extras.RAILWAY_ROAD_ID:
+        setattr(tp3d, _extras.RAILWAY_FLAG, bool(value))
+    elif key == "roads":
         from ..props import set_road_active
 
         set_road_active(tp3d, subflag, value)
@@ -694,6 +713,8 @@ _ADVANCED_SETTINGS_FIELDS = [
     {"key": "elSTrackActive", "road_id": "track", "type": bool, "group": "Roads"},
     {"key": "elSPathActive", "road_id": "path", "type": bool, "group": "Roads"},
     {"key": "elSRacewayActive", "road_id": "raceway", "type": bool, "group": "Roads"},
+    {"key": "elSRailwayActive", "attr": "el_sRailwayActive", "type": bool, "group": "Roads"},
+    {"key": "elSRailwayWidth", "attr": "el_sRailwayWidth", "type": float, "group": "Roads"},
     {"key": "elSMultiplier", "attr": "el_sMultiplier", "type": float, "group": "Roads"},
     {
         "key": "elSEnforceMinWidth",
@@ -720,6 +741,15 @@ _ADVANCED_SETTINGS_FIELDS = [
         "type": bool,
         "group": "Roads",
     },
+    {"key": "elXSkiActive", "attr": "el_xSkiActive", "type": bool, "group": "Extras"},
+    {"key": "elXSkiAreaActive", "attr": "el_xSkiAreaActive", "type": bool, "group": "Extras"},
+    {"key": "elXBeachActive", "attr": "el_xBeachActive", "type": bool, "group": "Extras"},
+    {"key": "elXGolfActive", "attr": "el_xGolfActive", "type": bool, "group": "Extras"},
+    {"key": "elXRunwayActive", "attr": "el_xRunwayActive", "type": bool, "group": "Extras"},
+    {"key": "elXSportsActive", "attr": "el_xSportsActive", "type": bool, "group": "Extras"},
+    {"key": "elXCustomActive", "attr": "el_xCustomActive", "type": bool, "group": "Extras"},
+    {"key": "elXLineWidth", "attr": "el_xLineWidth", "type": float, "group": "Extras"},
+    {"key": "elXArea", "attr": "el_xArea", "type": float, "group": "Extras"},
 ]
 _ADVANCED_SETTINGS_BY_KEY = {f["key"]: f for f in _ADVANCED_SETTINGS_FIELDS}
 _ATTR_TO_ADVANCED_KEY = {
@@ -728,6 +758,7 @@ _ATTR_TO_ADVANCED_KEY = {
 _ROAD_ID_TO_ADVANCED_KEY = {
     f["road_id"]: f["key"] for f in _ADVANCED_SETTINGS_FIELDS if "road_id" in f
 }
+_ROAD_ID_TO_ADVANCED_KEY[_extras.RAILWAY_ROAD_ID] = _ATTR_TO_ADVANCED_KEY[_extras.RAILWAY_FLAG]
 
 
 def _read_advanced_field(tp3d, field):
@@ -808,6 +839,7 @@ def build_advanced_settings_state(tp3d=None):
         tp3d = bpy.context.scene.tp3d
     state = {f["key"]: _read_advanced_field(tp3d, f) for f in _ADVANCED_SETTINGS_FIELDS}
     state["_compositeRemembered"] = build_composite_remembered_state(tp3d)
+    state[CUSTOM_OSM_STATE_KEY] = build_custom_osm_state(tp3d)
     # Same reserved-key idea: the N-panel's per-category master checkbox
     # (see _COMPOSITE_MASTER_FLAGS), which the page's tp3dCompositeIsActive
     # needs to agree with build_element_toggle_states.
@@ -825,10 +857,154 @@ def apply_advanced_setting_update(tp3d, key, value):
     drain_pending_advanced_settings. *key* is checked against
     _ADVANCED_SETTINGS_FIELDS -- silently ignored if unrecognized.
     """
+    if key == CUSTOM_OSM_STATE_KEY:
+        apply_custom_osm_update(tp3d, value)
+        return
     field = _ADVANCED_SETTINGS_BY_KEY.get(key)
     if not field:
         return
     _write_advanced_field(tp3d, field, value)
+
+
+# ---------------------------------------------------------------------------
+# Custom OSM elements ("Custom" in the Extras group): 5 fixed slots per scene
+# (props.TP3D_CustomOsmItem), custom_osm_count of them in use. The picker
+# pages see them as ADVANCED_SETTINGS_STATE._customOsm and edit them through
+# /update_advanced_setting with key "_customOsm" (apply_custom_osm_update).
+# ---------------------------------------------------------------------------
+CUSTOM_OSM_STATE_KEY = "_customOsm"
+_CUSTOM_OSM_DEFAULTS = {
+    "enabled": True,
+    "name": "",
+    "geometry": "AREA",
+    "tags": "",
+    "width": 0.6,
+    "area": 1.0,
+}
+_CUSTOM_OSM_CASTS = {
+    "enabled": bool,
+    "name": lambda v: str(v)[:64],
+    "geometry": lambda v: "LINE" if v == "LINE" else "AREA",
+    "tags": lambda v: str(v)[:2000],
+    "width": float,
+    "area": float,
+}
+
+
+def _custom_color_attr(index):
+    return f"element_color_custom{index + 1}"
+
+
+def _read_custom_slot(tp3d, index):
+    from . import color_styles
+    from .osm.custom_osm import parse_rules
+
+    item = tp3d.custom_osm[index]
+    parsed = parse_rules(item.tags)
+    return {
+        "enabled": bool(item.enabled),
+        "name": item.name,
+        "geometry": item.geometry,
+        "tags": item.tags,
+        "width": float(item.width),
+        "area": float(item.area),
+        "color": color_styles.srgb_to_hex(
+            color_styles.color_to_srgb(getattr(tp3d, _custom_color_attr(index)))
+        ),
+        # Empty tags on a fresh slot aren't an error worth shouting about.
+        "error": parsed.error if item.tags.strip() else "",
+        "warning": parsed.warning,
+    }
+
+
+def _write_custom_slot(tp3d, index, values):
+    from . import color_styles
+
+    item = tp3d.custom_osm[index]
+    for field, cast in _CUSTOM_OSM_CASTS.items():
+        if field in values:
+            try:
+                setattr(item, field, cast(values[field]))
+            except (TypeError, ValueError):
+                pass
+    if values.get("color"):
+        try:
+            setattr(
+                tp3d,
+                _custom_color_attr(index),
+                color_styles.srgb_to_color(color_styles.hex_to_srgb(values["color"])),
+            )
+        except ValueError:
+            pass
+
+
+def build_custom_osm_state(tp3d=None):
+    """{"count", "slots": [...]} -- every slot (in use or not), for the
+    picker pages and the generator settings snapshot."""
+    from ..props import CUSTOM_OSM_SLOTS, ensure_custom_osm
+
+    if tp3d is None:
+        tp3d = bpy.context.scene.tp3d
+    if len(tp3d.custom_osm) != CUSTOM_OSM_SLOTS:
+        try:
+            ensure_custom_osm(tp3d)
+        except (AttributeError, RuntimeError):  # read-only context
+            pass
+    return {
+        "count": int(tp3d.custom_osm_count),
+        "slots": [_read_custom_slot(tp3d, i) for i in range(len(tp3d.custom_osm))],
+    }
+
+
+def apply_custom_osm_update(tp3d, data):
+    """One custom-slot edit from a picker page or the sidebar operators.
+
+    {"action": "add"}                       -- use the next free slot
+    {"action": "remove", "index": i}        -- drop slot i, later ones move up
+    {"action": "set", "index": i, "field": f, "value": v}
+    {"count": n, "slots": [...]}            -- replace everything (snapshot /
+                                               history restore)
+    """
+    from ..props import CUSTOM_OSM_SLOTS, ensure_custom_osm
+
+    if not isinstance(data, dict):
+        return
+    ensure_custom_osm(tp3d)
+    action = data.get("action")
+    if action is None and isinstance(data.get("slots"), list):
+        for i, values in enumerate(data["slots"][:CUSTOM_OSM_SLOTS]):
+            if isinstance(values, dict):
+                _write_custom_slot(tp3d, i, values)
+        try:
+            tp3d.custom_osm_count = max(0, min(CUSTOM_OSM_SLOTS, int(data.get("count", 0))))
+        except (TypeError, ValueError):
+            pass
+        return
+    if action == "add":
+        if tp3d.custom_osm_count >= CUSTOM_OSM_SLOTS:
+            return
+        index = tp3d.custom_osm_count
+        _write_custom_slot(tp3d, index, _CUSTOM_OSM_DEFAULTS)
+        tp3d.custom_osm_count = index + 1
+        return
+    try:
+        index = int(data.get("index"))
+    except (TypeError, ValueError):
+        return
+    if not 0 <= index < tp3d.custom_osm_count:
+        return
+    if action == "remove":
+        states = [_read_custom_slot(tp3d, i) for i in range(CUSTOM_OSM_SLOTS)]
+        moved = states[index + 1:] + [states[index]]
+        for offset, values in enumerate(moved):
+            _write_custom_slot(tp3d, index + offset, values)
+        last = tp3d.custom_osm_count - 1
+        _write_custom_slot(tp3d, last, _CUSTOM_OSM_DEFAULTS)
+        tp3d.custom_osm_count = last
+    elif action == "set":
+        field = data.get("field")
+        if field in _CUSTOM_OSM_CASTS or field == "color":
+            _write_custom_slot(tp3d, index, {field: data.get("value")})
 
 
 # A generator page's settings otherwise live only in the Scene property group,
@@ -869,6 +1045,7 @@ def build_generator_settings_snapshot(tp3d):
         },
         "elements": {attr: getattr(tp3d, attr) for attr in _GENERATOR_ELEMENT_ATTRS},
         "remembered": remembered,
+        "customOsm": build_custom_osm_state(tp3d),
         "colorStyle": tp3d.color_style,
         "colors": color_styles.role_hex_map(color_styles.scene_colors(tp3d)),
         "slicerProfile": tp3d.slicer_profile_name,
@@ -901,6 +1078,8 @@ def apply_generator_settings_snapshot(tp3d, data):
     for key, values in data.get("remembered", {}).items():
         if key in _COMPOSITE_MASTER_FLAGS:
             tp3d[f"_toggle_remember_{key}"] = [bool(v) for v in values]
+    if isinstance(data.get("customOsm"), dict):
+        apply_custom_osm_update(tp3d, data["customOsm"])
     if data.get("colorStyle"):
         assign("color_style", data["colorStyle"])
     if data.get("colors"):
@@ -989,6 +1168,11 @@ def reset_generator_settings(tp3d):
     for key in _COMPOSITE_MASTER_FLAGS:
         if f"_toggle_remember_{key}" in tp3d.keys():
             del tp3d[f"_toggle_remember_{key}"]
+    from ..props import CUSTOM_OSM_SLOTS
+
+    apply_custom_osm_update(
+        tp3d, {"count": 0, "slots": [dict(_CUSTOM_OSM_DEFAULTS)] * CUSTOM_OSM_SLOTS}
+    )
     tp3d.color_style = color_styles.DEFAULT_STYLE
     color_styles.set_scene_colors(tp3d, color_styles.default_colors())
     _reset_property(tp3d, "disable_3mf_export")

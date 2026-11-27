@@ -11,11 +11,66 @@ from ... import progress as _progress
 from ... import temp
 from ...utils.plate import _expand_outline
 from ..dataclasses import GenerationContext, GenerationError
+from ..osm import extras as _extras
 from ..terrain import _ColoringTextureResult
 
 # Set after each road-enabled generation; read by the puzzle flow to clip road
 # geometry per piece without re-running the road pipeline.
 _puzzle_roads_data: tuple | None = None
+
+# Area elements' overlap priority in Single/Multi Extruder mode, highest
+# first: each element has every element before it subtracted (and roads are
+# cut out of all of them). The line Extras (lifts, slopes, railways, ...)
+# outrank even water so a bridge or lift stays visible over a river; Ski
+# Area lies under everything it contains. See utils/osm/extras.py.
+# Custom slots join the lines or the small areas depending on their type,
+# known only at generation time -- hence a function.
+def _terrain_priority_order():
+    custom = sorted(_extras.CUSTOM_KINDS)
+    custom_lines = [k for k in custom if _extras.is_line_kind(k)]
+    custom_areas = [k for k in custom if not _extras.is_line_kind(k)]
+    return [
+        *(k.lower() for k in custom_lines),
+        *(k.lower() for k in _extras.PRIORITY_HIGH),
+        "water",
+        *(k.lower() for k in custom_areas),
+        *(k.lower() for k in _extras.PRIORITY_MID),
+        "forest",
+        "scree",
+        "city",
+        "greenspace",
+        "farmland",
+        "glacier",
+        *(k.lower() for k in _extras.PRIORITY_LOW),
+        "ocean",
+    ]
+
+
+def _chip_key(key):
+    """Fetch-progress chip an element reports to -- the extra kinds share
+    the one "extras" chip, railways report to "roads"
+    (ui_state.build_fetch_items)."""
+    if key in _extras.EXTRA_KEYS:
+        return _extras.chip_key(key.upper())
+    return key
+
+
+def _merge_outcomes(outcomes):
+    """One chip status for several elements: any built one wins; then a
+    failed fetch, then "found but all filtered out", then plain empty."""
+    for status in ("done", "failed", "filtered"):
+        if status in outcomes:
+            return status
+    return "empty"
+
+
+def _set_chip(ov, key, outcome):
+    if outcome == "empty":
+        ov.set_fetch_empty(key)
+    elif outcome == "filtered":
+        ov.set_fetch_filtered(key)
+    else:
+        ov.set_fetch_done(key, success=outcome == "done")
 
 
 def _raise_overlays_with_plate(gen, lift):
@@ -278,6 +333,17 @@ def _rg_build_terrain_elements(
             "Fetching glacier data…",
         ),
     ]
+    # Extras ride along as ordinary coloring kinds. In Paint mode later
+    # elements paint over earlier ones, so Ski Area goes first (forests and
+    # pistes inside a resort stay visible) and the rest -- lines last -- go
+    # after the classic areas.
+    _extra_rows = _extras.coloring_entries(const.EXTRAS_MAXSIZE)
+    _low = {k.lower() for k in _extras.PRIORITY_LOW}
+    COLORING_ELEMENTS = (
+        [r for r in _extra_rows if r[0] in _low]
+        + COLORING_ELEMENTS
+        + [r for r in _extra_rows if r[0] not in _low]
+    )
 
     # Count total active elements (coloring + optional ocean/buildings/roads) for progress spread
     _ELEM_PHASE_START = phase_start
@@ -422,7 +488,7 @@ def _rg_build_terrain_elements(
                 and map_km <= max_size
                 and _all_prefetched.get(key.upper())
             ):
-                _ov.set_fetch_ready(key)
+                _ov.set_fetch_ready(_chip_key(key))
         # Buildings, roads, and ocean are pre-fetched in the same batch but aren't
         # in COLORING_ELEMENTS, so mark them ready here too.
         if (
@@ -448,6 +514,18 @@ def _rg_build_terrain_elements(
     terrain: dict[str, Any] = {}
     terrain["_osm_polygons"] = {}  # populated only when creating a texture
     _water_result = None  # raw coloring_main() result for 'water' -- replayed below if ocean finds nothing
+    # The extra kinds share a chip ("extras", or "roads" for railways):
+    # collect their outcomes ("done"/"failed"/"empty"/"filtered") per chip
+    # and set each once below (the roads chip after the roads themselves).
+    _chip_outcomes: dict[str, list] = {}
+    _too_big_chips: set = set()
+
+    def _report(key, outcome):
+        if key in _extras.EXTRA_KEYS:
+            _chip_outcomes.setdefault(_chip_key(key), []).append(outcome)
+        else:
+            _set_chip(_ov, key, outcome)
+
     for key, flag_attr, max_size, phase, msg in COLORING_ELEMENTS:
         terrain[key] = None
         if gen.settings.elementSource != "OSM":
@@ -466,23 +544,23 @@ def _rg_build_terrain_elements(
                     _water_result = _result
                 if _result is _COLORING_EMPTY:
                     terrain[key] = None
-                    _ov.set_fetch_empty(key)
+                    _report(key, "empty")
                 elif _result is _COLORING_FILTERED:
                     terrain[key] = None
-                    _ov.set_fetch_filtered(key)
+                    _report(key, "filtered")
                 elif _result is _COLORING_PAINTED:
                     terrain[key] = None  # object was deleted after painting
-                    _ov.set_fetch_done(key, success=True)
+                    _report(key, "done")
                 elif isinstance(_result, _ColoringTextureResult):
                     terrain["_osm_polygons"][_result.kind] = _result.polygon
                     terrain[key] = None
-                    _ov.set_fetch_done(key, success=True)
+                    _report(key, "done")
                 elif _result is None:
                     terrain[key] = None
-                    _ov.set_fetch_done(key, success=False)
+                    _report(key, "failed")
                 else:
                     terrain[key] = _result
-                    _ov.set_fetch_done(key, success=True)
+                    _report(key, "done")
                     if gen.settings.elementMode == "SEPARATE":
                         from ..mesh_ops import (
                             separate_mode_recess_cutter,
@@ -502,10 +580,27 @@ def _rg_build_terrain_elements(
                 print(
                     f"INFO: MAP IS TOO BIG FOR {key.upper()} (< {max_size} km required)"
                 )
+                if key in _extras.EXTRA_KEYS:
+                    # One warning for the whole group, below.
+                    _too_big_chips.add(_chip_key(key))
+                    continue
                 phase_text = _rpt(phase)
                 _progress.WarningsOverlay.add_warning(
                     _rpt("Map too big for {}.").format(phase_text), "warn"
                 )
+
+    for _chip in sorted(_too_big_chips):
+        _label = "Extras" if _chip == _extras.CHIP_KEY else "Railways"
+        _progress.WarningsOverlay.add_warning(
+            _rpt("Map too big for {}.").format(_rpt(_label)), "warn"
+        )
+    if _chip_outcomes.get(_extras.CHIP_KEY):
+        _set_chip(_ov, _extras.CHIP_KEY, _merge_outcomes(_chip_outcomes[_extras.CHIP_KEY]))
+    # Railways alone (no road tier ticked): nothing else will set the chip.
+    if _chip_outcomes.get("roads") and not (
+        any_road_active(tp3d) and map_km <= const.ROADS_MAXSIZE
+    ):
+        _set_chip(_ov, "roads", _merge_outcomes(_chip_outcomes["roads"]))
 
     # --------------------------------------------------
     # Ocean — unique creation logic.
@@ -680,7 +775,8 @@ def _rg_build_terrain_elements(
                 # raises on a real fetch/build error). Gray "0" like the other
                 # elements' empty result.
                 print("INFO: No road data returned, skipping road processing.")
-                _ov.set_fetch_empty("roads")
+                # Railways built under this same chip still count.
+                _set_chip(_ov, "roads", _merge_outcomes(_chip_outcomes.get("roads", [])))
         else:
             print("INFO: MAP IS TOO BIG FOR STREETS (< 100Km Map size Required)")
             _progress.WarningsOverlay.add_warning(
@@ -1008,16 +1104,7 @@ def _rg_apply_single_color_mode(
             _ov = _progress.ProgressOverlay.get()
             thicker_by_key = {}
 
-            TERRAIN_PRIORITY_ORDER = [
-                "water",
-                "forest",
-                "scree",
-                "city",
-                "greenspace",
-                "farmland",
-                "glacier",
-                "ocean",
-            ]
+            TERRAIN_PRIORITY_ORDER = _terrain_priority_order()
 
             # An element clipped away entirely (e.g. a bbox-corner coastline on
             # a hexagon tile) has no vertices; drop it rather than let the
@@ -1127,16 +1214,7 @@ def _rg_apply_single_color_mode(
         )
 
         try:
-            TERRAIN_PRIORITY_ORDER = [
-                "water",
-                "forest",
-                "scree",
-                "city",
-                "greenspace",
-                "farmland",
-                "glacier",
-                "ocean",
-            ]
+            TERRAIN_PRIORITY_ORDER = _terrain_priority_order()
             _active_keys = [k for k in TERRAIN_PRIORITY_ORDER if terrain.get(k)]
             if not _active_keys:
                 return
@@ -1280,16 +1358,7 @@ def _rg_apply_single_color_mode(
             boolean_operation(obj, roads_cutter, solver=solver)
 
             # Cut roads out of each terrain element
-            TERRAIN_PRIORITY_ORDER = [
-                "water",
-                "forest",
-                "scree",
-                "city",
-                "greenspace",
-                "farmland",
-                "glacier",
-                "ocean",
-            ]
+            TERRAIN_PRIORITY_ORDER = _terrain_priority_order()
             for key in TERRAIN_PRIORITY_ORDER:
                 elem_obj = terrain.get(key)
                 if not elem_obj:

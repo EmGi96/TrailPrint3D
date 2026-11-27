@@ -151,7 +151,7 @@ var BADGE_COLORS = {
   elevation:'#3d72b2', landcover:'#6b9e4c', forest:'#2d8f3d', water:'#2d78cc',
   scree:'#7a6248',     city:'#8844aa',   greenspace:'#4daa3d',
   farmland:'#aa9928',  glacier:'#7dc0e8',ocean:'#1244aa',
-  buildings:'#cc8222', roads:'#444'
+  buildings:'#cc8222', roads:'#444', extras:'#1f6bc7'
 };
 
 // ── position ──────────────────────────────────────────────────────────────────
@@ -519,6 +519,7 @@ _ICON_MAP = {
     'farmland':   'prog_farmland.svg',
     'glacier':    'prog_glacier.svg',
     'city':       'prog_cityBoundaries.svg',
+    'extras':     'prog_extras.svg',
     # ESA WorldCover's "Mountain" category reuses OSM's Scree icon -- close
     # enough visually (rocky/high terrain) and there's no dedicated asset.
     'mountain':   'prog_scree.svg',

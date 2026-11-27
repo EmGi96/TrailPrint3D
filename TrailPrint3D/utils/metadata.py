@@ -1,9 +1,11 @@
+import json
 import math
 
 import bpy  # type: ignore
 
 from .. import constants as const
 from .generation_snapshot import GenerationSnapshot
+from .osm.extras import EXTRA_KIND_NAMES
 
 
 def writeMetadata(obj, type="MAP"):
@@ -126,6 +128,32 @@ def writeMetadata(obj, type="MAP"):
         obj["col_faArea"] = bpy.context.scene.tp3d.col_faArea
         obj["col_grActive"] = bpy.context.scene.tp3d.col_grActive
         obj["col_grArea"] = bpy.context.scene.tp3d.col_grArea
+        obj["show_extras"] = bpy.context.scene.tp3d.show_extras
+        obj["el_xSkiActive"] = bpy.context.scene.tp3d.el_xSkiActive
+        obj["el_sRailwayActive"] = bpy.context.scene.tp3d.el_sRailwayActive
+        obj["el_sRailwayWidth"] = bpy.context.scene.tp3d.el_sRailwayWidth
+        obj["el_xSkiAreaActive"] = bpy.context.scene.tp3d.el_xSkiAreaActive
+        obj["el_xBeachActive"] = bpy.context.scene.tp3d.el_xBeachActive
+        obj["el_xGolfActive"] = bpy.context.scene.tp3d.el_xGolfActive
+        obj["el_xRunwayActive"] = bpy.context.scene.tp3d.el_xRunwayActive
+        obj["el_xSportsActive"] = bpy.context.scene.tp3d.el_xSportsActive
+        obj["el_xLineWidth"] = bpy.context.scene.tp3d.el_xLineWidth
+        obj["el_xArea"] = bpy.context.scene.tp3d.el_xArea
+        obj["el_xCustomActive"] = bpy.context.scene.tp3d.el_xCustomActive
+        _tp3d = bpy.context.scene.tp3d
+        obj["custom_osm"] = json.dumps(
+            [
+                {
+                    "name": s.name,
+                    "enabled": bool(s.enabled),
+                    "geometry": s.geometry,
+                    "tags": s.tags,
+                    "width": round(float(s.width), 3),
+                    "area": round(float(s.area), 3),
+                }
+                for s in list(_tp3d.custom_osm)[: _tp3d.custom_osm_count]
+            ]
+        )
         obj["col_lcForestActive"] = bpy.context.scene.tp3d.col_lcForestActive
         obj["col_lcGreenspaceActive"] = bpy.context.scene.tp3d.col_lcGreenspaceActive
         obj["col_lcFarmlandActive"] = bpy.context.scene.tp3d.col_lcFarmlandActive
@@ -219,7 +247,7 @@ def writeMetadata(obj, type="MAP"):
 
         obj["ExportGroup"] = 0 if (bpy.context.scene.tp3d.singleColorMode or "SINGLECOLORMODE" in bpy.context.scene.tp3d.elementMode) else 1
 
-    if type == "CITY" or type == "WATER" or type == "FOREST" or type == "GLACIER" or type == "FARMLAND" or type == "SCREE" or type == "GREENSPACE":
+    if type in {"CITY", "WATER", "FOREST", "GLACIER", "FARMLAND", "SCREE", "GREENSPACE"} or type in EXTRA_KIND_NAMES:
         obj["Object type"] = type
         obj["Addon"] = const.ADDON_NAME
         obj["Version"] = const.ADDON_VERSION

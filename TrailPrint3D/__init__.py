@@ -85,6 +85,8 @@ classes = [
     operators.TP3D_OT_reset_osm_size_limits,
     operators.TP3D_OT_reset_color_style,
     operators.TP3D_OT_save_color_style,
+    operators.TP3D_OT_custom_osm_add,
+    operators.TP3D_OT_custom_osm_remove,
     operators.TP3D_OT_delete_color_style,
     operators.TP3D_OT_apply_color_style,
     operators.TP3D_OT_puzzle_configurator,
@@ -125,6 +127,7 @@ def startup_function(scene, dummy=None):
     for scn in bpy.data.scenes:
         props.repair_invalid_shape(scn)
         props.ensure_road_types(scn.tp3d)
+        props.ensure_custom_osm(scn.tp3d)
         utils.apply_default_slicer_profile(scn.tp3d)
 
     utils.loadCollections(scene, dummy)
@@ -170,6 +173,7 @@ def register():
     # latter's road_types = CollectionProperty(type=TP3D_RoadTypeItem) needs
     # that type to already be a registered RNA struct.
     bpy.utils.register_class(props.TP3D_RoadTypeItem)
+    bpy.utils.register_class(props.TP3D_CustomOsmItem)
     bpy.utils.register_class(props.TP3D_PG_properties)
     bpy.app.translations.register(const.ADDON_NAME, translation.translations_dict)
     bpy.types.Scene.tp3d = bpy.props.PointerProperty(type=props.TP3D_PG_properties)
@@ -225,6 +229,7 @@ def _load_collections_deferred():
         for scn in bpy.data.scenes:
             props.repair_invalid_shape(scn)
             props.ensure_road_types(scn.tp3d)
+            props.ensure_custom_osm(scn.tp3d)
             utils.apply_default_slicer_profile(scn.tp3d)
         utils.loadCollections(None, None)
     except (AttributeError, RuntimeError, ReferenceError) as e:
@@ -264,6 +269,11 @@ def unregister():
 
     try:
         bpy.utils.unregister_class(props.TP3D_PG_properties)
+    except RuntimeError:
+        pass
+
+    try:
+        bpy.utils.unregister_class(props.TP3D_CustomOsmItem)
     except RuntimeError:
         pass
 

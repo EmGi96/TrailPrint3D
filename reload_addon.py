@@ -71,6 +71,15 @@ importlib.reload(T.utils.text_objects)
 # generation_snapshot.py is a leaf (constants only) imported at module scope
 # by metadata and panels -- must come before both.
 importlib.reload(_imp("utils.generation_snapshot"))
+# osm/extras.py (the "Extras" element table) is a leaf (no local imports)
+# but is imported at module scope by metadata and ui_state -- and by
+# terrain, generation.elements/output, panels and the osm fetch/prefetch
+# modules -- so it is reloaded here, once, ahead of all of them rather than
+# with the rest of the osm sub-package below.
+# custom_osm.py (tag-rule parser) is a leaf imported by extras at module
+# scope -- reloaded first.
+importlib.reload(_imp("utils.osm.custom_osm"))
+importlib.reload(_imp("utils.osm.extras"))
 importlib.reload(T.utils.metadata)
 importlib.reload(T.utils.presets)
 importlib.reload(T.utils.elevation)
@@ -134,6 +143,8 @@ _imp("utils.osm.water_polygons")
 _imp("utils.osm.prefetch")
 # bbox_snap/exclusions are leaves imported by fetch_solo/fetch_group at module
 # scope; prefetch imports bbox_snap at module scope (rest is deferred).
+# extras was already reloaded above (before metadata/ui_state) -- reloading
+# it again here would leave those two bound to a stale copy.
 importlib.reload(T.utils.osm.bbox_snap)
 importlib.reload(T.utils.osm.exclusions)
 importlib.reload(T.utils.osm.fetch_utils)

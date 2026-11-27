@@ -527,6 +527,22 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 0.875rem; line
 .element-card .card-field input[type=number] { width: 100%; background: var(--surface-field); color: var(--text-primary); border: 1px solid var(--border);
     border-radius: 4px; padding: 3px 5px; font-size: 11px; }
 .element-card .card-field.locked { color: #666; cursor: not-allowed; }
+/* Extras → Custom Elements card (settings_modal.js tp3dBuildCustomOsmCard) */
+.custom-osm-card { gap: 6px; }
+.custom-osm-list { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+.custom-osm-slot { display: flex; flex-direction: column; gap: 4px; padding: 6px; border: 1px solid var(--border); border-radius: 6px; background: rgba(0,0,0,0.12); }
+.custom-osm-slot.disabled { opacity: 0.55; }
+.custom-osm-top { display: flex; align-items: center; gap: 4px; }
+.custom-osm-top input[type=color] { width: 26px; height: 22px; padding: 0; border: 1px solid var(--border); border-radius: 4px; background: none; cursor: pointer; flex: none; }
+.custom-osm-top .custom-osm-name { flex: 1 1 auto; min-width: 0; }
+.custom-osm-slot input[type=text], .custom-osm-slot select, .custom-osm-slot textarea {
+    background: var(--surface-field); color: var(--text-primary); border: 1px solid var(--border); border-radius: 4px; padding: 3px 5px; font-size: 11px; }
+.custom-osm-slot textarea { width: 100%; box-sizing: border-box; resize: vertical; font-family: ui-monospace, Consolas, monospace; min-height: 2.8em; }
+.custom-osm-remove { flex: none; padding: 1px 6px; font-size: 11px; color: var(--danger); background: none; border: 1px solid var(--border); border-radius: 4px; cursor: pointer; }
+.custom-osm-remove:hover { border-color: var(--danger); }
+.custom-osm-add { width: 100%; padding: 4px; font-size: 11px; cursor: pointer; }
+.custom-osm-add:disabled { cursor: not-allowed; opacity: 0.6; }
+.custom-osm-msg.error-text { color: var(--danger); }
 .element-card .card-field.locked input[type=number] { color: #666; background: var(--surface-panel); border-color: var(--surface-raised); cursor: not-allowed; }
 .element-card .card-checklist { display: flex; flex-direction: column; gap: 3px; width: 100%; margin: 2px 0; }
 .element-card .card-checklist label { display: flex; align-items: center; gap: 5px; font-size: 11px;

@@ -21,6 +21,7 @@ OSM_SIZE_LIMITS = {
     "osm_limit_greenspace": "GREENSPACE_MAXSIZE",
     "osm_limit_farmland": "FARMLAND_MAXSIZE",
     "osm_limit_glacier": "GLACIER_MAXSIZE",
+    "osm_limit_extras": "EXTRAS_MAXSIZE",
     "osm_limit_buildings": "BUILDINGS_MAXSIZE",
     "osm_limit_roads": "ROADS_MAXSIZE",
     "osm_limit_streets": "STREETS_PRIMARY_THRESHOLD",
@@ -152,6 +153,11 @@ class TP3D_AddonPreferences(bpy.types.AddonPreferences):
     )  # type: ignore
     osm_limit_glacier: _osm_limit_prop(
         "GLACIER_MAXSIZE", "Glacier", "Glaciers are skipped above this map size"
+    )  # type: ignore
+    osm_limit_extras: _osm_limit_prop(
+        "EXTRAS_MAXSIZE",
+        "Extras",
+        "Extras (ski slopes, railways, beaches, golf courses, ...) are skipped above this map size",
     )  # type: ignore
     osm_limit_buildings: _osm_limit_prop(
         "BUILDINGS_MAXSIZE", "Buildings", "Buildings are skipped above this map size"

@@ -3708,6 +3708,38 @@ class TP3D_OT_save_color_style(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class TP3D_OT_custom_osm_add(bpy.types.Operator):
+    bl_idname = "tp3d.custom_osm_add"
+    bl_label = _("Add Custom Element")
+    bl_description = _tip("Add an OSM element of your own, defined by tags (up to 5)")
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        tp3d = context.scene.tp3d
+        if tp3d.custom_osm_count >= 5:
+            self.report({'ERROR'}, _rpt("All 5 custom element slots are in use."))
+            return {'CANCELLED'}
+        utils.apply_custom_osm_update(tp3d, {"action": "add"})
+        return {'FINISHED'}
+
+
+class TP3D_OT_custom_osm_remove(bpy.types.Operator):
+    bl_idname = "tp3d.custom_osm_remove"
+    bl_label = _("Remove Custom Element")
+    bl_description = _tip("Remove this custom element")
+    bl_options = {'REGISTER', 'UNDO'}
+
+    index: IntProperty(default=0, min=0, max=4)  # type: ignore
+
+    def execute(self, context):
+        tp3d = context.scene.tp3d
+        if self.index >= tp3d.custom_osm_count:
+            self.report({'ERROR'}, _rpt("No such custom element."))
+            return {'CANCELLED'}
+        utils.apply_custom_osm_update(tp3d, {"action": "remove", "index": self.index})
+        return {'FINISHED'}
+
+
 class TP3D_OT_delete_color_style(bpy.types.Operator):
     bl_idname = "tp3d.delete_color_style"
     bl_label = _("Delete Color Style")

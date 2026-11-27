@@ -8,6 +8,7 @@ from bpy.types import Object
 
 from ... import progress as _progress
 from ..dataclasses import GenerationContext
+from ..osm import extras as _extras
 
 
 def _rg_finalize_metadata(
@@ -287,7 +288,7 @@ def _rg_export(gen: GenerationContext):
 
 _ELEMENT_OBJECT_TYPES = frozenset(
     {"CITY", "WATER", "FOREST", "GLACIER", "FARMLAND", "SCREE", "GREENSPACE", "ROADS", "BUILDINGS"}
-)
+) | _extras.EXTRA_KIND_NAMES
 
 
 def _rg_export_tiles(gen: GenerationContext, objects):

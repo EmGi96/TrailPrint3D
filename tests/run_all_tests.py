@@ -90,6 +90,7 @@ _TEST_FILES = [
     "test_generator_settings.py",
     "test_gpx.py",
     "test_magnet_layout.py",
+    "test_osm_extras.py",
     "test_osm_pipeline.py",
     "test_post_process.py",
     "test_prefetch.py",

@@ -30,8 +30,36 @@ var PREFETCH_KIND_STYLE = {
     GLACIER:    { label: 'Glacier',    color: '#7fd6e8' },
     BUILDINGS:  { label: 'Buildings',  color: '#e07b39' },
     STREETS:    { label: 'Roads',      color: '#d81b3c' },
-    COASTLINE:  { label: 'Coastline',  color: '#1e5aa8' }
+    COASTLINE:  { label: 'Coastline',  color: '#1e5aa8' },
+    // Extras (utils/osm/extras.py)
+    SKISLOPE:   { label: 'Ski Slopes', color: '#2f6fe0' },
+    SKILIFT:    { label: 'Ski Lifts',  color: '#222222' },
+    SKINORDIC:  { label: 'Cross-Country Trails', color: '#8e5cd6' },
+    SKIAREA:    { label: 'Ski Area',   color: '#f4a6a6' },
+    RAILWAY:    { label: 'Railways',   color: '#6b3a1f' },
+    RUNWAY:     { label: 'Runways',    color: '#8c8c8c' },
+    BEACH:      { label: 'Beach / Sand', color: '#f2d98a' },
+    GOLF:       { label: 'Golf Course', color: '#7fd34e' },
+    SPORTS:     { label: 'Sports Pitches', color: '#c8553d' },
+    // Custom slots -- relabelled from ADVANCED_SETTINGS_STATE._customOsm below.
+    CUSTOM1:    { label: 'Custom 1',   color: '#e6194b' },
+    CUSTOM2:    { label: 'Custom 2',   color: '#f58231' },
+    CUSTOM3:    { label: 'Custom 3',   color: '#911eb4' },
+    CUSTOM4:    { label: 'Custom 4',   color: '#42d4f4' },
+    CUSTOM5:    { label: 'Custom 5',   color: '#bfef45' }
 };
+// Custom slots show under their own name and color in the prefetch legend.
+function prefetchSyncCustomStyles() {
+    var st = typeof ADVANCED_SETTINGS_STATE !== 'undefined' && ADVANCED_SETTINGS_STATE._customOsm;
+    if (!st || !st.slots) return;
+    st.slots.forEach(function(slot, i) {
+        var style = PREFETCH_KIND_STYLE['CUSTOM' + (i + 1)];
+        if (!style) return;
+        // Labels end up in innerHTML (prefetchShowTip) -- keep them plain.
+        if (slot.name) style.label = String(slot.name).replace(/[<>&"']/g, '');
+        if (slot.color) style.color = slot.color.toLowerCase();
+    });
+}
 var PREFETCH_DISABLED_COLOR = '#e04040';
 // How far off dead-straight (in degrees) a road at a junction may still be to
 // count as "continuing the same direction" for Alt+click's follow-the-road
@@ -387,6 +415,7 @@ function prefetchShowTip(feat) {
 }
 
 function drawPrefetchResult(result) {
+    prefetchSyncCustomStyles();
     clearPrefetch();
     var features = result.features || [];
     features.forEach(function(feat) {

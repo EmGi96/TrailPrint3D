@@ -20,6 +20,7 @@ from .props import (
     estimate_map_km,
 )
 from .utils import color_styles, get_effective_cl_values, get_map_z_extent
+from .utils.osm import extras as _osm_extras
 from .utils.generation_snapshot import (
     GenerationSnapshot,
     format_generation_setting_label,
@@ -718,6 +719,80 @@ def _draw_element_box(layout, props):
                 )
             return sub
 
+        def _draw_custom_osm(layout, props):
+            # Extras -> Custom: the scene's user-defined OSM elements, same
+            # slots the generator pages' Custom Elements card edits.
+            from .utils.osm.custom_osm import parse_rules
+
+            col = layout.column(align=True)
+            col.label(text=_("Custom Elements") + ":")
+            count = min(props.custom_osm_count, len(props.custom_osm))
+            for i in range(count):
+                slot = props.custom_osm[i]
+                box = col.box()
+                row = box.row(align=True)
+                row.prop(slot, "enabled", text="")
+                row.prop(props, f"element_color_custom{i + 1}", text="")
+                row.prop(slot, "name", text="", placeholder=_("Custom {}").format(i + 1))
+                row.prop(slot, "geometry", text="")
+                op = row.operator("tp3d.custom_osm_remove", text="", icon="X")
+                op.index = i
+                body = box.column(align=True)
+                body.enabled = slot.enabled
+                body.prop(slot, "tags", text="", placeholder="natural=beach; leisure=pitch, sport=tennis")
+                if slot.tags.strip():
+                    parsed = parse_rules(slot.tags)
+                    if parsed.error or parsed.warning:
+                        msg = body.row()
+                        msg.alert = bool(parsed.error)
+                        msg.label(
+                            text=parsed.error or parsed.warning,
+                            icon="ERROR" if parsed.error else "INFO",
+                        )
+                body.prop(slot, "width" if slot.geometry == "LINE" else "area")
+            add = col.row()
+            add.enabled = count < 5
+            add.operator("tp3d.custom_osm_add", icon="ADD")
+
+        def _draw_extras_category(box, props):
+            # The less-used OSM elements (utils/osm/extras.py), one composite
+            # like Water & Ocean: master checkbox + one row per sub-flag.
+            sub = _create_box_with_header(
+                box,
+                props,
+                _("Extras"),
+                icon="PRESET",
+                prop_toggle="show_extras",
+            )
+            if not props.show_extras:
+                return
+            col = sub.column(align=True)
+            for flag in _osm_extras.SUB_FLAGS:
+                col.prop(
+                    props,
+                    flag,
+                    icon="CHECKBOX_HLT" if getattr(props, flag) else "CHECKBOX_DEHLT",
+                )
+            row = sub.row(align=True)
+            row.prop(props, "el_xLineWidth")
+            row.prop(props, "el_xArea")
+            if props.el_xCustomActive:
+                _draw_custom_osm(sub, props)
+            if _osm_extras.any_active(props):
+                est_km = estimate_map_km(props)
+                if est_km is not None and est_km > const.EXTRAS_MAXSIZE:
+                    warning = sub.column(align=True)
+                    warning.alert = True
+                    warning.label(
+                        text=_("~%dkm map exceeds %dkm limit")
+                        % (round(est_km), const.EXTRAS_MAXSIZE),
+                        icon="ERROR",
+                    )
+                    warning.label(
+                        text=_("This element will be skipped"),
+                        icon="BLANK1",
+                    )
+
         def _draw_3d_element_category(box, props):
             sub3d = box.box()
             sub3d.label(text=_("3D Elements"), icon="MESH_CUBE")
@@ -760,6 +835,17 @@ def _draw_element_box(layout, props):
                     "road_types_index",
                     rows=5,
                 )
+                # Not a road tier -- built like the line Extras, in its
+                # own color and width (utils/osm/extras.py).
+                rail = col.row(align=True)
+                rail.prop(
+                    props,
+                    "el_sRailwayActive",
+                    icon="CHECKBOX_HLT" if props.el_sRailwayActive else "CHECKBOX_DEHLT",
+                )
+                rail_width = rail.row(align=True)
+                rail_width.enabled = props.el_sRailwayActive
+                rail_width.prop(props, "el_sRailwayWidth", text=_("Width"))
                 if (
                     props.elementMode == "PAINT"
                     and _any_road
@@ -853,6 +939,7 @@ def _draw_element_box(layout, props):
             const.GLACIER_MAXSIZE,
             area_prop="col_glArea",
         )
+        _draw_extras_category(box, props)
         # Roads and Buildings
         _draw_3d_element_category(box, props)
 

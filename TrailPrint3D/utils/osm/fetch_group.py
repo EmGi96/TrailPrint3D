@@ -9,7 +9,13 @@ from bpy.app.translations import pgettext_rpt as _rpt
 from ... import constants as const
 from ... import progress as _progress
 from .bbox_snap import snap as snap_bbox
-from .fetch_utils import _overpass_request, requested_highway_tags, resolve_road_tiers
+from . import extras as _extras
+from .fetch_utils import (
+    _overpass_request,
+    cache_kind_version,
+    requested_highway_tags,
+    resolve_road_tiers,
+)
 
 
 def _make_cache_path(bbox, kind, settings=None):
@@ -39,7 +45,7 @@ def _make_cache_path(bbox, kind, settings=None):
     # so the cache key matches whatever was actually queried.
     water_small_rivers = water_small_rivers and mapsize <= const.SMALL_RIVERS_MAXSIZE
 
-    cache_kind = kind
+    cache_kind = cache_kind_version(kind)
     if kind == "STREETS":
         cache_kind = kind + str(sorted(road_tiers.items())) + str(exclude_alleys)
     elif kind == "WATER":
@@ -138,6 +144,8 @@ def _build_union_query(south, west, north, east, kinds, settings=None):
             'way["natural"="grass"]',
             'way["landuse"="village_green"]',
             'relation["landuse"="village_green"]',
+            'way["landuse"~"^(vineyard|orchard)$"]',
+            'relation["landuse"~"^(vineyard|orchard)$"]',
         ]
 
     if "FARMLAND" in kinds:
@@ -156,6 +164,8 @@ def _build_union_query(south, west, north, east, kinds, settings=None):
 
     if "COASTLINE" in kinds:
         filters.append('way["natural"="coastline"]')
+
+    filters += _extras.overpass_filters(kinds)
 
     if "BUILDINGS" in kinds:
         filters += [
@@ -291,7 +301,7 @@ def _classify_element(element, active_kinds, settings=None):
         natural = tags.get("natural", "")
         if leisure in {"park", "garden", "recreation_ground"}:
             return "GREENSPACE"
-        if landuse in {"grass", "village_green"}:
+        if landuse in {"grass", "village_green", "vineyard", "orchard"}:
             return "GREENSPACE"
         if natural == "grass":
             return "GREENSPACE"
@@ -453,8 +463,13 @@ def fetch_osm_combined(
     for element in elements:
         if element.get("type") == "node":
             continue
-        kind = _classify_element(element, missing, settings)
-        if kind is not None:
+        # One classic kind at most, plus any extras on top: a ski slope that
+        # is also a highway=track must reach both STREETS and SKISLOPE.
+        kinds_hit = [_classify_element(element, missing, settings)]
+        kinds_hit += _extras.classify(element, missing)
+        for kind in kinds_hit:
+            if kind is None:
+                continue
             per_kind[kind]["elements"].append(element)
             if element.get("type") == "relation":
                 seen = {e["id"] for e in per_kind[kind]["elements"]}

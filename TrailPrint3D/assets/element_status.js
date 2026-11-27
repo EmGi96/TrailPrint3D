@@ -20,7 +20,8 @@ var ELEMENT_STATUS_ORDER_OSM = [
     ['farmland', 'Farmland'],
     ['glacier', 'Glacier'],
     ['buildings', 'Buildings'],
-    ['roads', 'Roads']
+    ['roads', 'Roads'],
+    ['extras', 'Extras']
 ];
 
 // ESA WorldCover's own chip set -- mirrors panels.py's _LANDCOVER_COLOR_ROWS
@@ -71,7 +72,9 @@ ELEMENT_STATUS_ORDER.forEach(function(entry) { TP3D_ELEMENT_STATE[entry[0]] = !!
 // convention as COMPOSITE_ELEMENTS in settings_modal.js.
 var TP3D_COMPOSITE_FLAGS = {
     water: { subflags: ['colWPondsActive', 'colWSmallRiversActive', 'colWBigRiversActive', 'elOActive'], bootstrap: ['colWPondsActive'] },
-    roads: { subflags: ['elSHighwaysActive', 'elSMajorActive', 'elSMinorActive', 'elSResidentialActive', 'elSServiceActive', 'elSFootwayActive', 'elSPedestrianActive', 'elSCycleBridleActive', 'elSTrackActive', 'elSPathActive', 'elSRacewayActive'], bootstrap: ['elSMajorActive', 'elSMinorActive'] }
+    roads: { subflags: ['elSHighwaysActive', 'elSMajorActive', 'elSMinorActive', 'elSResidentialActive', 'elSServiceActive', 'elSFootwayActive', 'elSPedestrianActive', 'elSCycleBridleActive', 'elSTrackActive', 'elSPathActive', 'elSRacewayActive', 'elSRailwayActive'], bootstrap: ['elSMajorActive', 'elSMinorActive'] },
+    // utils/osm/extras.py's SUB_FLAGS / BOOTSTRAP_FLAGS.
+    extras: { subflags: ['elXSkiActive', 'elXSkiAreaActive', 'elXBeachActive', 'elXGolfActive', 'elXRunwayActive', 'elXSportsActive', 'elXCustomActive'], bootstrap: ['elXSkiActive'] }
 };
 
 // TP3D_COMPOSITE_FLAGS is an OSM-only concept -- under WorldCover, 'water'

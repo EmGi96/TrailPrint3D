@@ -240,6 +240,7 @@ class ProgressOverlay:
         'ocean':      (0.08, 0.28, 0.62, 1.00),
         'buildings':  (0.82, 0.52, 0.12, 1.00),
         'roads':      (0.28, 0.28, 0.28, 1.00),
+        'extras':     (0.12, 0.42, 0.78, 1.00),
     }
 
     def __init__(self):

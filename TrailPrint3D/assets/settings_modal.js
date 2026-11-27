@@ -438,7 +438,8 @@ var ELEMENT_CARD_LABELS = {
     farmland: { label: 'Farmland' },
     glacier: { label: 'Glacier' },
     buildings: { label: 'Buildings' },
-    roads: { label: 'Roads' }
+    roads: { label: 'Roads' },
+    extras: { label: 'Extras' }
 };
 
 // 'buildings' is deliberately left out -- it's rendered as a simple card
@@ -544,7 +545,9 @@ var COMPOSITE_ELEMENTS = {
             { key: 'elSCycleBridleActive', label: 'Cycle/Bridle Paths' },
             { key: 'elSTrackActive', label: 'Tracks' },
             { key: 'elSPathActive', label: 'Trails/Paths' },
-            { key: 'elSRacewayActive', label: 'Raceways' }
+            { key: 'elSRacewayActive', label: 'Raceways' },
+            // Not a road tier: its own color + width (utils/osm/extras.py).
+            { key: 'elSRailwayActive', label: 'Railways' }
         ],
         numberFields: [
             { key: 'elSMultiplier', label: 'Width Multiplier', step: 0.1, min: 0 },
@@ -553,9 +556,31 @@ var COMPOSITE_ELEMENTS = {
               previewCaption: 'How high the roads stick out of the map.' },
             { key: 'elSCutTolerance', label: 'Cut Tolerance', step: 0.05, min: 0, singleExtruderOnly: true,
               preview: 'https://trailprint3d.com/images/howto/RoadCutTolerance.webp',
-              previewCaption: 'Tolerance for the roads in Single Extruder Mode.' }
+              previewCaption: 'Tolerance for the roads in Single Extruder Mode.' },
+            { key: 'elSRailwayWidth', label: 'Railway Width (mm)', step: 0.1, min: 0.1, max: 10,
+              title: 'Printed width of the railways' }
         ],
         extraFields: tp3dBuildRoadsPaintField
+    },
+    // The less-used OSM elements, grouped under one chip -- see
+    // utils/osm/extras.py. Each kind has its own color role (the Ski entry
+    // alone covers three: slopes, lifts and cross-country trails).
+    extras: {
+        checkboxes: [
+            { key: 'elXSkiActive', label: 'Ski Slopes & Lifts' },
+            { key: 'elXSkiAreaActive', label: 'Ski Areas' },
+            { key: 'elXBeachActive', label: 'Beach / Sand' },
+            { key: 'elXGolfActive', label: 'Golf Courses' },
+            { key: 'elXRunwayActive', label: 'Airport Runways' },
+            { key: 'elXSportsActive', label: 'Sports Pitches / Tracks' },
+            // Your own OSM tags -- defined in the Custom Elements card next to this one.
+            { key: 'elXCustomActive', label: 'Custom' }
+        ],
+        numberFields: [
+            { key: 'elXLineWidth', label: 'Line Width (mm)', step: 0.1, min: 0.1, max: 10,
+              title: 'Printed width of ski slopes, ski lifts and cross-country trails. Runways use their real width, but never less than this' },
+            { key: 'elXArea', label: 'Area Threshold', step: 0.5, min: 0, preview: ELEMENT_THRESHOLD_PREVIEW, previewCaption: ELEMENT_THRESHOLD_CAPTION }
+        ]
     }
 };
 
@@ -914,6 +939,7 @@ function tp3dBuildCheckboxField(field, compositeKey) {
         // tutorials read sub-flags from it.
         ADVANCED_SETTINGS_STATE[field.key] = input.checked;
         tp3dSendAdvancedUpdate(field.key, input.checked);
+        if (field.key === 'elXCustomActive' && tp3dRenderCustomOsmHint) tp3dRenderCustomOsmHint();
     });
     label.appendChild(input);
     label.appendChild(document.createTextNode(field.label));
@@ -2207,6 +2233,230 @@ function tp3dBuildOsmSmoothingToggle() {
     return row;
 }
 
+// ── Custom OSM elements (Extras → Custom) ────────────────────────────────
+// Up to 5 user-defined elements per scene (props.TP3D_CustomOsmItem), kept
+// in ADVANCED_SETTINGS_STATE._customOsm = {count, slots: [...]} and edited
+// through /update_advanced_setting with key '_customOsm' (see
+// utils.ui_state.apply_custom_osm_update). Tag rules are checked live by
+// /check_osm_tags (utils/osm/custom_osm.py has the syntax).
+var TP3D_CUSTOM_OSM_MAX = 5;
+var TP3D_CUSTOM_OSM_DEFAULT = { enabled: true, name: '', geometry: 'AREA', tags: '', width: 0.6, area: 1, color: '#E6194B', error: '', warning: '' };
+var TP3D_CUSTOM_OSM_PLACEHOLDER = 'natural=beach\nleisure=pitch, sport=tennis\nlanduse=vineyard|orchard';
+// Sent one after another so an "add" always reaches Blender before the
+// first edit of the new slot.
+var tp3dCustomOsmChain = Promise.resolve();
+
+function tp3dCustomOsmState() {
+    if (!ADVANCED_SETTINGS_STATE._customOsm) ADVANCED_SETTINGS_STATE._customOsm = { count: 0, slots: [] };
+    var st = ADVANCED_SETTINGS_STATE._customOsm;
+    while (st.slots.length < TP3D_CUSTOM_OSM_MAX) st.slots.push(Object.assign({}, TP3D_CUSTOM_OSM_DEFAULT));
+    return st;
+}
+
+function tp3dSendCustomOsm(payload) {
+    tp3dCustomOsmChain = tp3dCustomOsmChain.then(function() {
+        return fetch('http://127.0.0.1:' + PORT + '/update_advanced_setting', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: '_customOsm', value: payload })
+        }).catch(function() {});
+    });
+}
+
+function tp3dCheckOsmTags(tags, geometry) {
+    return fetch('http://127.0.0.1:' + PORT + '/check_osm_tags', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tags: tags, geometry: geometry })
+    }).then(function(r) { return r.json(); });
+}
+
+function tp3dBuildCustomOsmCard() {
+    var card = document.createElement('div');
+    card.className = 'element-card composite custom-osm-card';
+
+    var head = document.createElement('div');
+    head.className = 'card-head';
+    var label = document.createElement('div');
+    label.className = 'card-label';
+    label.textContent = 'Custom Elements';
+    head.appendChild(label);
+    card.appendChild(head);
+
+    var hint = document.createElement('div');
+    hint.className = 'card-field custom-osm-hint';
+    card.appendChild(hint);
+
+    var list = document.createElement('div');
+    list.className = 'custom-osm-list';
+    card.appendChild(list);
+
+    var add = document.createElement('button');
+    add.type = 'button';
+    add.className = 'custom-osm-add';
+    add.textContent = '+ Add custom element';
+    add.addEventListener('click', function() {
+        var st = tp3dCustomOsmState();
+        if (st.count >= TP3D_CUSTOM_OSM_MAX) return;
+        var color = st.slots[st.count].color;
+        st.slots[st.count] = Object.assign({}, TP3D_CUSTOM_OSM_DEFAULT, { color: color });
+        st.count += 1;
+        tp3dSendCustomOsm({ action: 'add' });
+        render();
+        var areas = list.querySelectorAll('textarea');
+        if (areas.length) areas[areas.length - 1].focus();
+    });
+    card.appendChild(add);
+
+    function setField(index, field, value) {
+        tp3dCustomOsmState().slots[index][field] = value;
+        tp3dSendCustomOsm({ action: 'set', index: index, field: field, value: value });
+    }
+
+    function buildSlot(slot, index) {
+        var wrap = document.createElement('div');
+        wrap.className = 'custom-osm-slot' + (slot.enabled ? '' : ' disabled');
+
+        var top = document.createElement('div');
+        top.className = 'custom-osm-top';
+
+        var enabled = document.createElement('input');
+        enabled.type = 'checkbox';
+        enabled.checked = !!slot.enabled;
+        enabled.title = 'Include this custom element';
+        enabled.addEventListener('change', function() {
+            setField(index, 'enabled', enabled.checked);
+            wrap.classList.toggle('disabled', !enabled.checked);
+        });
+
+        var color = document.createElement('input');
+        color.type = 'color';
+        color.value = (slot.color || '#808080').toLowerCase();
+        color.title = 'Color of this element';
+        color.addEventListener('change', function() { setField(index, 'color', color.value.toUpperCase()); });
+
+        var name = document.createElement('input');
+        name.type = 'text';
+        name.className = 'custom-osm-name';
+        name.placeholder = 'Custom ' + (index + 1);
+        name.value = slot.name || '';
+        name.maxLength = 64;
+        name.addEventListener('change', function() { setField(index, 'name', name.value); });
+
+        var geometry = document.createElement('select');
+        geometry.title = 'Line: ways drawn at a fixed printed width. Area: closed ways and multipolygons';
+        [['AREA', 'Area'], ['LINE', 'Line']].forEach(function(opt) {
+            var o = document.createElement('option');
+            o.value = opt[0];
+            o.textContent = opt[1];
+            geometry.appendChild(o);
+        });
+        geometry.value = slot.geometry === 'LINE' ? 'LINE' : 'AREA';
+
+        var remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'custom-osm-remove';
+        remove.textContent = '✕';
+        remove.title = 'Remove this custom element';
+        remove.addEventListener('click', function() {
+            var st = tp3dCustomOsmState();
+            var removed = st.slots.splice(index, 1)[0];
+            st.slots.push(Object.assign({}, TP3D_CUSTOM_OSM_DEFAULT, { color: removed.color }));
+            st.count -= 1;
+            tp3dSendCustomOsm({ action: 'remove', index: index });
+            render();
+        });
+
+        top.appendChild(enabled);
+        top.appendChild(color);
+        top.appendChild(name);
+        top.appendChild(geometry);
+        top.appendChild(remove);
+        wrap.appendChild(top);
+
+        var tags = document.createElement('textarea');
+        tags.rows = 2;
+        tags.spellcheck = false;
+        tags.placeholder = TP3D_CUSTOM_OSM_PLACEHOLDER;
+        tags.value = slot.tags || '';
+        tags.title = 'One rule per line, a feature matches if any line matches. "," = AND. key, key=value, key=a|b, key!=value';
+        wrap.appendChild(tags);
+
+        var msg = document.createElement('div');
+        msg.className = 'card-field custom-osm-msg';
+        wrap.appendChild(msg);
+        function showMessage(error, warning) {
+            msg.textContent = error || warning || '';
+            msg.classList.toggle('error-text', !!error);
+            msg.classList.toggle('warning-text', !error && !!warning);
+            msg.style.display = msg.textContent ? '' : 'none';
+        }
+        showMessage(slot.error, slot.warning);
+
+        var timer = null;
+        function checkAndSend() {
+            clearTimeout(timer);
+            timer = setTimeout(function() {
+                setField(index, 'tags', tags.value);
+                tp3dCheckOsmTags(tags.value, geometry.value).then(function(res) {
+                    slot.error = res.error;
+                    slot.warning = res.warning;
+                    showMessage(res.error, res.warning);
+                }).catch(function() {});
+            }, 400);
+        }
+        tags.addEventListener('input', checkAndSend);
+
+        // Line -> printed width, Area -> area threshold.
+        var numberHost = document.createElement('div');
+        wrap.appendChild(numberHost);
+        function buildNumber() {
+            numberHost.innerHTML = '';
+            var isLine = geometry.value === 'LINE';
+            var field = document.createElement('label');
+            field.className = 'card-field';
+            field.textContent = isLine ? 'Width (mm)' : 'Area Threshold';
+            var input = document.createElement('input');
+            input.type = 'number';
+            input.step = isLine ? '0.1' : '0.5';
+            input.min = isLine ? '0.1' : '0';
+            if (isLine) input.max = '10';
+            input.value = isLine ? slot.width : slot.area;
+            input.addEventListener('change', function() {
+                var v = parseFloat(input.value);
+                if (isNaN(v)) return;
+                setField(index, isLine ? 'width' : 'area', v);
+            });
+            field.appendChild(input);
+            numberHost.appendChild(field);
+        }
+        buildNumber();
+        geometry.addEventListener('change', function() {
+            setField(index, 'geometry', geometry.value);
+            buildNumber();
+        });
+        return wrap;
+    }
+
+    function render() {
+        var st = tp3dCustomOsmState();
+        list.innerHTML = '';
+        st.slots.slice(0, st.count).forEach(function(slot, i) { list.appendChild(buildSlot(slot, i)); });
+        add.disabled = st.count >= TP3D_CUSTOM_OSM_MAX;
+        add.textContent = st.count >= TP3D_CUSTOM_OSM_MAX ? 'All ' + TP3D_CUSTOM_OSM_MAX + ' slots in use' : '+ Add custom element';
+        var on = !!ADVANCED_SETTINGS_STATE.elXCustomActive;
+        hint.textContent = st.count
+            ? (on ? '' : 'ⓘ Tick "Custom" in the Extras card to include these')
+            : 'Fetch any OSM data by its tags, as a line or an area, in its own color.';
+        hint.style.display = hint.textContent ? '' : 'none';
+    }
+    render();
+    tp3dRenderCustomOsmHint = render;
+    return card;
+}
+// Re-run by the Extras card's "Custom" checkbox so the hint above follows it.
+var tp3dRenderCustomOsmHint = null;
+
 function tp3dBuildElementsTab() {
     var wrap = document.createElement('div');
     wrap.className = 'settings-sections';
@@ -2245,6 +2495,13 @@ function tp3dBuildElementsTab() {
         COMPOSITE_ELEMENT_ORDER.forEach(function(key) { compositeRow.appendChild(tp3dBuildCompositeElementCard(key)); });
         compositeRow.appendChild(tp3dBuildSimpleElementCard('buildings'));
         cardsSection.grid.appendChild(compositeRow);
+
+        // Extras on a row of its own -- a third composite would crowd the one above.
+        var extrasRow = document.createElement('div');
+        extrasRow.className = 'elements-row';
+        extrasRow.appendChild(tp3dBuildCompositeElementCard('extras'));
+        extrasRow.appendChild(tp3dBuildCustomOsmCard());
+        cardsSection.grid.appendChild(extrasRow);
     }
 
     // The Paint/Single/Multi Extruder switch on its own line, then the

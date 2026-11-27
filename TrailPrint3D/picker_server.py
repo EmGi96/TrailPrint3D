@@ -2189,6 +2189,31 @@ class _Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(b'ok')
             return
+        if self.path == '/check_osm_tags':
+            # Live validation of a custom OSM element's tag rules for the
+            # Settings modal (pure parsing, no bpy -- safe on this thread).
+            from .utils.osm.custom_osm import overpass_filters, parse_rules
+            length = int(self.headers.get('Content-Length', 0))
+            try:
+                data = json.loads(self.rfile.read(length))
+                tags = str(data.get('tags', ''))
+                geometry = 'LINE' if data.get('geometry') == 'LINE' else 'AREA'
+            except (json.JSONDecodeError, AttributeError):
+                tags, geometry = '', 'AREA'
+            parsed = parse_rules(tags)
+            result = {
+                'ok': parsed.ok,
+                'error': parsed.error if tags.strip() else '',
+                'warning': parsed.warning,
+                'filters': overpass_filters(parsed.rules, geometry) if parsed.ok else [],
+            }
+            body = json.dumps(result).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if self.path == '/update_advanced_setting':
             length = int(self.headers.get('Content-Length', 0))
             body = self.rfile.read(length)

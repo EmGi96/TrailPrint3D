@@ -244,6 +244,56 @@ class TP3D_RoadTypeItem(bpy.types.PropertyGroup):
     description: StringProperty()  # type: ignore
 
 
+class TP3D_CustomOsmItem(bpy.types.PropertyGroup):
+    """One user-defined OSM element ("Custom" in the Extras group) -- see
+    utils/osm/custom_osm.py for the tag syntax. Its color is the scene's
+    element_color_custom<N> (color role CUSTOM<N>)."""
+
+    enabled: BoolProperty(
+        name=_("Enabled"), default=True, description=_tip("Include this custom element")
+    )  # type: ignore
+    name: StringProperty(
+        name=_("Name"), default="", description=_tip("Shown in the progress bar and object names")
+    )  # type: ignore
+    geometry: EnumProperty(
+        name=_("Type"),
+        items=[
+            ("AREA", _("Area"), _("Closed ways and multipolygons, colored as areas")),
+            ("LINE", _("Line"), _("Ways drawn as lines of a fixed printed width")),
+        ],
+        default="AREA",
+    )  # type: ignore
+    tags: StringProperty(
+        name=_("Tags"),
+        default="",
+        description=_tip(
+            "OSM tags to fetch. One rule per line (or separated by ';'); a feature matches if any rule matches. "
+            "Within a rule, ',' means AND. key, key=value, key=a|b, key!=value -- e.g. leisure=pitch, sport=tennis"
+        ),
+    )  # type: ignore
+    width: FloatProperty(
+        name=_("Width"), default=0.6, min=0.1, max=10.0, description=_tip("Printed line width (mm)")
+    )  # type: ignore
+    area: FloatProperty(
+        name=_("Area Threshold"),
+        default=1,
+        min=0,
+        description=_tip("Areas smaller than the threshold won't be included"),
+    )  # type: ignore
+
+
+CUSTOM_OSM_SLOTS = 5  # utils/osm/custom_osm.MAX_SLOTS
+
+
+def ensure_custom_osm(tp3d):
+    """Make `tp3d.custom_osm` hold exactly CUSTOM_OSM_SLOTS items (a new
+    scene starts with none). Only custom_osm_count of them are in use."""
+    while len(tp3d.custom_osm) < CUSTOM_OSM_SLOTS:
+        tp3d.custom_osm.add()
+    while len(tp3d.custom_osm) > CUSTOM_OSM_SLOTS:
+        tp3d.custom_osm.remove(len(tp3d.custom_osm) - 1)
+
+
 def ensure_road_types(tp3d):
     """Populate/repair `tp3d.road_types` from ROAD_TYPE_DEFS.
 
@@ -1559,6 +1609,78 @@ class TP3D_PG_properties(bpy.types.PropertyGroup):
 
     show_water: BoolProperty(name=_("Water & Ocean"), default=False)  # type: ignore
     show_roads: BoolProperty(name=_("Roads"), default=False)  # type: ignore
+    # Railways: a Roads sub-category, but built like the line Extras (own
+    # color, fixed printed width) -- see utils/osm/extras.py.
+    el_sRailwayActive: BoolProperty(
+        name=_("Railways"),
+        default=False,
+        description=_tip(
+            "Railways, narrow-gauge and light rail lines and funiculars, in their own color. Tunnels and yard tracks are left out"
+        ),
+    )  # type: ignore
+    el_sRailwayWidth: FloatProperty(
+        name=_("Railway Width"),
+        default=0.6,
+        min=0.1,
+        max=10.0,
+        description=_tip("Printed width (mm) of the railways"),
+    )  # type: ignore
+    # "Extras" composite (utils/osm/extras.py): master + one sub-flag per entry.
+    show_extras: BoolProperty(name=_("Extras"), default=False)  # type: ignore
+    el_xSkiActive: BoolProperty(
+        name=_("Ski Slopes & Lifts"),
+        default=False,
+        description=_tip(
+            "Downhill ski slopes, ski lifts and cross-country ski trails, each in its own color"
+        ),
+    )  # type: ignore
+    el_xSkiAreaActive: BoolProperty(
+        name=_("Ski Areas"),
+        default=False,
+        description=_tip("Ski resort areas (landuse=winter_sports)"),
+    )  # type: ignore
+    el_xBeachActive: BoolProperty(
+        name=_("Beach / Sand"),
+        default=False,
+        description=_tip("Beaches and sand areas"),
+    )  # type: ignore
+    el_xGolfActive: BoolProperty(
+        name=_("Golf Courses"),
+        default=False,
+        description=_tip("Golf courses"),
+    )  # type: ignore
+    el_xRunwayActive: BoolProperty(
+        name=_("Airport Runways"),
+        default=False,
+        description=_tip("Airport runways, drawn at their real width"),
+    )  # type: ignore
+    el_xSportsActive: BoolProperty(
+        name=_("Sports Pitches / Tracks"),
+        default=False,
+        description=_tip("Sports pitches, running tracks and stadiums"),
+    )  # type: ignore
+    el_xLineWidth: FloatProperty(
+        name=_("Line Width"),
+        default=0.6,
+        min=0.1,
+        max=10.0,
+        description=_tip(
+            "Printed width (mm) of the line extras: ski slopes, ski lifts and cross-country trails. Runways use their real width, but never less than this"
+        ),
+    )  # type: ignore
+    el_xCustomActive: BoolProperty(
+        name=_("Custom"),
+        default=False,
+        description=_tip("Your own OSM elements, defined by tags (up to 5)"),
+    )  # type: ignore
+    custom_osm: CollectionProperty(type=TP3D_CustomOsmItem)  # type: ignore
+    custom_osm_count: IntProperty(default=0, min=0, max=5)  # type: ignore
+    el_xArea: FloatProperty(
+        name=_("Area Threshold"),
+        default=1,
+        min=0,
+        description=_tip("Extra areas (ski areas, beaches, golf courses, sports pitches) smaller than the threshold won't be included"),
+    )  # type: ignore
     road_types: CollectionProperty(type=TP3D_RoadTypeItem)  # type: ignore
     road_types_index: IntProperty(default=0)  # type: ignore
     el_oActive: BoolProperty(
@@ -1756,6 +1878,20 @@ class TP3D_PG_properties(bpy.types.PropertyGroup):
     element_color_greenspace: _element_color_prop("GREENSPACE")  # type: ignore
     element_color_farmland: _element_color_prop("FARMLAND")  # type: ignore
     element_color_glacier: _element_color_prop("GLACIER")  # type: ignore
+    element_color_skislope: _element_color_prop("SKISLOPE")  # type: ignore
+    element_color_skilift: _element_color_prop("SKILIFT")  # type: ignore
+    element_color_skinordic: _element_color_prop("SKINORDIC")  # type: ignore
+    element_color_skiarea: _element_color_prop("SKIAREA")  # type: ignore
+    element_color_railway: _element_color_prop("RAILWAY")  # type: ignore
+    element_color_runway: _element_color_prop("RUNWAY")  # type: ignore
+    element_color_beach: _element_color_prop("BEACH")  # type: ignore
+    element_color_golf: _element_color_prop("GOLF")  # type: ignore
+    element_color_sports: _element_color_prop("SPORTS")  # type: ignore
+    element_color_custom1: _element_color_prop("CUSTOM1")  # type: ignore
+    element_color_custom2: _element_color_prop("CUSTOM2")  # type: ignore
+    element_color_custom3: _element_color_prop("CUSTOM3")  # type: ignore
+    element_color_custom4: _element_color_prop("CUSTOM4")  # type: ignore
+    element_color_custom5: _element_color_prop("CUSTOM5")  # type: ignore
     element_color_buildings: _element_color_prop("BUILDINGS")  # type: ignore
     element_color_roads: _element_color_prop("ROADS")  # type: ignore
     element_color_trail: _element_color_prop("TRAIL")  # type: ignore
